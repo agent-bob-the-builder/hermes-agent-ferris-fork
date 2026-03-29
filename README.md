@@ -1,8 +1,12 @@
-     1|<p align="center">
-     2|  <img src="assets/banner.png" alt="Hermes Agent" width="100%">
-     3|</p>
-     4|
-     5|# Hermes Agent ☤
+<p align="center">
+  <img src="assets/ferris-crab.svg" alt="Ferris the Crab" width="320">
+</p>
+
+<p align="center">
+  <img src="assets/banner.png" alt="Hermes Agent" width="100%">
+</p>
+
+# Hermes Agent ☤
      6|
      7|<p align="center">
      8|  <a href="https://hermes-agent.nousresearch.com/docs/"><img src="https://img.shields.io/badge/Docs-hermes--agent.nousresearch.com-FFD700?style=for-the-badge" alt="Documentation"></a>

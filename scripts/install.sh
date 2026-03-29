@@ -389,6 +389,43 @@ install_node() {
     HAS_NODE=true
 }
 
+check_rust() {
+    log_info "Checking Rust toolchain (for PyO3 extensions)..."
+
+    if command -v rustc &> /dev/null && command -v cargo &> /dev/null; then
+        local rustc_ver=$(rustc --version | awk '{print $2}')
+        local cargo_ver=$(cargo --version | awk '{print $2}')
+        log_success "Rust $rustc_ver / Cargo $cargo_ver found"
+        HAS_RUST=true
+        return 0
+    fi
+
+    log_info "Rust toolchain not found — installing via rustup..."
+
+    if command -v curl &> /dev/null && curl -fsSL https://sh.rustup.rs -o /tmp/rustup.sh 2>/dev/null; then
+        if bash /tmp/rustup.sh -y --no-modify-path 2>/dev/null; then
+            rm -f /tmp/rustup.sh
+            if [ -f "$HOME/.cargo/bin/rustc" ]; then
+                export PATH="$HOME/.cargo/bin:$PATH"
+            fi
+            if command -v rustc &> /dev/null; then
+                local rustc_ver=$(rustc --version | awk '{print $2}')
+                log_success "Rust $rustc_ver installed to ~/.cargo/"
+                HAS_RUST=true
+                return 0
+            fi
+        fi
+        rm -f /tmp/rustup.sh
+    fi
+
+    log_error "Failed to install Rust toolchain — is curl available?"
+    log_info "Install manually: https://rustup.rs"
+    HAS_RUST=false
+    return 0
+}
+
+
+
 install_system_packages() {
     # Detect what's missing
     HAS_RIPGREP=false
@@ -1036,6 +1073,70 @@ maybe_start_gateway() {
     fi
 }
 
+build_rust_extensions() {
+    if [ "$HAS_RUST" = false ]; then
+        log_info "Skipping Rust extension build (Rust not installed)"
+        return 0
+    fi
+
+    # Ensure maturin is available
+    if ! command -v maturin &> /dev/null; then
+        log_info "Installing maturin (PyO3 build tool)..."
+        if ! $UV_CMD pip install maturin 2>/dev/null; then
+            if ! pip install maturin 2>/dev/null; then
+                log_warn "Failed to install maturin — Rust extensions will not be built"
+                log_info "Install manually: pip install maturin"
+                return 0
+            fi
+        fi
+        log_success "maturin installed"
+    fi
+
+    if [ ! -d "rust" ] || [ ! -f "rust/Cargo.toml" ]; then
+        log_info "No Rust workspace found (rust/Cargo.toml missing) — skipping extension build"
+        return 0
+    fi
+
+    log_info "Building PyO3 extensions via maturin..."
+
+    local ext_count=0
+    for crate in compressor model_tools_rs prompt_builder_rs; do
+        if [ -d "rust/$crate" ] && [ -f "rust/$crate/Cargo.toml" ]; then
+            log_info "  Building rust/$crate ..."
+            if maturin develop --manifest-path rust/Cargo.toml -p "$crate" --release 2>/dev/null; then
+                log_success "  rust/$crate built"
+                ext_count=$((ext_count + 1))
+            else
+                log_warn "  rust/$crate build failed — extension will use Python fallback"
+            fi
+        fi
+    done
+
+    [ "$ext_count" -gt 0 ] && log_success "$ext_count PyO3 extension(s) built"
+
+    # Verify extensions load
+    log_info "Verifying extensions..."
+    if [ "$USE_VENV" = true ]; then
+        local py="$INSTALL_DIR/venv/bin/python"
+    else
+        local py=$(command -v python3 || command -v python)
+    fi
+
+    local all_ok=true
+    for ext in rust_compressor _model_tools_rust _prompt_builder_rust; do
+        if $py -c "import $ext" 2>/dev/null; then
+            log_success "  $ext loaded OK"
+        else
+            log_warn "  $ext failed to load (Python fallback will be used)"
+            all_ok=false
+        fi
+    done
+
+    [ "$all_ok" = true ] && log_success "All Rust extensions ready"
+}
+
+
+
 print_success() {
     echo ""
     echo -e "${GREEN}${BOLD}"
@@ -1103,6 +1204,7 @@ main() {
     install_uv
     check_python
     check_git
+    check_rust
     check_node
     install_system_packages
 
@@ -1114,6 +1216,7 @@ main() {
     copy_config_templates
     run_setup_wizard
     maybe_start_gateway
+    build_rust_extensions
 
     print_success
 }

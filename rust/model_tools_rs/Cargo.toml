@@ -1,0 +1,21 @@
+[package]
+name = "model_tools_rs"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "_model_tools_rust"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { workspace = true, features = ["serde"] }
+serde_json.workspace = true
+lazy_static.workspace = true
+rayon.workspace = true
+
+[[bench]]
+name = "bm_get_tool_definitions"
+harness = false
+
+[package.metadata.maturin]
+name = "_model_tools_rust"
