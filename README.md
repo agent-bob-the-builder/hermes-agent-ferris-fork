@@ -8,36 +8,52 @@ A **Rust-accelerated fork** of [Hermes Agent](https://github.com/NousResearch/he
 
 Three PyO3 extension crates replace hot-path Python code — no visible behaviour change, but meaningfully faster on every agent turn:
 
-| Crate | Hot path | Benefit |
+| Crate | Hot path | Status |
 |---|---|---|
-| `rust-compressor` | `ContextCompressor.compress()` | Token counting, structured summarization, message pruning on every long-context turn |
-| `model_tools_rs` | `model_tools.py` tool registry | Tool definition retrieval and sanitization on every API call |
-| `prompt_builder_rs` | `prompt_builder.py` | Prompt assembly — available for benchmarking |
+| `rust-compressor` | `ContextCompressor.compress()` | Production ✓ |
+| `model_tools_rs` | `model_tools.py` tool registry | Production ✓ |
+| `prompt_builder_rs` | `prompt_builder.py` prompt assembly | Production ✓ |
 
-All three are **transparent fallbacks**: if a crate is missing or fails to load, the Python implementation runs instead with no visible difference. `rust_compressor` is wired into `ContextCompressor.compress()` with a try/except fast-path. `model_tools_rs` is imported via `model_tools.py` and its `sanitize_api_messages()` is called from `run_agent.py`. `prompt_builder_rs` is loaded but not yet called from production code.
+All three are **transparent fallbacks**: if a crate is missing or fails to load, the Python implementation runs instead with no visible difference. `rust_compressor` is wired into `ContextCompressor.compress()`. `model_tools_rs` is imported via `model_tools.py` and its `sanitize_api_messages()` is called from `run_agent.py`. `prompt_builder_rs` is called from `prompt_builder.py`'s `_build_system_prompt()` on every turn.
 
 ```mermaid
 graph TD
-    HA[Hermes Agent<br/>Python]
-    COMP_PY[context_compressor.py<br/>Python fallback]
-    COMP_RS[rust_compressor<br/>rust_compressor.so]
-    MT_RS[model_tools_rs<br/>_model_tools_rust.so]
-    PB_RS[prompt_builder_rs<br/>_prompt_builder_rust.so]
+    RA["run_agent.py<br/>(AIAgent)"]
+    PCP["prompt_builder.py<br/>_build_system_prompt()"]
+    CCP["context_compressor.py<br/>ContextCompressor.compress()"]
+    MTP["model_tools.py<br/>sanitize_api_messages()"]
 
-    HA -->|"compress()"| COMP_RS
-    HA -->|"compress() fallback"| COMP_PY
-    HA -->|"tool registry"| MT_RS
-    HA -->|"prompt assembly"| PB_RS
+    PB_RS["prompt_builder_rs<br/>_prompt_builder_rust.build()"]
+    CO_RS["rust_compressor<br/>rust_compressor.so<br/>token_count() + compress()"]
+    MT_RS["model_tools_rs<br/>_model_tools_rust.so<br/>sanitize()"]
 
-    style COMP_RS fill:#de5347,color:#fff
-    style MT_RS fill:#de5347,color:#fff
+    RA -->|"prompt assembly"| PCP
+    RA -->|"tool registry"| MTP
+    RA -->|"context compression"| CCP
+
+    PCP -->|"production ✓"| PB_RS
+    PCP -.->|"fallback"| PCP
+
+    CCP -->|"production ✓"| CO_RS
+    CCP -.->|"fallback"| CCP
+
+    MTP -->|"production ✓"| MT_RS
+    MTP -.->|"fallback"| MTP
+
     style PB_RS fill:#de5347,color:#fff
-    style COMP_PY fill:#555,color:#fff
+    style CO_RS fill:#de5347,color:#fff
+    style MT_RS fill:#de5347,color:#fff
 ```
 
 ---
 
 ## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/agent-bob-the-builder/hermes-agent-ferris-fork/main/install.sh | bash
+```
+
+Or clone and run manually:
 
 ```bash
 git clone git@github.com:agent-bob-the-builder/hermes-agent-ferris-fork.git
