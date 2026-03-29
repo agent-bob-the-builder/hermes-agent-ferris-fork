@@ -180,21 +180,38 @@ def _discover_tools():
 
 _discover_tools()
 
-# MCP tool discovery (external MCP servers from config)
-try:
-    from tools.mcp_tool import discover_mcp_tools
+# ---------------------------------------------------------------------------
+# Deferred tool discovery — MCP and plugin tools are discovered lazily on
+# first get_tool_definitions() call rather than blocking module import.
+# This significantly improves cold-start time for processes that don't need
+# MCP servers or user plugins.
+# ---------------------------------------------------------------------------
+_MCP_DISCOVERED = False
+_PLUGIN_DISCOVERED = False
 
-    discover_mcp_tools()
-except Exception as e:
-    logger.debug("MCP tool discovery failed: %s", e)
 
-# Plugin tool discovery (user/project/pip plugins)
-try:
-    from hermes_cli.plugins import discover_plugins
+def _ensure_mcp_discovered():
+    global _MCP_DISCOVERED
+    if _MCP_DISCOVERED:
+        return
+    _MCP_DISCOVERED = True
+    try:
+        from tools.mcp_tool import discover_mcp_tools
+        discover_mcp_tools()
+    except Exception as e:
+        logger.debug("MCP tool discovery failed: %s", e)
 
-    discover_plugins()
-except Exception as e:
-    logger.debug("Plugin discovery failed: %s", e)
+
+def _ensure_plugins_discovered():
+    global _PLUGIN_DISCOVERED
+    if _PLUGIN_DISCOVERED:
+        return
+    _PLUGIN_DISCOVERED = True
+    try:
+        from hermes_cli.plugins import discover_plugins
+        discover_plugins()
+    except Exception as e:
+        logger.debug("Plugin discovery failed: %s", e)
 
 # =============================================================================
 # Rust backend (_model_tools_rust) — fast path for hot functions
@@ -232,6 +249,13 @@ else:
 # Resolved tool names from the last get_tool_definitions() call.
 # Used by code_execution_tool to know which tools are available in this session.
 _last_resolved_tool_names: List[str] = []
+
+# ---------------------------------------------------------------------------
+# Module-level cache for get_tool_definitions — avoids re-filtering/re-sorting
+# on every call.  The tool registry is static during a process lifetime;
+# only the enabled_toolsets / disabled_toolsets / quiet_mode filter args vary.
+# ---------------------------------------------------------------------------
+_get_definitions_cache: Dict[tuple, List[Dict[str, Any]]] = {}
 
 
 # =============================================================================
@@ -299,6 +323,22 @@ def get_tool_definitions(
     Returns:
         Filtered list of OpenAI-format tool definitions.
     """
+    # ---- Deferred discovery (run once per process) ----
+    _ensure_mcp_discovered()
+    _ensure_plugins_discovered()
+
+    # ---- Module-level cache (stable for the process lifetime) ----
+    # Tools are registered once at startup and never change.  Caching the
+    # filtered result avoids repeated toolset resolution, schema filtering,
+    # and cross-reference patching on every call.
+    _cache_key = (
+        tuple(sorted(enabled_toolsets) if enabled_toolsets else ()),
+        tuple(sorted(disabled_toolsets) if disabled_toolsets else ()),
+        quiet_mode,
+    )
+    if _cache_key in _get_definitions_cache:
+        return _get_definitions_cache[_cache_key]
+
     # Fast path: use Rust backend
     if _use_rust:
         try:
@@ -430,6 +470,8 @@ def get_tool_definitions(
     global _last_resolved_tool_names
     _last_resolved_tool_names = [t["function"]["name"] for t in filtered_tools]
 
+    # Populate cache and return
+    _get_definitions_cache[_cache_key] = filtered_tools
     return filtered_tools
 
 

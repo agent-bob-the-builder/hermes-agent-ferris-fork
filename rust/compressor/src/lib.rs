@@ -14,6 +14,7 @@ use serde_json::Value;
 mod compressor;
 mod summarizer;
 mod tokenizer;
+pub use tokenizer::is_tiktoken_available;
 
 pub use compressor::{compress, sanitize_tool_pairs};
 pub use summarizer::generate_summary;
@@ -500,6 +501,11 @@ fn estimate_message_from_json(json_str: &str) -> PyResult<(usize, usize)> {
     Ok(tokenizer::estimate_message_from_json(json_str))
 }
 
+#[pyfunction]
+fn is_tiktoken_available_py() -> PyResult<bool> {
+    Ok(tokenizer::is_tiktoken_available())
+}
+
 #[pymodule]
 fn rust_compressor(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(prune_old_tool_results, m)?)?;
@@ -514,6 +520,8 @@ fn rust_compressor(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(estimate_messages_tokens, m)?)?;
     m.add_function(wrap_pyfunction!(estimate_messages_tokens_from_json, m)?)?;
     m.add_function(wrap_pyfunction!(estimate_message_from_json, m)?)?;
+    m.add_function(wrap_pyfunction!(is_tiktoken_available_py, m)?)?;
+
     m.add_function(wrap_pyfunction!(compress_async, m)?)?;
     m.add_class::<PyContextCompressor>()?;
     Ok(())

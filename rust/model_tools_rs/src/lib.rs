@@ -3,7 +3,7 @@ use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::{PyAnyMethods, PyDict, PyList, PyListMethods, PyModuleMethods, PySet};
 use std::collections::{HashMap, HashSet};
-use std::sync::Mutex;
+use std::sync::{Mutex, atomic::{AtomicBool, Ordering}};
 
 // Legacy toolset mapping
 fn legacy_toolset_map() -> HashMap<&'static str, Vec<&'static str>> {
@@ -83,6 +83,8 @@ lazy_static! {
     // Cached invoke_hook — resolved once at init, reused every call
     static ref CACHED_INVOKE_HOOK: Mutex<Option<Py<PyAny>>> = Mutex::new(None);
 }
+
+static INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 fn json_error(message: String) -> String {
     serde_json::json!({ "error": message }).to_string()
@@ -228,6 +230,10 @@ fn rs_get_definitions_inner(
 
 #[pyfunction]
 fn initialize(py: Python<'_>) -> PyResult<()> {
+    // Idempotent — subsequent calls return immediately
+    if INITIALIZED.swap(true, Ordering::SeqCst) {
+        return Ok(());
+    }
     eprintln!("[RS] initialize: starting");
     let modules = vec![
         "tools.web_tools",
@@ -561,76 +567,14 @@ fn handle_function_call(
         )));
     }
 
-    let result: PyResult<String> = (|| {
-        // pre_tool_call hook
-        if let Some(hook) = get_invoke_hook(py) {
-            let kwargs = PyDict::new(py);
-            kwargs.set_item("tool_name", function_name.clone())?;
-            kwargs.set_item("args", function_args.bind(py))?;
-            kwargs.set_item("task_id", task_id.clone().unwrap_or_default())?;
-            let _ = hook.call(("pre_tool_call",), Some(&kwargs));
-        }
-
-        let registry = get_cached_registry(py)?;
-        let kwargs = PyDict::new(py);
-        if let Some(ref tid) = task_id {
-            kwargs.set_item("task_id", tid)?;
-        }
-        if let Some(ref manager) = honcho_manager {
-            kwargs.set_item("honcho_manager", manager.bind(py))?;
-        }
-        if let Some(ref sk) = honcho_session_key {
-            kwargs.set_item("honcho_session_key", sk)?;
-        }
-
-        if function_name == "execute_code" {
-            let sandbox_enabled = enabled_tools
-                .or(last_resolved_tool_names.clone())
-                .unwrap_or_default();
-            kwargs.set_item("enabled_tools", PyList::new(py, &sandbox_enabled)?)?;
-        } else if let Some(ref ut) = user_task {
-            kwargs.set_item("user_task", ut)?;
-        }
-
-        // Call Python dispatch() — GIL is held by PyO3 throughout this call.
-        // PyO3 0.28 + Python 3.11 handles nested GIL acquisition correctly.
-        let result = registry.call_method(
-            "dispatch",
-            (function_name.clone(), function_args.bind(py)),
-            Some(&kwargs),
-        )?;
-
-        let result_str = result.extract::<String>()?;
-
-        // post_tool_call hook
-        if let Some(hook) = get_invoke_hook(py) {
-            let hook_kwargs = PyDict::new(py);
-            hook_kwargs.set_item("tool_name", function_name.clone())?;
-            hook_kwargs.set_item("args", function_args.bind(py))?;
-            hook_kwargs.set_item("result", &result_str)?;
-            hook_kwargs.set_item("task_id", task_id.clone().unwrap_or_default())?;
-            let _ = hook.call(("post_tool_call",), Some(&hook_kwargs));
-        }
-
-        Ok(result_str)
-    })();
-
-
-    match result {
-        Ok(value) => Ok(value),
-        Err(err) => {
-            logger_call(
-                py,
-                "error",
-                &format!("Error executing {}: {}", function_name, err),
-            );
-            Ok(json_error(format!(
-                "Error executing {}: {}",
-                function_name, err
-            )))
-        }
-    }
+    // handle_function_call delegated to Python — raises NotImplementedError so the
+    // Python caller falls back to its own registry.dispatch().
+    // This avoids the GIL deadlock from Rust calling Python while the GIL is held.
+    Err(PyErr::new::<pyo3::exceptions::PyNotImplementedError, _>(
+        "Rust handle_function_call not implemented — use Python dispatch".to_owned(),
+    ))
 }
+
 
 // -------------------------------------------------------------------------------------------------
 // refresh_toolset_cache — clears stale caches and rebuilds from current registry state.

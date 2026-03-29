@@ -1,50 +1,61 @@
-//! Simple character-based token estimation.
-//! Matches the Python `_CHARS_PER_TOKEN=4` heuristic used throughout hermes-agent.
+//! tiktoken-based token counting for accurate OpenAI-compatible token estimation.
+//!
+//! Uses the `tiktoken-rs` crate — the official Rust port of OpenAI's tiktoken.
+//! Fallback: character-count heuristic when tiktoken fails to load.
 
-/// Rough token estimate: each token ≈ 4 characters.
-/// Add ~10 tokens overhead per message for role/metadata framing.
-pub fn estimate_message_tokens(content: &str, tool_calls: Option<&[serde_json::Value]>) -> usize {
-    let base = content.len() / 4;
-    let overhead = 10;
-    let tc_overhead = tool_calls
-        .map(|tcs| {
-            tcs.iter()
-                .filter_map(|tc| tc.get("function"))
-                .filter_map(|f| f.get("arguments"))
-                .filter_map(|a| a.as_str())
-                .map(|args| args.len() / 4)
-                .sum::<usize>()
-        })
-        .unwrap_or(0);
-    base + overhead + tc_overhead
+use serde_json::Value;
+use std::sync::OnceLock;
+
+// ─── tiktoken encoder (lazy, cached) ─────────────────────────────────────────
+
+/// The tiktoken CoreBPE encoder type.
+type TiktokenEncoder = tiktoken_rs::CoreBPE;
+
+/// cl100k_base encoder — lazy-initialized on first use, then reused forever.
+static ENCODER: OnceLock<TiktokenEncoder> = OnceLock::new();
+
+/// Initialize cl100k_base from embedded BPE data.  Falls back to None on failure.
+fn init_encoder() -> Option<&'static TiktokenEncoder> {
+    tiktoken_rs::cl100k_base().ok().and_then(|enc| {
+        Some(ENCODER.get_or_init(|| enc))
+    })
 }
 
-/// Rough token estimate for a message dict (matches Python logic).
-pub fn estimate_message_dict_tokens(msg: &serde_json::Value) -> usize {
+/// Get (or initialize) the cl100k_base encoder.
+fn get_encoder() -> Option<&'static TiktokenEncoder> {
+    if let Some(enc) = ENCODER.get() {
+        return Some(enc);
+    }
+    init_encoder()
+}
+
+/// Count tokens in a string using tiktoken.  Falls back to chars/4.
+fn count_tokens_fallible(text: &str) -> usize {
+    match get_encoder() {
+        Some(enc) => enc.encode_ordinary(text).len(),
+        None => text.len() / 4,
+    }
+}
+
+// ─── Public API ────────────────────────────────────────────────────────────────
+
+/// Token count for a string using tiktoken (content only).
+pub fn estimate_message_tokens(content: &str, _tool_calls: Option<&[Value]>) -> usize {
+    count_tokens_fallible(content)
+}
+
+/// Token count for a single message dict.
+pub fn estimate_message_dict_tokens(msg: &Value) -> usize {
     let content = msg.get("content").and_then(|v| v.as_str()).unwrap_or("");
-    let tool_calls = msg
-        .get("tool_calls")
-        .and_then(|v| v.as_array())
-        .map(|a| a.as_slice());
-    estimate_message_tokens(content, tool_calls)
+    count_tokens_fallible(content)
 }
 
-/// Rough token estimate for a list of message dicts.
-pub fn estimate_messages_tokens(messages: &[serde_json::Value]) -> usize {
+/// Token count for a list of message dicts.
+pub fn estimate_messages_tokens(messages: &[Value]) -> usize {
     messages.iter().map(estimate_message_dict_tokens).sum()
 }
 
-// ---------------------------------------------------------------------------
-// Fast path: takes a JSON string, counts tokens without Python object overhead
-// ---------------------------------------------------------------------------
-// Used by agent/model_metadata.py as the primary token estimator.
-// Input: a JSON array string like '[{"role":"user","content":"..."},...]'
-// This is what json.dumps already produces in the Python callers.
-
-use serde_json::Value;
-
 /// Estimate tokens for a pre-serialized JSON string of a messages array.
-/// This avoids the dict→Value conversion overhead in the PyDict path.
 pub fn estimate_messages_tokens_from_json(json_str: &str) -> usize {
     let msgs: Vec<Value> = match serde_json::from_str(json_str) {
         Ok(v) => v,
@@ -53,7 +64,7 @@ pub fn estimate_messages_tokens_from_json(json_str: &str) -> usize {
     estimate_messages_tokens(&msgs)
 }
 
-/// Estimate tokens for a single message dict from a JSON string.
+/// Estimate tokens for a single message from JSON string.
 /// Returns (content_tokens, tool_calls_tokens).
 pub fn estimate_message_from_json(json_str: &str) -> (usize, usize) {
     let msg: Value = match serde_json::from_str(json_str) {
@@ -61,8 +72,7 @@ pub fn estimate_message_from_json(json_str: &str) -> (usize, usize) {
         Err(_) => return (0, 0),
     };
     let content = msg.get("content").and_then(|v| v.as_str()).unwrap_or("");
-    let base = content.len() / 4;
-    let overhead = 10;
+    let content_tokens = count_tokens_fallible(content);
     let tc_tokens = msg
         .get("tool_calls")
         .and_then(|v| v.as_array())
@@ -75,5 +85,10 @@ pub fn estimate_message_from_json(json_str: &str) -> (usize, usize) {
                 .sum::<usize>()
         })
         .unwrap_or(0);
-    (base + overhead, tc_tokens)
+    (content_tokens, tc_tokens)
+}
+
+/// Returns true if tiktoken encoder loaded successfully.
+pub fn is_tiktoken_available() -> bool {
+    get_encoder().is_some()
 }
