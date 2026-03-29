@@ -59,3 +59,8 @@ mini-swe-agent/
 .direnv/
 result
 *.bak
+*/target
+bench*.py
+SOUL.md
+PEOPLE/*
+USER.md
