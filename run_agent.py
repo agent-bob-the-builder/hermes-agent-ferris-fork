@@ -2732,10 +2732,19 @@ class AIAgent:
     def _sanitize_api_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Fix orphaned tool_call / tool_result pairs before every LLM call.
 
-        Runs unconditionally — not gated on whether the context compressor
-        is present — so orphans from session loading or manual message
-        manipulation are always caught.
+        Rust fast path: parses JSON once, set ops in Rust, returns None when
+        no changes needed.  Falls back to pure Python on any error.
         """
+        from model_tools import _use_rust, _rust as _mt_rust
+        if _use_rust and _mt_rust is not None:
+            try:
+                import json as _json
+                result = _mt_rust.sanitize_api_messages(_json.dumps(messages))
+                if result is not None:
+                    return _json.loads(result)
+                return messages
+            except Exception:
+                pass
         surviving_call_ids: set = set()
         for msg in messages:
             if msg.get("role") == "assistant":

@@ -562,6 +562,7 @@ fn handle_function_call(
     }
 
     let result: PyResult<String> = (|| {
+        // pre_tool_call hook — runs with GIL held before we release it
         if let Some(hook) = get_invoke_hook(py) {
             let kwargs = PyDict::new(py);
             kwargs.set_item("tool_name", function_name.clone())?;
@@ -570,43 +571,51 @@ fn handle_function_call(
             let _ = hook.call(("pre_tool_call",), Some(&kwargs));
         }
 
-        let registry = get_cached_registry(py)?;
-        let kwargs = PyDict::new(py);
-        if let Some(task_id) = task_id.clone() {
-            kwargs.set_item("task_id", task_id)?;
-        }
-        if let Some(manager) = honcho_manager.as_ref() {
-            kwargs.set_item("honcho_manager", manager.bind(py))?;
-        }
-        if let Some(session_key) = honcho_session_key.clone() {
-            kwargs.set_item("honcho_session_key", session_key)?;
-        }
+        // Release the GIL during Python dispatch() to avoid deadlock when Python
+        // code being called imports _model_tools_rust (which needs to re-acquire GIL).
+        // allow_threads() returns T directly (not PyResult<T>), so we use map_err after.
+        let dispatch_result: Py<PyAny> = py.detach(|| {
+            let registry = get_cached_registry(py)?;
+            let kwargs = PyDict::new(py);
+            if let Some(ref tid) = task_id {
+                kwargs.set_item("task_id", tid)?;
+            }
+            if let Some(ref manager) = honcho_manager {
+                kwargs.set_item("honcho_manager", manager.bind(py))?;
+            }
+            if let Some(ref sk) = honcho_session_key {
+                kwargs.set_item("honcho_session_key", sk)?;
+            }
 
-        if function_name == "execute_code" {
-            let sandbox_enabled = enabled_tools
-                .or(last_resolved_tool_names)
-                .unwrap_or_default();
-            kwargs.set_item("enabled_tools", PyList::new(py, &sandbox_enabled)?)?;
-        } else if let Some(user_task) = user_task.clone() {
-            kwargs.set_item("user_task", user_task)?;
-        }
+            if function_name == "execute_code" {
+                let sandbox_enabled = enabled_tools
+                    .or(last_resolved_tool_names.clone())
+                    .unwrap_or_default();
+                kwargs.set_item("enabled_tools", PyList::new(py, &sandbox_enabled)?)?;
+            } else if let Some(ref ut) = user_task {
+                kwargs.set_item("user_task", ut)?;
+            }
 
-        let result = registry.call_method(
-            "dispatch",
-            (function_name.clone(), function_args.bind(py)),
-            Some(&kwargs),
-        )?;
+            registry.call_method(
+                "dispatch",
+                (function_name.clone(), function_args.bind(py)),
+                Some(&kwargs),
+            )
+        }).map_err(|e: pyo3::PyErr| e)?;
+
+        // Re-acquire GIL for result extraction and post-call hook
+        let result_str = dispatch_result.bind(py).extract::<String>()?;
 
         if let Some(hook) = get_invoke_hook(py) {
             let hook_kwargs = PyDict::new(py);
             hook_kwargs.set_item("tool_name", function_name.clone())?;
             hook_kwargs.set_item("args", function_args.bind(py))?;
-            hook_kwargs.set_item("result", result.clone())?;
+            hook_kwargs.set_item("result", &result_str)?;
             hook_kwargs.set_item("task_id", task_id.clone().unwrap_or_default())?;
             let _ = hook.call(("post_tool_call",), Some(&hook_kwargs));
         }
 
-        result.extract::<String>()
+        Ok(result_str)
     })();
 
     match result {
@@ -723,33 +732,46 @@ pub fn sanitize_api_messages_json(json_str: &str) -> Option<String> {
         Err(_) => return None,
     };
 
-    let surviving: std::collections::HashSet<String> = messages
-        .iter()
-        .filter(|m| m.get("role").and_then(|r| r.as_str()) == Some("assistant"))
-        .flat_map(|m| {
-            m.get("tool_calls").and_then(|v| v.as_array()).map(|arr| {
-                arr.iter()
-                    .filter_map(|tc| {
-                        tc.get("id").and_then(|id| id.as_str()).map(|s| s.to_string())
-                            .or_else(|| {
-                                tc.get("function").and_then(|f| f.get("id")).and_then(|id| id.as_str())
-                            })
-                            .map(|s| s.to_string())
-                    })
-                    .collect::<Vec<_>>()
-            }).unwrap_or_default()
-        })
-        .flatten()
-        .collect();
+    // Collect call IDs from assistant messages
+    let mut surviving: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for msg in &messages {
+        if msg.get("role").and_then(|r| r.as_str()) != Some("assistant") {
+            continue;
+        }
+        let Some(arr) = msg.get("tool_calls").and_then(|v| v.as_array()) else { continue };
+        for tc in arr {
+            if let Some(id_val) = tc.get("id") {
+                if let Some(s) = id_val.as_str() {
+                    surviving.insert(s.to_string());
+                    continue;
+                }
+            }
+            // fallback: function.name style {function: {name, arguments, id}}
+            if let Some(f) = tc.get("function") {
+                if let Some(id_val) = f.get("id") {
+                    if let Some(s) = id_val.as_str() {
+                        surviving.insert(s.to_string());
+                    }
+                }
+            }
+        }
+    }
 
-    let result_ids: std::collections::HashSet<String> = messages
-        .iter()
-        .filter(|m| m.get("role").and_then(|r| r.as_str()) == Some("tool"))
-        .filter_map(|m| m.get("tool_call_id").and_then(|id| id.as_str()).map(|s| s.to_string()))
-        .collect();
+    // Collect result IDs from tool messages
+    let mut result_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for msg in &messages {
+        if msg.get("role").and_then(|r| r.as_str()) != Some("tool") {
+            continue;
+        }
+        if let Some(id_val) = msg.get("tool_call_id") {
+            if let Some(s) = id_val.as_str() {
+                result_ids.insert(s.to_string());
+            }
+        }
+    }
 
-    let orphaned: Vec<&String> = result_ids.difference(&surviving).collect();
-    let missing: Vec<&String> = surviving.difference(&result_ids).collect();
+    let orphaned: Vec<String> = result_ids.difference(&surviving).cloned().collect();
+    let missing: Vec<String> = surviving.difference(&result_ids).cloned().collect();
 
     if orphaned.is_empty() && missing.is_empty() {
         return None;
@@ -760,17 +782,22 @@ pub fn sanitize_api_messages_json(json_str: &str) -> Option<String> {
         let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("");
         if role == "tool" {
             let cid = msg.get("tool_call_id").and_then(|id| id.as_str()).unwrap_or("");
-            if orphaned.contains(&cid.to_string()) {
+            if orphaned.iter().any(|s| s == cid) {
                 continue;
             }
         }
         result.push(msg.clone());
         if role == "assistant" {
-            for tc in msg.get("tool_calls").and_then(|v| v.as_array()).iter().flatten() {
+            let Some(arr) = msg.get("tool_calls").and_then(|v| v.as_array()) else { continue };
+            for tc in arr {
                 let cid = tc.get("id").and_then(|id| id.as_str())
-                    .or_else(|| tc.get("function").and_then(|f| f.get("id")).and_then(|id| id.as_str()))
+                    .or_else(|| {
+                        let f = tc.get("function")?;
+                        let id_val = f.get("id")?;
+                        id_val.as_str()
+                    })
                     .unwrap_or("");
-                if missing.contains(&cid.to_string()) {
+                if missing.iter().any(|s| s == cid) {
                     result.push(serde_json::json!({
                         "role": "tool",
                         "content": "[Result unavailable — see context summary above]",
@@ -800,6 +827,7 @@ fn _model_tools_rust(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<(
     module.add_function(wrap_pyfunction!(get_available_toolsets, module)?)?;
     module.add_function(wrap_pyfunction!(check_toolset_requirements, module)?)?;
     module.add_function(wrap_pyfunction!(check_tool_availability, module)?)?;
+    module.add_function(wrap_pyfunction!(sanitize_api_messages, module)?)?;
     module.add_function(wrap_pyfunction!(refresh_toolset_cache, module)?)?;
     module.add(
         "__doc__",
