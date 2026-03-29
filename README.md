@@ -87,6 +87,9 @@ uv venv venv --python 3.11
 source venv/bin/activate
 uv pip install -e ".[all]"
 
+# Install maturin (build tool for PyO3 extensions)
+pip install maturin
+
 # Build each Rust extension via maturin
 maturin develop --manifest-path rust/Cargo.toml -p rust-compressor
 maturin develop --manifest-path rust/Cargo.toml -p model_tools_rs
