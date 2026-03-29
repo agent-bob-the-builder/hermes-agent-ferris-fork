@@ -526,7 +526,7 @@ def _get_env_config() -> Dict[str, Any]:
 
 
 def _create_environment(env_type: str, image: str, cwd: str, timeout: int,
-                        ssh_config: dict = None, container_config: dict = None,
+                        ssh_config: dict = None, ccfg: dict = None,
                         local_config: dict = None,
                         task_id: str = "default",
                         host_cwd: str = None):
@@ -539,14 +539,14 @@ def _create_environment(env_type: str, image: str, cwd: str, timeout: int,
         cwd: Working directory
         timeout: Default command timeout
         ssh_config: SSH connection config (for env_type="ssh")
-        container_config: Resource config for container backends (cpu, memory, disk, persistent)
+        ccfg: Resource config for container backends (cpu, memory, disk, persistent)
         task_id: Task identifier for environment reuse and snapshot keying
         host_cwd: Optional host working directory to bind into Docker when explicitly enabled
         
     Returns:
         Environment instance with execute() method
     """
-    cc = container_config or {}
+    cc = ccfg or {}
     cpu = cc.get("container_cpu", 1)
     memory = cc.get("container_memory", 5120)
     disk = cc.get("container_disk", 51200)
@@ -556,9 +556,11 @@ def _create_environment(env_type: str, image: str, cwd: str, timeout: int,
 
     if env_type == "local":
         lc = local_config or {}
-        return _LocalEnvironment(cwd=cwd, timeout=timeout,
-                                 persistent=lc.get("persistent", True)  # Persistent shell: ~10ms vs ~200ms per-call)
-    
+        return _LocalEnvironment(
+            cwd=cwd, timeout=timeout,
+            persistent=lc.get("persistent", True),
+        )
+
     elif env_type == "docker":
         return _DockerEnvironment(
             image=image, cwd=cwd, timeout=timeout,
@@ -949,9 +951,9 @@ def terminal_tool(
                                 "persistent": config.get("ssh_persistent", False),
                             }
 
-                        container_config = None
+                        ccfg = None
                         if env_type in ("docker", "singularity", "modal", "daytona"):
-                            container_config = {
+                            ccfg = {
                                 "container_cpu": config.get("container_cpu", 1),
                                 "container_memory": config.get("container_memory", 5120),
                                 "container_disk": config.get("container_disk", 51200),
@@ -972,7 +974,7 @@ def terminal_tool(
                             cwd=cwd,
                             timeout=effective_timeout,
                             ssh_config=ssh_config,
-                            container_config=container_config,
+                            ccfg=ccfg,
                             local_config=local_config,
                             task_id=effective_task_id,
                             host_cwd=config.get("host_cwd"),

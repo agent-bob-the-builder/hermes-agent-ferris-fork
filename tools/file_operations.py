@@ -25,9 +25,13 @@ Usage:
     result = file_ops.search("TODO", path=".", file_glob="*.py")
 """
 
+import glob as glob_module
 import os
 import re
+import shutil
+import subprocess
 import difflib
+import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any
@@ -277,6 +281,12 @@ class FileOperations(ABC):
 # =============================================================================
 
 # Binary file extensions (fast path check)
+# -------------------------------------------------------------------------
+# Native search — no shell, no bash -lic subprocess overhead
+# -------------------------------------------------------------------------
+_RG_BINARY: Optional[str] = None
+_RG_BINARY_LOCK = threading.Lock()
+
 BINARY_EXTENSIONS = {
     # Images
     '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico', '.tiff', '.tif',
@@ -850,7 +860,24 @@ class ShellFileOperations(FileOperations):
                                         output_mode, context)
     
     def _search_files(self, pattern: str, path: str, limit: int, offset: int) -> SearchResult:
-        """Search for files by name pattern (glob-like)."""
+        """Search for files by name pattern (glob-like).
+        
+        Tries (in order):
+        1. Native Python glob — bypasses shell entirely
+        2. Direct ripgrep --files subprocess — bypasses bash -lic overhead
+        3. Shell find fallback
+        """
+        # 1. Native Python glob — fast, works everywhere, no shell overhead
+        native_result = self._search_files_native(pattern, path, limit, offset)
+        if native_result is not None:
+            return native_result
+
+        # 2. Direct ripgrep --files subprocess
+        rg_result = self._search_files_rg_subprocess(pattern, path, limit, offset)
+        if rg_result is not None:
+            return rg_result
+
+        # 3. Shell fallback
         # Auto-prepend **/ for recursive search if not already present
         if not pattern.startswith('**/') and '/' not in pattern:
             search_pattern = pattern
@@ -933,21 +960,243 @@ class ShellFileOperations(FileOperations):
     
     def _search_content(self, pattern: str, path: str, file_glob: Optional[str],
                         limit: int, offset: int, output_mode: str, context: int) -> SearchResult:
-        """Search for content inside files (grep-like)."""
-        # Try ripgrep first (fast), fallback to grep (slower but works)
+        """Search for content inside files (grep-like).
+        
+        Tries (in order):
+        1. Native Python os.walk + re.search  — bypasses shell entirely
+        2. Direct subprocess.run of ripgrep     — bypasses bash -lic login shell
+        3. Shell _exec fallback                 — original path for docker/ssh backends
+        """
+        # 1. Native Python search — always try first (fastest for local; works everywhere)
+        native_result = self._search_native(pattern, path, file_glob, limit, offset,
+                                            output_mode, context)
+        if native_result is not None:
+            return native_result
+
+        # 2. Direct ripgrep subprocess — bypasses bash -lic login shell overhead
+        rg_result = self._search_with_rg_subprocess(
+            pattern, path, file_glob, limit, offset, output_mode, context
+        )
+        if rg_result is not None:
+            return rg_result
+
+        # 3. Shell fallback (docker/ssh remote environments)
         if self._has_command('rg'):
-            return self._search_with_rg(pattern, path, file_glob, limit, offset, 
+            return self._search_with_rg(pattern, path, file_glob, limit, offset,
                                         output_mode, context)
         elif self._has_command('grep'):
             return self._search_with_grep(pattern, path, file_glob, limit, offset,
                                           output_mode, context)
         else:
-            # Neither rg nor grep available (Windows without Git Bash, etc.)
             return SearchResult(
                 error="Content search requires ripgrep (rg) or grep. "
                       "Install ripgrep: https://github.com/BurntSushi/ripgrep#installation"
             )
     
+
+    # -------------------------------------------------------------------------
+    # Native Python + direct-subprocess search (no bash -lic shell overhead)
+    # -------------------------------------------------------------------------
+
+    def _get_rg_binary(self) -> Optional[str]:
+        """Find ripgrep binary once, cache it. Returns None if not found."""
+        global _RG_BINARY
+        if _RG_BINARY is not None:
+            return _RG_BINARY if _RG_BINARY is not False else None
+        with _RG_BINARY_LOCK:
+            if _RG_BINARY is None:
+                path = shutil.which("rg")
+                _RG_BINARY = path or False
+            return _RG_BINARY if _RG_BINARY is not False else None
+
+    def _search_files_native(self, pattern: str, path: str,
+                             limit: int, offset: int) -> Optional[SearchResult]:
+        """Search for files by name using native Python glob -- no shell.
+        
+        Returns None on any I/O error so caller falls back gracefully.
+        """
+        try:
+            path = os.path.abspath(os.path.expanduser(path))
+            if not os.path.isdir(path):
+                return None
+
+            # Convert our pattern to a Python glob pattern
+            if pattern.startswith('**/'):
+                glob_pattern = pattern[3:]
+                recursive = True
+            elif '/' in pattern:
+                parts = pattern.split('/')
+                glob_pattern = os.path.join(*parts)
+                recursive = '*' in pattern or '?' in pattern
+            else:
+                glob_pattern = "*" + pattern + "*"
+                recursive = True
+
+            matches = []
+            hidden = {'.git', 'node_modules', '__pycache__', '.hub', '.venv', 'venv'}
+            for root, dirs, files in os.walk(path):
+                dirs[:] = [d for d in dirs if d not in hidden and not d.startswith('.')]
+                for filename in files:
+                    if filename.startswith('.'):
+                        continue
+                    if glob_module.fnmatch.fnmatch(filename, glob_pattern):
+                        matches.append(os.path.join(root, filename))
+                if len(matches) > (limit + offset) * 2 and recursive:
+                    break
+
+            total = len(matches)
+            return SearchResult(
+                files=matches[offset:offset + limit],
+                total_count=total,
+                truncated=total > limit + offset
+            )
+        except (OSError, PermissionError):
+            return None
+
+    def _search_native(self, pattern: str, path: str, file_glob: Optional[str],
+                        limit: int, offset: int, output_mode: str,
+                        context: int) -> Optional[SearchResult]:
+        """Search for content using os.walk + re.search -- no shell, no subprocess.
+        
+        Returns None on any exception so caller falls back to ripgrep subprocess.
+        """
+        try:
+            path = os.path.abspath(os.path.expanduser(path))
+            if not os.path.isdir(path):
+                return None
+            try:
+                compiled = re.compile(pattern)
+            except re.error:
+                return None
+            matches: List[SearchMatch] = []
+            hidden = {'.git', 'node_modules', '__pycache__', '.hub', '.venv', 'venv'}
+            for root, dirs, files in os.walk(path):
+                dirs[:] = [d for d in dirs if d not in hidden and not d.startswith('.')]
+                for filename in files:
+                    if filename.startswith('.'):
+                        continue
+                    if file_glob and not glob_module.fnmatch.fnmatch(filename, file_glob):
+                        continue
+                    ext = os.path.splitext(filename)[1].lower()
+                    if ext in BINARY_EXTENSIONS:
+                        continue
+                    filepath = os.path.join(root, filename)
+                    try:
+                        with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
+                            for lineno, line in enumerate(f, 1):
+                                if compiled.search(line):
+                                    matches.append(SearchMatch(
+                                        path=filepath,
+                                        line_number=lineno,
+                                        content=line.rstrip('\n\r')[:500]
+                                    ))
+                                    if len(matches) >= limit + offset:
+                                        break
+                    except (OSError, UnicodeDecodeError):
+                        continue
+                    if len(matches) >= limit + offset:
+                        break
+                if len(matches) >= limit + offset:
+                    break
+            total = len(matches)
+            return SearchResult(
+                matches=matches[offset:offset + limit],
+                total_count=total,
+                truncated=total > limit + offset
+            )
+        except Exception:
+            return None
+
+    def _rg_subprocess(self, args: List[str], timeout: int = 60) -> tuple:
+        """Run ripgrep as a direct subprocess, bypassing bash -lic."""
+        rg_path = self._get_rg_binary()
+        if rg_path is None:
+            return ("", -1)
+        try:
+            result = subprocess.run(
+                [rg_path] + args,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                cwd=self.cwd or None,
+            )
+            return (result.stdout, result.returncode)
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return ("", -1)
+
+    def _search_with_rg_subprocess(self, pattern: str, path: str,
+                                     file_glob: Optional[str], limit: int,
+                                     offset: int, output_mode: str,
+                                     context: int) -> Optional[SearchResult]:
+        """Search using ripgrep via direct subprocess -- bypasses bash -lic."""
+        cmd = ["--line-number", "--no-heading", "--with-filename"]
+        if context > 0:
+            cmd.extend(["-C", str(context)])
+        if file_glob:
+            cmd.extend(["--glob", file_glob])
+        if output_mode == "files_only":
+            cmd.append("-l")
+        elif output_mode == "count":
+            cmd.append("-c")
+        cmd.append(pattern)
+        cmd.append(path)
+        stdout, code = self._rg_subprocess(cmd)
+        if code == -1:
+            return None
+        if code == 2 and not stdout.strip():
+            return SearchResult(error="Search failed", total_count=0)
+        if output_mode == "files_only":
+            all_files = [f for f in stdout.strip().split('\n') if f]
+            total = len(all_files)
+            return SearchResult(files=all_files[offset:offset + limit], total_count=total)
+        elif output_mode == "count":
+            counts = {}
+            for line in stdout.strip().split('\n'):
+                if ':' in line:
+                    parts = line.rsplit(':', 1)
+                    try:
+                        counts[parts[0]] = int(parts[1])
+                    except ValueError:
+                        pass
+            return SearchResult(counts=counts, total_count=sum(counts.values()))
+        else:
+            _match_re = re.compile(r'^([A-Za-z]:)?(.*?):(\d+):(.*)$')
+            matches = []
+            for line in stdout.strip().split('\n'):
+                if not line or line == "--":
+                    continue
+                m = _match_re.match(line)
+                if m:
+                    matches.append(SearchMatch(
+                        path=(m.group(1) or '') + m.group(2),
+                        line_number=int(m.group(3)),
+                        content=m.group(4)[:500]
+                    ))
+            total = len(matches)
+            return SearchResult(
+                matches=matches[offset:offset + limit],
+                total_count=total,
+                truncated=total > limit + offset
+            )
+
+    def _search_files_rg_subprocess(self, pattern: str, path: str,
+                                     limit: int, offset: int) -> Optional[SearchResult]:
+        """Search for files using ripgrep --files via direct subprocess."""
+        if '/' not in pattern and not pattern.startswith('*'):
+            glob_pattern = "*" + pattern + "*"
+        else:
+            glob_pattern = pattern
+        stdout, code = self._rg_subprocess(["--files", "-g", glob_pattern, path])
+        if code == -1:
+            return None
+        all_files = [f for f in stdout.strip().split('\n') if f]
+        total = len(all_files)
+        return SearchResult(
+            files=all_files[offset:offset + limit],
+            total_count=total,
+            truncated=total >= limit + offset
+        )
+
     def _search_with_rg(self, pattern: str, path: str, file_glob: Optional[str],
                         limit: int, offset: int, output_mode: str, context: int) -> SearchResult:
         """Search using ripgrep."""
