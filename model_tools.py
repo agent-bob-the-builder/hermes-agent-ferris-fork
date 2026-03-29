@@ -199,7 +199,8 @@ except Exception as e:
 # =============================================================================
 # Rust backend (_model_tools_rust) — fast path for hot functions
 # =============================================================================
-# Try to use the Rust extension for performance; fall back to Python implementations.
+# Initialized after MCP/plugin discovery (above) so all tools are registered.
+# Single init is sufficient — no separate refresh call needed.
 
 _use_rust = False
 _rust = None
@@ -214,14 +215,7 @@ except Exception as e:
     logger.debug("model_tools: Rust backend init failed (%s), using Python", e)
     _rust = None
 
-# Refresh Rust backend caches now that tools are fully registered.
-# _rust.initialize() ran before this block and cached TOOLSETS when it was empty
-# (before _discover_tools ran). MCP and plugin discovery may have added new tools.
-if _use_rust:
-    try:
-        _rust.refresh_toolset_cache()
-    except Exception as e:
-        logger.debug("Failed to refresh Rust toolset cache: %s", e)
+# Rust init runs after MCP/plugin discovery (see above) — single init is sufficient.
 
 
 # =============================================================================
