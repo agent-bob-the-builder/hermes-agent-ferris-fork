@@ -1,0 +1,531 @@
+use pyo3::exceptions::PyException;
+use pyo3::prelude::*;
+use pyo3::types::{PyDict, PyList, PySet};
+use std::collections::{HashMap, HashSet};
+use lazy_static::lazy_static;
+use std::sync::Mutex;
+
+// Legacy toolset mapping (same as in Python)
+fn legacy_toolset_map() -> HashMap<&'static str, Vec<&'static str>> {
+    HashMap::from([
+        ("web_tools", vec!["web_search", "web_extract"]),
+        ("terminal_tools", vec!["terminal"]),
+        ("vision_tools", vec!["vision_analyze"]),
+        ("moa_tools", vec!["mixture_of_agents"]),
+        ("image_tools", vec!["image_generate"]),
+        ("skills_tools", vec!["skills_list", "skill_view", "skill_manage"]),
+        (
+            "browser_tools",
+            vec![
+                "browser_navigate",
+                "browser_snapshot",
+                "browser_click",
+                "browser_type",
+                "browser_scroll",
+                "browser_back",
+                "browser_press",
+                "browser_close",
+                "browser_get_images",
+                "browser_vision",
+                "browser_console",
+            ],
+        ),
+        ("cronjob_tools", vec!["cronjob"]),
+        (
+            "rl_tools",
+            vec![
+                "rl_list_environments",
+                "rl_select_environment",
+                "rl_get_current_config",
+                "rl_edit_config",
+                "rl_start_training",
+                "rl_check_status",
+                "rl_stop_training",
+                "rl_get_results",
+                "rl_list_runs",
+                "rl_test_inference",
+            ],
+        ),
+        (
+            "file_tools",
+            vec!["read_file", "write_file", "patch", "search_files"],
+        ),
+        ("tts_tools", vec!["text_to_speech"]),
+    ])
+}
+
+// Cached data structures
+lazy_static! {
+    // toolset_name -> resolved tool list (Vec<String>)
+    static ref TOOLSET_RESOLVED: Mutex<HashMap<String, Vec<String>>> = Mutex::new(HashMap::new());
+    // tool_name -> toolset_name
+    static ref TOOL_TO_TOOLSET_MAP: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
+    // All tools (union of all resolved toolsets)
+    static ref ALL_TOOLS: Mutex<HashSet<String>> = Mutex::new(HashSet::new());
+}
+
+fn json_error(message: String) -> String {
+    serde_json::json!({ "error": message }).to_string()
+}
+
+fn py_print(py: Python<'_>, message: String) -> PyResult<()> {
+    py.import("builtins")?.getattr("print")?.call1((message,))?;
+    Ok(())
+}
+
+fn logger_call(py: Python<'_>, level: &str, message: &str) {
+    if let Ok(logging) = py.import("logging") {
+        if let Ok(logger) = logging.call_method1("getLogger", ("model_tools",)) {
+            let _ = logger.call_method1(level, (message,));
+        }
+    }
+}
+
+fn registry_obj(py: Python<'_>) -> PyResult<Py<PyAny>> {
+    let registry_mod = py.import("tools.registry")?;
+    Ok(registry_mod.getattr("registry")?.into())
+}
+
+fn add_tools_from_iter(target: &Bound<'_, PySet>, tools: &Bound<'_, PyAny>) -> PyResult<()> {
+    for item in tools.try_iter()? {
+        target.add(item?)?;
+    }
+    Ok(())
+}
+
+fn difference_tools_from_iter(target: &Bound<'_, PySet>, tools: &Bound<'_, PyAny>) -> PyResult<()> {
+    for item in tools.try_iter()? {
+        let item = item?;
+        let _ = target.discard(item);
+    }
+    Ok(())
+}
+
+fn tool_names_from_definitions(defs: &Bound<'_, PyAny>) -> PyResult<Vec<String>> {
+    let mut names = Vec::new();
+    for item in defs.try_iter()? {
+        let item = item?;
+        let function = item.get_item("function")?;
+        names.push(function.get_item("name")?.extract::<String>()?);
+    }
+    Ok(names)
+}
+
+fn init_toolset_cache(py: Python<'_>) -> PyResult<()> {
+    // Compute TOOLSET_RESOLVED and ALL_TOOLS
+    let mut resolved_lock = TOOLSET_RESOLVED.lock().unwrap();
+    let mut all_tools_lock = ALL_TOOLS.lock().unwrap();
+    resolved_lock.clear();
+    all_tools_lock.clear();
+
+    let toolsets = py.import("toolsets")?;
+    let all_toolsets = toolsets.call_method0("get_all_toolsets")?;
+    let keys = all_toolsets.call_method0("keys")?;
+    for key in keys.try_iter()? {
+        let ts_name = key?.extract::<String>()?;
+        let resolved = toolsets.call_method1("resolve_toolset", (ts_name,))?;
+        let vec: Vec<String> = resolved.extract()?;
+        resolved_lock.insert(ts_name.clone(), vec.clone());
+        for tool in vec {
+            all_tools_lock.insert(tool);
+        }
+    }
+
+    // Compute TOOL_TO_TOOLSET_MAP
+    let mut map_lock = TOOL_TO_TOOLSET_MAP.lock().unwrap();
+    map_lock.clear();
+    let registry = registry_obj(py)?;
+    let map = registry.call_method0("get_tool_to_toolset_map")?;
+    let map: HashMap<String, String> = map.extract()?;
+    *map_lock = map;
+
+    Ok(())
+}
+
+#[pyfunction]
+fn initialize(py: Python<'_>) -> PyResult<()> {
+    let modules = vec![
+        "tools.web_tools",
+        "tools.terminal_tool",
+        "tools.file_tools",
+        "tools.vision_tools",
+        "tools.mixture_of_agents_tool",
+        "tools.image_generation_tool",
+        "tools.skills_tool",
+        "tools.skill_manager_tool",
+        "tools.browser_tool",
+        "tools.cronjob_tools",
+        "tools.rl_training_tool",
+        "tools.tts_tool",
+        "tools.todo_tool",
+        "tools.memory_tool",
+        "tools.session_search_tool",
+        "tools.clarify_tool",
+        "tools.code_execution_tool",
+        "tools.delegate_tool",
+        "tools.process_registry",
+        "tools.send_message_tool",
+        "tools.honcho_tools",
+        "tools.homeassistant_tool",
+    ];
+
+    let importlib = py.import("importlib")?;
+    for mod_name in modules {
+        match importlib.call_method1("import_module", (mod_name,)) {
+            Ok(_) => {}
+            Err(err) => {
+                logger_call(
+                    py,
+                    "warning",
+                    &format!("Could not import tool module {}: {}", mod_name, err),
+                );
+            }
+        }
+    }
+
+    if let Ok(mcp_tool) = py.import("tools.mcp_tool") {
+        if let Ok(discover) = mcp_tool.getattr("discover_mcp_tools") {
+            if let Err(err) = discover.call0() {
+                logger_call(py, "debug", &format!("MCP tool discovery failed: {}", err));
+            }
+        }
+    }
+
+    if let Ok(plugins) = py.import("hermes_cli.plugins") {
+        if let Ok(discover) = plugins.getattr("discover_plugins") {
+            if let Err(err) = discover.call0() {
+                logger_call(py, "debug", &format!("Plugin discovery failed: {}", err));
+            }
+        }
+    }
+
+    // Initialize the cache after importing all tool modules
+    init_toolset_cache(py)?;
+
+    Ok(())
+}
+
+#[pyfunction(signature = (enabled_toolsets=None, disabled_toolsets=None, quiet_mode=false))]
+fn get_tool_definitions(
+    py: Python<'_>,
+    enabled_toolsets: Option<Vec<String>>,
+    disabled_toolsets: Option<Vec<String>>,
+    quiet_mode: bool,
+) -> PyResult<Py<PyAny>> {
+    let toolsets = py.import("toolsets")?;
+    let legacy = legacy_toolset_map();
+
+    // Get the cached data (we lock the mutexes for reading)
+    let resolved_map = TOOLSET_RESOLVED.lock().unwrap();
+    let toolset_map = TOOL_TO_TOOLSET_MAP.lock().unwrap();
+    let all_tools = ALL_TOOLS.lock().unwrap();
+
+    let mut tools_to_include = HashSet::new();
+
+    if let Some(enabled) = enabled_toolsets.filter(|v| !v.is_empty()) {
+        for toolset_name in enabled {
+            // Check cache first
+            if let Some(tools) = resolved_map.get(toolset_name) {
+                tools_to_include.extend(tools.iter().cloned());
+                continue;
+            }
+            // Check legacy
+            if let Some(legacy_tools) = legacy.get(toolset_name.as_str()) {
+                for tool in legacy_tools {
+                    tools_to_include.insert(tool.to_string());
+                }
+                continue;
+            }
+            // Unknown toolset
+            if !quiet_mode {
+                py_print(py, format!("⚠️  Unknown toolset: {}", toolset_name))?;
+            }
+        }
+    } else if let Some(disabled) = disabled_toolsets.filter(|v| !v.is_empty()) {
+        // Start with all tools
+        tools_to_include = all_tools.clone();
+        for toolset_name in disabled {
+            if let Some(tools) = resolved_map.get(toolset_name) {
+                for tool in tools {
+                    tools_to_include.remove(tool);
+                }
+                continue;
+            }
+            if let Some(legacy_tools) = legacy.get(toolset_name.as_str()) {
+                for tool in legacy_tools {
+                    tools_to_include.remove(tool);
+                }
+                continue;
+            }
+            if !quiet_mode {
+                py_print(py, format!("⚠️  Unknown toolset: {}", toolset_name))?;
+            }
+        }
+    } else {
+        // No enable/disable: use all tools
+        tools_to_include = all_tools.clone();
+    }
+
+    // Ask the registry for schemas (only returns tools whose check_fn passes)
+    let registry = registry_obj(py)?;
+    let kwargs = PyDict::new(py);
+    kwargs.set_item("quiet", quiet_mode)?;
+    let filtered_tools = registry
+        .bind(py)
+        .call_method("get_definitions", (PySet::new(py, &tools_to_include)?,), Some(&kwargs))?;
+
+    // The set of tool names that actually passed check_fn filtering.
+    let available_tool_names = tool_names_from_definitions(&filtered_tools)?;
+    let available_tool_name_set: HashSet<String> = available_tool_names.iter().cloned().collect();
+
+    if available_tool_name_set.contains("execute_code") {
+        let code_execution_tool = py.import("tools.code_execution_tool")?;
+        let sandbox_allowed = code_execution_tool.getattr("SANDBOX_ALLOWED_TOOLS")?;
+        let sandbox_enabled = PySet::new(py)?;
+        for item in sandbox_allowed.try_iter()? {
+            let tool_name = item?.extract::<String>()?;
+            if available_tool_name_set.contains(&tool_name) {
+                sandbox_enabled.add(tool_name)?;
+            }
+        }
+        let dynamic_schema = code_execution_tool.call_method1("build_execute_code_schema", (sandbox_enabled,))?;
+        let filtered_list = filtered_tools.downcast::<PyList>()?;
+        for i in 0..filtered_list.len() {
+            let td = filtered_list.get_item(i)?;
+            let function = td.get_item("function")?;
+            if function.get_item("name")?.extract::<String>()? == "execute_code" {
+                let replacement = PyDict::new(py);
+                replacement.set_item("type", "function")?;
+                replacement.set_item("function", dynamic_schema)?;
+                filtered_list.set_item(i, replacement)?;
+                break;
+            }
+        }
+    }
+
+    if available_tool_name_set.contains("browser_navigate")
+        && !available_tool_name_set.contains("web_search")
+        && !available_tool_name_set.contains("web_extract")
+    {
+        let filtered_list = filtered_tools.downcast::<PyList>()?;
+        for i in 0..filtered_list.len() {
+            let td = filtered_list.get_item(i)?;
+            let function = td.get_item("function")?;
+            if function.get_item("name")?.extract::<String>()? == "browser_navigate" {
+                let desc = function
+                    .get_item("description")?
+                    .extract::<String>()?
+                    .replace(
+                        " For simple information retrieval, prefer web_search or web_extract (faster, cheaper).",
+                        "",
+                    );
+                let replacement_function = function.call_method0("copy")?;
+                replacement_function.set_item("description", desc)?;
+                let replacement = PyDict::new(py);
+                replacement.set_item("type", "function")?;
+                replacement.set_item("function", replacement_function)?;
+                filtered_list.set_item(i, replacement)?;
+                break;
+            }
+        }
+    }
+
+    if !quiet_mode {
+        if available_tool_names.is_empty() {
+            py_print(py, "🛠️  No tools selected (all filtered out or unavailable)".to_string())?;
+        } else {
+            py_print(
+                py,
+                format!(
+                    "🛠️  Final tool selection ({} tools): {}",
+                    available_tool_names.len(),
+                    available_tool_names.join(", ")
+                ),
+            )?;
+        }
+    }
+
+    Ok(filtered_tools.into())
+}
+
+#[pyfunction(signature = (function_name, function_args, task_id=None, user_task=None, enabled_tools=None, last_resolved_tool_names=None, honcho_manager=None, honcho_session_key=None))]
+fn handle_function_call(
+    py: Python<'_>,
+    function_name: String,
+    function_args: Py<PyAny>,
+    task_id: Option<String>,
+    user_task: Option<String>,
+    enabled_tools: Option<Vec<String>>,
+    last_resolved_tool_names: Option<Vec<String>>,
+    honcho_manager: Option<Py<PyAny>>,
+    honcho_session_key: Option<String>,
+) -> PyResult<String> {
+    let read_search_tools: HashSet<&str> = HashSet::from(["read_file", "search_files"]);
+    let agent_loop_tools: HashSet<&str> =
+        HashSet::from(["todo", "memory", "session_search", "delegate_task"]);
+
+    if !read_search_tools.contains(function_name.as_str()) {
+        if let Ok(file_tools) = py.import("tools.file_tools") {
+            if let Ok(notify) = file_tools.getattr("notify_other_tool_call") {
+                let _ = notify.call1((task_id.clone().unwrap_or_else(|| "default".to_string()),));
+            }
+        }
+    }
+
+    if agent_loop_tools.contains(function_name.as_str()) {
+        return Ok(json_error(format!(
+            "{} must be handled by the agent loop",
+            function_name
+        )));
+    }
+
+    let result: PyResult<String> = (|| {
+        if let Ok(plugins) = py.import("hermes_cli.plugins") {
+            if let Ok(invoke_hook) = plugins.getattr("invoke_hook") {
+                let kwargs = PyDict::new(py);
+                kwargs.set_item("tool_name", function_name.clone())?;
+                kwargs.set_item("args", function_args.bind(py))?;
+                kwargs.set_item("task_id", task_id.clone().unwrap_or_default())?;
+                let _ = invoke_hook.call(("pre_tool_call",), Some(&kwargs));
+            }
+        }
+
+        let registry = registry_obj(py)?;
+        let kwargs = PyDict::new(py);
+        if let Some(task_id) = task_id.clone() {
+            kwargs.set_item("task_id", task_id)?;
+        }
+        if let Some(manager) = honcho_manager.as_ref() {
+            kwargs.set_item("honcho_manager", manager.bind(py))?;
+        }
+        if let Some(session_key) = honcho_session_key.clone() {
+            kwargs.set_item("honcho_session_key", session_key)?;
+        }
+
+        if function_name == "execute_code" {
+            // Prefer the caller-provided list so subagents can't overwrite
+            // the parent's tool set via the process-global.
+            let sandbox_enabled = enabled_tools.or(last_resolved_tool_names).unwrap_or_default();
+            kwargs.set_item("enabled_tools", PyList::new(py, &sandbox_enabled)?)?;
+        } else if let Some(user_task) = user_task.clone() {
+            kwargs.set_item("user_task", user_task)?;
+        }
+
+        let result = registry
+            .bind(py)
+            .call_method("dispatch", (function_name.clone(), function_args.bind(py)), Some(&kwargs))?;
+
+        if let Ok(plugins) = py.import("hermes_cli.plugins") {
+            if let Ok(invoke_hook) = plugins.getattr("invoke_hook") {
+                let hook_kwargs = PyDict::new(py);
+                hook_kwargs.set_item("tool_name", function_name.clone())?;
+                hook_kwargs.set_item("args", function_args.bind(py))?;
+                hook_kwargs.set_item("result", result.clone())?;
+                hook_kwargs.set_item("task_id", task_id.clone().unwrap_or_default())?;
+                let _ = invoke_hook.call(("post_tool_call",), Some(&hook_kwargs));
+            }
+        }
+
+        result.extract::<String>()
+    })();
+
+    match result {
+        Ok(value) => Ok(value),
+        Err(err) => {
+            logger_call(
+                py,
+                "error",
+                &format!("Error executing {}: {}", function_name, err),
+            );
+            Ok(json_error(format!("Error executing {}: {}", function_name, err)))
+        }
+    }
+}
+
+#[pyfunction]
+fn get_tool_to_toolset_map(py: Python<'_>) -> PyResult<Py<PyAny>> {
+    let map = TOOL_TO_TOOLSET_MAP.lock().unwrap();
+    Ok(PyDict::new(py, map.iter().map(|(k, v)| (k.clone(), v.clone()))).into())
+}
+
+#[pyfunction]
+fn get_toolset_requirements(py: Python<'_>) -> PyResult<Py<PyAny>> {
+    // We don't cache the requirements, so we call the Python registry
+    registry_obj(py)?
+        .bind(py)
+        .call_method0("get_toolset_requirements")?
+        .into()
+}
+
+#[pyfunction]
+fn get_all_tool_names(py: Python<'_>) -> PyResult<Py<PyAny>> {
+    let mut names: Vec<String> = ALL_TOOLS.lock().unwrap().iter().cloned().collect();
+    names.sort();
+    Ok(PyList::new(py, &names).into())
+}
+
+#[pyfunction]
+fn get_toolset_for_tool(py: Python<'_>, tool_name: String) -> PyResult<Option<String>> {
+    let map = TOOL_TO_TOOLSET_MAP.lock().unwrap();
+    Ok(map.get(&tool_name).cloned())
+}
+
+#[pyfunction]
+fn get_available_toolsets(py: Python<'_>) -> PyResult<Py<PyAny>> {
+    let resolved_map = TOOLSET_RESOLVED.lock().unwrap();
+    let mut toolsets: HashMap<String, dict> = HashMap::new();
+    for (ts_name, tools) in resolved_map.iter() {
+        toolsets.insert(
+            ts_name.clone(),
+            PyDict::new(
+                py,
+                [
+                    ("available", true.to_object(py)),
+                    ("tools", PyList::new(py, tools).into_object(py)),
+                    ("description", "".to_object(py)), // We don't have description in cache
+                    ("requirements", PyList::new(py, &[] as &[String]).into_object(py)),
+                ],
+            ),
+        );
+    }
+    // Note: We are missing the description and requirements. We could cache them too, but for now we leave them empty.
+    // The Python wrapper's global TOOLSET_REQUIREMENTS is set from the Rust backend's get_toolset_requirements function, which calls the Python registry.
+    Ok(PyDict::new(py, toolsets).into())
+}
+
+#[pyfunction]
+fn check_toolset_requirements(py: Python<'_>) -> PyResult<Py<PyAny>> {
+    registry_obj(py)?
+        .bind(py)
+        .call_method0("check_toolset_requirements")?
+        .into()
+}
+
+#[pyfunction(signature = (quiet=false))]
+fn check_tool_availability(py: Python<'_>, quiet: bool) -> PyResult<Py<PyAny>> {
+    let kwargs = PyDict::new(py);
+    kwargs.set_item("quiet", quiet)?;
+    registry_obj(py)?
+        .bind(py)
+        .call_method("check_tool_availability", (), Some(&kwargs))?
+        .into()
+}
+
+#[pymodule]
+fn _model_tools_rust(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_function(wrap_pyfunction!(initialize, module)?)?;
+    module.add_function(wrap_pyfunction!(get_tool_definitions, module)?)?;
+    module.add_function(wrap_pyfunction!(handle_function_call, module)?)?;
+    module.add_function(wrap_pyfunction!(get_tool_to_toolset_map, module)?)?;
+    module.add_function(wrap_pyfunction!(get_toolset_requirements, module)?)?;
+    module.add_function(wrap_pyfunction!(get_all_tool_names, module)?)?;
+    module.add_function(wrap_pyfunction!(get_toolset_for_tool, module)?)?;
+    module.add_function(wrap_pyfunction!(get_available_toolsets, module)?)?;
+    module.add_function(wrap_pyfunction!(check_toolset_requirements, module)?)?;
+    module.add_function(wrap_pyfunction!(check_tool_availability, module)?)?;
+    module.add("__doc__", "Rust backend for Hermes model_tools orchestration.")?;
+    if py.version_info().major < 3 {
+        return Err(PyException::new_err("Python 3 is required"));
+    }
+    Ok(())
+}

@@ -228,7 +228,6 @@ fn rs_get_definitions_inner(
 
 #[pyfunction]
 fn initialize(py: Python<'_>) -> PyResult<()> {
-    eprintln!("[RS] initialize: starting");
     let modules = vec![
         "tools.web_tools",
         "tools.terminal_tool",
@@ -291,30 +290,20 @@ fn initialize(py: Python<'_>) -> PyResult<()> {
 }
 
 fn init_toolset_cache(py: Python<'_>) -> PyResult<()> {
-    eprintln!("[RS] init_toolset_cache: starting");
     let mut resolved_lock = TOOLSET_RESOLVED.lock().unwrap();
     let mut all_tools_lock = ALL_TOOLS.lock().unwrap();
     resolved_lock.clear();
     all_tools_lock.clear();
 
     let toolsets = py.import("toolsets")?;
-    eprintln!("[RS] init_toolset_cache: toolsets imported");
     let all_toolsets: Bound<'_, PyDict> = toolsets
         .call_method0("get_all_toolsets")?
         .cast::<PyDict>()?
         .clone();
-    eprintln!("[RS] init_toolset_cache: get_all_toolsets done, {} toolsets", all_toolsets.len());
     for (key, _value) in all_toolsets.iter() {
         let ts_name = key.extract::<String>()?;
         let resolved = toolsets.call_method1("resolve_toolset", (ts_name.clone(),))?;
-        // resolve_toolset may return a dict of {tool_name: schema} or a list of tool names
-        let vec: Vec<String> = if resolved.extract::<Vec<String>>().is_ok() {
-            resolved.extract()?
-        } else {
-            // It's a dict — extract keys
-            let dict: Bound<'_, PyDict> = resolved.cast::<PyDict>()?.clone();
-            dict.keys().iter().map(|k| k.extract::<String>()).collect::<PyResult<Vec<String>>>()?
-        };
+        let vec: Vec<String> = resolved.extract()?;
         resolved_lock.insert(ts_name.clone(), vec.clone());
         for tool in vec {
             all_tools_lock.insert(tool);
@@ -327,9 +316,7 @@ fn init_toolset_cache(py: Python<'_>) -> PyResult<()> {
     rust_registry.clear();
 
     let registry = registry_obj(py)?;
-    eprintln!("[RS] init_toolset_cache: registry_obj done");
     let map = registry.bind(py).call_method0("get_tool_to_toolset_map")?;
-    eprintln!("[RS] init_toolset_cache: get_tool_to_toolset_map done");
     let py_map: HashMap<String, String> = map.extract()?;
     *map_lock = py_map;
 
@@ -337,21 +324,19 @@ fn init_toolset_cache(py: Python<'_>) -> PyResult<()> {
         .bind(py)
         .call_method0("get_all_tool_names")?
         .extract()?;
-    eprintln!("[RS] init_toolset_cache: get_all_tool_names done, {} tools", all_names.len());
     for name in all_names {
-        eprintln!("[RS] init_toolset_cache: processing tool {}", name);
-        let entry_dict: Bound<'_, PyAny> = registry
-            .bind(py)
-            .getattr("_tools")?
-            .get_item(name)?;
-        let py_name: String = entry_dict.getattr("name")?.extract()?;
-        let py_toolset: String = entry_dict.getattr("toolset")?.extract()?;
-        let py_schema_any: Bound<'_, PyAny> = entry_dict.getattr("schema")?.into_any();
-        let py_check_fn: Py<PyAny> = entry_dict.getattr("check_fn")?.into_any().into();
-        let py_requires_env: Vec<String> = entry_dict.getattr("requires_env")?.extract()?;
-        let py_is_async: bool = entry_dict.getattr("is_async")?.extract()?;
-        let py_desc: String = entry_dict.getattr("description")?.extract()?;
-        let py_emoji: String = entry_dict.getattr("emoji")?.extract()?;
+        let entry_dict: Bound<'_, PyAny> = registry.bind(py).call_method1("_tools", (name,))?;
+        let py_name: String = entry_dict.get_item("name")?.extract()?;
+        let py_toolset: String = entry_dict.get_item("toolset")?.extract()?;
+
+        // Get schema dict — store as Py<PyAny> (cast from Bound, no copy needed)
+        let py_schema_any: Bound<'_, PyAny> = entry_dict.get_item("schema")?.into_any();
+
+        let py_check_fn: Py<PyAny> = entry_dict.get_item("check_fn")?.into_any().into();
+        let py_requires_env: Vec<String> = entry_dict.get_item("requires_env")?.extract()?;
+        let py_is_async: bool = entry_dict.get_item("is_async")?.extract()?;
+        let py_desc: String = entry_dict.get_item("description")?.extract()?;
+        let py_emoji: String = entry_dict.get_item("emoji")?.extract()?;
 
         let check_fn_py = if py_check_fn.is_none(py) {
             None
@@ -562,7 +547,6 @@ fn handle_function_call(
     }
 
     let result: PyResult<String> = (|| {
-        // pre_tool_call hook
         if let Some(hook) = get_invoke_hook(py) {
             let kwargs = PyDict::new(py);
             kwargs.set_item("tool_name", function_name.clone())?;
@@ -573,48 +557,42 @@ fn handle_function_call(
 
         let registry = get_cached_registry(py)?;
         let kwargs = PyDict::new(py);
-        if let Some(ref tid) = task_id {
-            kwargs.set_item("task_id", tid)?;
+        if let Some(task_id) = task_id.clone() {
+            kwargs.set_item("task_id", task_id)?;
         }
-        if let Some(ref manager) = honcho_manager {
+        if let Some(manager) = honcho_manager.as_ref() {
             kwargs.set_item("honcho_manager", manager.bind(py))?;
         }
-        if let Some(ref sk) = honcho_session_key {
-            kwargs.set_item("honcho_session_key", sk)?;
+        if let Some(session_key) = honcho_session_key.clone() {
+            kwargs.set_item("honcho_session_key", session_key)?;
         }
 
         if function_name == "execute_code" {
             let sandbox_enabled = enabled_tools
-                .or(last_resolved_tool_names.clone())
+                .or(last_resolved_tool_names)
                 .unwrap_or_default();
             kwargs.set_item("enabled_tools", PyList::new(py, &sandbox_enabled)?)?;
-        } else if let Some(ref ut) = user_task {
-            kwargs.set_item("user_task", ut)?;
+        } else if let Some(user_task) = user_task.clone() {
+            kwargs.set_item("user_task", user_task)?;
         }
 
-        // Call Python dispatch() — GIL is held by PyO3 throughout this call.
-        // PyO3 0.28 + Python 3.11 handles nested GIL acquisition correctly.
         let result = registry.call_method(
             "dispatch",
             (function_name.clone(), function_args.bind(py)),
             Some(&kwargs),
         )?;
 
-        let result_str = result.extract::<String>()?;
-
-        // post_tool_call hook
         if let Some(hook) = get_invoke_hook(py) {
             let hook_kwargs = PyDict::new(py);
             hook_kwargs.set_item("tool_name", function_name.clone())?;
             hook_kwargs.set_item("args", function_args.bind(py))?;
-            hook_kwargs.set_item("result", &result_str)?;
+            hook_kwargs.set_item("result", result.clone())?;
             hook_kwargs.set_item("task_id", task_id.clone().unwrap_or_default())?;
             let _ = hook.call(("post_tool_call",), Some(&hook_kwargs));
         }
 
-        Ok(result_str)
+        result.extract::<String>()
     })();
-
 
     match result {
         Ok(value) => Ok(value),
@@ -704,114 +682,15 @@ fn check_toolset_requirements(py: Python<'_>) -> PyResult<Py<PyAny>> {
 fn check_tool_availability(py: Python<'_>, quiet: bool) -> PyResult<Py<PyAny>> {
     let kwargs = PyDict::new(py);
     kwargs.set_item("quiet", quiet)?;
-    let result =
-        registry_obj(py)?
-            .bind(py)
-            .call_method("check_toolset_availability", (), Some(&kwargs))?;
+    let result = registry_obj(py)?
+        .bind(py)
+        .call_method("check_toolset_availability", (), Some(&kwargs))?;
     Ok(result.into())
 }
 
 // -------------------------------------------------------------------------------------------------
 // Module definition
 // -------------------------------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Message sanitization — runs before every LLM call
-// ---------------------------------------------------------------------------
-
-/// Parse messages from JSON string, remove orphaned tool results, inject stubs.
-/// Input: JSON string of message list.
-/// Returns: None if no changes needed, Some(json_string) with modified messages.
-pub fn sanitize_api_messages_json(json_str: &str) -> Option<String> {
-    use serde_json::Value;
-
-    let messages: Vec<Value> = match serde_json::from_str(json_str) {
-        Ok(v) => v,
-        Err(_) => return None,
-    };
-
-    // Collect call IDs from assistant messages
-    let mut surviving: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for msg in &messages {
-        if msg.get("role").and_then(|r| r.as_str()) != Some("assistant") {
-            continue;
-        }
-        let Some(arr) = msg.get("tool_calls").and_then(|v| v.as_array()) else { continue };
-        for tc in arr {
-            if let Some(id_val) = tc.get("id") {
-                if let Some(s) = id_val.as_str() {
-                    surviving.insert(s.to_string());
-                    continue;
-                }
-            }
-            // fallback: function.name style {function: {name, arguments, id}}
-            if let Some(f) = tc.get("function") {
-                if let Some(id_val) = f.get("id") {
-                    if let Some(s) = id_val.as_str() {
-                        surviving.insert(s.to_string());
-                    }
-                }
-            }
-        }
-    }
-
-    // Collect result IDs from tool messages
-    let mut result_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for msg in &messages {
-        if msg.get("role").and_then(|r| r.as_str()) != Some("tool") {
-            continue;
-        }
-        if let Some(id_val) = msg.get("tool_call_id") {
-            if let Some(s) = id_val.as_str() {
-                result_ids.insert(s.to_string());
-            }
-        }
-    }
-
-    let orphaned: Vec<String> = result_ids.difference(&surviving).cloned().collect();
-    let missing: Vec<String> = surviving.difference(&result_ids).cloned().collect();
-
-    if orphaned.is_empty() && missing.is_empty() {
-        return None;
-    }
-
-    let mut result: Vec<Value> = Vec::with_capacity(messages.len() + missing.len());
-    for msg in &messages {
-        let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("");
-        if role == "tool" {
-            let cid = msg.get("tool_call_id").and_then(|id| id.as_str()).unwrap_or("");
-            if orphaned.iter().any(|s| s == cid) {
-                continue;
-            }
-        }
-        result.push(msg.clone());
-        if role == "assistant" {
-            let Some(arr) = msg.get("tool_calls").and_then(|v| v.as_array()) else { continue };
-            for tc in arr {
-                let cid = tc.get("id").and_then(|id| id.as_str())
-                    .or_else(|| {
-                        let f = tc.get("function")?;
-                        let id_val = f.get("id")?;
-                        id_val.as_str()
-                    })
-                    .unwrap_or("");
-                if missing.iter().any(|s| s == cid) {
-                    result.push(serde_json::json!({
-                        "role": "tool",
-                        "content": "[Result unavailable — see context summary above]",
-                        "tool_call_id": cid,
-                    }));
-                }
-            }
-        }
-    }
-    serde_json::to_string(&result).ok()
-}
-
-#[pyfunction]
-fn sanitize_api_messages(messages_json: &str) -> PyResult<Option<String>> {
-    Ok(sanitize_api_messages_json(messages_json))
-}
 
 #[pymodule]
 fn _model_tools_rust(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -825,8 +704,6 @@ fn _model_tools_rust(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<(
     module.add_function(wrap_pyfunction!(get_available_toolsets, module)?)?;
     module.add_function(wrap_pyfunction!(check_toolset_requirements, module)?)?;
     module.add_function(wrap_pyfunction!(check_tool_availability, module)?)?;
-    module.add_function(wrap_pyfunction!(sanitize_api_messages, module)?)?;
-    module.add_function(wrap_pyfunction!(refresh_toolset_cache, module)?)?;
     module.add(
         "__doc__",
         "Rust backend for Hermes model_tools orchestration.",

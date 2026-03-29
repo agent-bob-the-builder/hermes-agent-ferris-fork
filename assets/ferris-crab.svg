@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 320" width="400" height="320">
+  <rect width="400" height="320" fill="#1a1a2e" rx="16"/>
+  <style>
+    .shell { fill: #e67e22; }
+    .claw  { fill: #f39c12; }
+    .eye   { fill: #fff; }
+    .pupil { fill: #111; }
+    .leg   { fill: none; stroke: #e67e22; stroke-width: 5; stroke-linecap: round; }
+    .mouth { fill: none; stroke: #c0392b; stroke-width: 2.5; stroke-linecap: round; }
+    .blush { fill: #e74c3c; opacity: 0.35; }
+  </style>
+
+  <!-- Left claw arm -->
+  <path class="claw" d="M 70,145 Q 50,120 35,90 Q 28,75 40,68 Q 55,62 62,78 Q 70,95 85,130 Q 90,140 80,148 Z"/>
+  <!-- Right claw arm -->
+  <path class="claw" d="M 330,145 Q 350,120 365,90 Q 372,75 360,68 Q 345,62 338,78 Q 330,95 315,130 Q 310,140 320,148 Z"/>
+
+  <!-- Legs left -->
+  <path class="leg" d="M 120,220 Q 100,235 75,255"/>
+  <path class="leg" d="M 145,225 Q 125,248 100,268"/>
+  <path class="leg" d="M 175,228 Q 160,255 140,272"/>
+
+  <!-- Legs right -->
+  <path class="leg" d="M 280,220 Q 300,235 325,255"/>
+  <path class="leg" d="M 255,225 Q 275,248 300,268"/>
+  <path class="leg" d="M 225,228 Q 240,255 260,272"/>
+
+  <!-- Shell body -->
+  <ellipse cx="200" cy="175" rx="115" ry="95" class="shell"/>
+
+  <!-- Shell highlight -->
+  <ellipse cx="170" cy="140" rx="45" ry="30" fill="#f5a623" opacity="0.40"/>
+
+  <!-- Shell swirl lines -->
+  <path d="M 160,170 Q 185,150 215,158 Q 240,168 245,195" fill="none" stroke="#c0700a" stroke-width="4" stroke-linecap="round" opacity="0.5"/>
+  <path d="M 175,195 Q 200,175 230,182" fill="none" stroke="#c0700a" stroke-width="3" stroke-linecap="round" opacity="0.4"/>
+
+  <!-- Left eye -->
+  <ellipse cx="158" cy="118" rx="22" ry="26" class="eye"/>
+  <ellipse cx="163" cy="116" rx="10" ry="12" class="pupil"/>
+  <circle cx="167" cy="111" r="4" fill="#fff"/>
+
+  <!-- Right eye -->
+  <ellipse cx="242" cy="118" rx="22" ry="26" class="eye"/>
+  <ellipse cx="237" cy="116" rx="10" ry="12" class="pupil"/>
+  <circle cx="233" cy="111" r="4" fill="#fff"/>
+
+  <!-- Blush -->
+  <ellipse cx="130" cy="148" rx="18" ry="10" class="blush"/>
+  <ellipse cx="270" cy="148" rx="18" ry="10" class="blush"/>
+
+  <!-- Smile -->
+  <path d="M 175,162 Q 200,180 225,162" class="mouth"/>
+
+  <!-- Antennae -->
+  <path d="M 168,95 Q 155,65 148,45" fill="none" stroke="#e67e22" stroke-width="4" stroke-linecap="round"/>
+  <path d="M 232,95 Q 245,65 252,45" fill="none" stroke="#e67e22" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="148" cy="43" r="6" fill="#e67e22"/>
+  <circle cx="252" cy="43" r="6" fill="#e67e22"/>
+
+  <!-- Rust text -->
+  <text x="200" y="305" font-family="monospace" font-size="22" font-weight="bold" fill="#ce422b" text-anchor="middle" letter-spacing="3">🦀 Rustacean 🦀</text>
+</svg>

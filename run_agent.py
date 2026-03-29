@@ -29,6 +29,34 @@ import hashlib
 import json
 import logging
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------------
+# Rust prompt builder — lazy-loaded from venv on first use.
+# Called by _build_system_prompt when all required inputs are available.
+# Falls back to pure-Python path on any error.
+# ---------------------------------------------------------------------------------
+_rust_pb_loader_failed = False
+_rust_pb = None
+
+def _try_load_rust_pb():
+    global _rust_pb_loader_failed, _rust_pb
+    if _rust_pb is not None or _rust_pb_loader_failed:
+        return _rust_pb
+    try:
+        import sys as _sys
+        venv_site = _sys.prefix + "/lib/python3.11/site-packages"
+        if venv_site not in _sys.path:
+            _sys.path.insert(0, venv_site)
+        import importlib
+        importlib.invalidate_caches()
+        mod = importlib.import_module("_prompt_builder_rust")
+        _rust_pb = mod
+        logger.debug("Rust prompt builder loaded successfully")
+        return _rust_pb
+    except Exception as _e:
+        _rust_pb_loader_failed = True
+        logger.debug("Rust prompt builder unavailable (%s), using Python path", _e)
+        return None
 import os
 import random
 import re
@@ -2515,11 +2543,71 @@ class AIAgent:
     def _build_system_prompt(self, system_message: str = None) -> str:
         """
         Assemble the full system prompt from all layers.
-        
+
         Called once per session (cached on self._cached_system_prompt) and only
         rebuilt after context compression events. This ensures the system prompt
         is stable across all turns in a session, maximizing prefix cache hits.
+
+        Rust acceleration: when honcho is absent, skip_context_files is False,
+        and no ephemeral system_message is provided, the hot-path
+        (identity + tool guidance + skills + context files + timestamp) is
+        offloaded to the Rust _prompt_builder_rust extension for ~10x faster
+        skill-index walking and threat-scanned context-file assembly.
+        The pure-Python path remains the fallback for all other cases.
         """
+        # Rust path: covers the common case with no honcho, no ephemeral injection.
+        # honcho_block requires self._honcho (Python-only), ephemeral messages are
+        # injected at API-call time (not baked into the cached prompt), and
+        # Alibaba overrides need self.model access — so those all fall through to
+        # the Python path below.
+        if (
+            not self._honcho
+            and not self._honcho_session_key
+            and not self.skip_context_files
+            and system_message is None
+            and self.provider != "alibaba"
+        ):
+            mod = _try_load_rust_pb()
+            if mod is not None:
+                try:
+                    # Serialize memory_store for Rust (memory + user entries)
+                    _mem_json = "{}"
+                    if self._memory_store:
+                        _mem_entries = {}
+                        if self._memory_enabled:
+                            _mem_entries["memory"] = self._memory_store.format_for_system_prompt("memory") or ""
+                        if self._user_profile_enabled:
+                            _mem_entries["user"] = self._memory_store.format_for_system_prompt("user") or ""
+                        if _mem_entries:
+                            import json as _json
+                            _mem_json = _json.dumps(_mem_entries)
+
+                    _context_cwd = os.getenv("TERMINAL_CWD") or None
+                    _result = mod.build(
+                        identity=None,
+                        system_message=None,
+                        memory_store_json=_mem_json,
+                        user_profile_json=None,
+                        honcho_block=None,
+                        valid_tool_names_json=json.dumps(self.valid_tool_names or []),
+                        skip_context_files=False,
+                        pass_session_id=self.pass_session_id,
+                        session_id=self.session_id,
+                        model=self.model,
+                        provider=self.provider,
+                        platform=self.platform,
+                        terminal_cwd=_context_cwd,
+                        skip_soul=False,
+                    )
+                    if _result:
+                        return _result
+                except Exception as _rust_err:
+                    logger.debug("Rust prompt builder returned empty/error (%s), "
+                                 "falling back to Python path", _rust_err)
+
+        # -----------------------------------------------------------------
+        # Python path — full fidelity, all features, no Rust dependencies
+        # -----------------------------------------------------------------
         # Layers (in order):
         #   1. Agent identity — SOUL.md when available, else DEFAULT_AGENT_IDENTITY
         #   2. User / gateway system prompt (if provided)
