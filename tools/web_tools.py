@@ -43,8 +43,6 @@ import re
 import asyncio
 from typing import List, Dict, Any, Optional
 import httpx
-from firecrawl import Firecrawl
-from agent.auxiliary_client import async_call_llm, extract_content_or_reasoning
 from tools.debug_helpers import DebugSession
 from tools.url_safety import is_safe_url
 from tools.website_policy import check_website_access
@@ -120,6 +118,7 @@ def _get_firecrawl_client():
             kwargs["api_key"] = api_key
         if api_url:
             kwargs["api_url"] = api_url
+        from firecrawl import Firecrawl
         _firecrawl_client = Firecrawl(**kwargs)
     return _firecrawl_client
 
@@ -260,6 +259,7 @@ async def process_content_with_llm(
     model: str = DEFAULT_SUMMARIZER_MODEL,
     min_length: int = DEFAULT_MIN_LENGTH_FOR_SUMMARIZATION
 ) -> Optional[str]:
+    from agent.auxiliary_client import async_call_llm, extract_content_or_reasoning
     """
     Process web content using LLM to create intelligent summaries with key excerpts.
     
@@ -345,6 +345,7 @@ async def _call_summarizer_llm(
     is_chunk: bool = False,
     chunk_info: str = ""
 ) -> Optional[str]:
+    from agent.auxiliary_client import async_call_llm, extract_content_or_reasoning
     """
     Make a single LLM call to summarize content.
     

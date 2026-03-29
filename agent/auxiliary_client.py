@@ -1,5 +1,7 @@
 """Shared auxiliary client router for side tasks.
 
+from __future__ import annotations
+
 Provides a single resolution chain so every consumer (context compression,
 session search, web extraction, vision analysis, browser vision) picks up
 the best available backend without duplicating fallback logic.
@@ -45,7 +47,6 @@ from pathlib import Path  # noqa: F401 — used by test mocks
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Tuple
 
-from openai import OpenAI
 
 from hermes_cli.config import get_hermes_home
 from hermes_constants import OPENROUTER_BASE_URL
