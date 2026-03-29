@@ -708,6 +708,86 @@ fn check_tool_availability(py: Python<'_>, quiet: bool) -> PyResult<Py<PyAny>> {
 // Module definition
 // -------------------------------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Message sanitization — runs before every LLM call
+// ---------------------------------------------------------------------------
+
+/// Parse messages from JSON string, remove orphaned tool results, inject stubs.
+/// Input: JSON string of message list.
+/// Returns: None if no changes needed, Some(json_string) with modified messages.
+pub fn sanitize_api_messages_json(json_str: &str) -> Option<String> {
+    use serde_json::Value;
+
+    let messages: Vec<Value> = match serde_json::from_str(json_str) {
+        Ok(v) => v,
+        Err(_) => return None,
+    };
+
+    let surviving: std::collections::HashSet<String> = messages
+        .iter()
+        .filter(|m| m.get("role").and_then(|r| r.as_str()) == Some("assistant"))
+        .flat_map(|m| {
+            m.get("tool_calls").and_then(|v| v.as_array()).map(|arr| {
+                arr.iter()
+                    .filter_map(|tc| {
+                        tc.get("id").and_then(|id| id.as_str()).map(|s| s.to_string())
+                            .or_else(|| {
+                                tc.get("function").and_then(|f| f.get("id")).and_then(|id| id.as_str())
+                            })
+                            .map(|s| s.to_string())
+                    })
+                    .collect::<Vec<_>>()
+            }).unwrap_or_default()
+        })
+        .flatten()
+        .collect();
+
+    let result_ids: std::collections::HashSet<String> = messages
+        .iter()
+        .filter(|m| m.get("role").and_then(|r| r.as_str()) == Some("tool"))
+        .filter_map(|m| m.get("tool_call_id").and_then(|id| id.as_str()).map(|s| s.to_string()))
+        .collect();
+
+    let orphaned: Vec<&String> = result_ids.difference(&surviving).collect();
+    let missing: Vec<&String> = surviving.difference(&result_ids).collect();
+
+    if orphaned.is_empty() && missing.is_empty() {
+        return None;
+    }
+
+    let mut result: Vec<Value> = Vec::with_capacity(messages.len() + missing.len());
+    for msg in &messages {
+        let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("");
+        if role == "tool" {
+            let cid = msg.get("tool_call_id").and_then(|id| id.as_str()).unwrap_or("");
+            if orphaned.contains(&cid.to_string()) {
+                continue;
+            }
+        }
+        result.push(msg.clone());
+        if role == "assistant" {
+            for tc in msg.get("tool_calls").and_then(|v| v.as_array()).iter().flatten() {
+                let cid = tc.get("id").and_then(|id| id.as_str())
+                    .or_else(|| tc.get("function").and_then(|f| f.get("id")).and_then(|id| id.as_str()))
+                    .unwrap_or("");
+                if missing.contains(&cid.to_string()) {
+                    result.push(serde_json::json!({
+                        "role": "tool",
+                        "content": "[Result unavailable — see context summary above]",
+                        "tool_call_id": cid,
+                    }));
+                }
+            }
+        }
+    }
+    serde_json::to_string(&result).ok()
+}
+
+#[pyfunction]
+fn sanitize_api_messages(messages_json: &str) -> PyResult<Option<String>> {
+    Ok(sanitize_api_messages_json(messages_json))
+}
+
 #[pymodule]
 fn _model_tools_rust(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(initialize, module)?)?;

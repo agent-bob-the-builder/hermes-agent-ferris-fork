@@ -4,6 +4,7 @@ Pure utility functions with no AIAgent dependency. Used by ContextCompressor
 and run_agent.py for pre-flight context checks.
 """
 
+import json
 import logging
 import os
 import re
@@ -16,6 +17,15 @@ import requests
 import yaml
 
 from hermes_constants import OPENROUTER_MODELS_URL
+
+# ---------------------------------------------------------------------------
+# Rust-accelerated token estimation (preferred — avoids Python object overhead)
+# ---------------------------------------------------------------------------
+_rust_tokenizer = None
+try:
+    import rust_compressor as _rust_tokenizer
+except Exception:
+    _rust_tokenizer = None
 
 logger = logging.getLogger(__name__)
 
@@ -901,7 +911,17 @@ def estimate_tokens_rough(text: str) -> int:
 
 
 def estimate_messages_tokens_rough(messages: List[Dict[str, Any]]) -> int:
-    """Rough token estimate for a message list (pre-flight only)."""
+    """Rough token estimate for a message list (pre-flight only).
+    
+    Uses rust_compressor.estimate_messages_tokens_from_json when available,
+    which avoids per-message Python object overhead by passing a single
+    JSON string to Rust for parsing.
+    """
+    if _rust_tokenizer is not None:
+        try:
+            return _rust_tokenizer.estimate_messages_tokens_from_json(json.dumps(messages))
+        except Exception:
+            pass
     total_chars = sum(len(str(msg)) for msg in messages)
     return total_chars // 4
 
@@ -923,7 +943,7 @@ def estimate_request_tokens_rough(
     if system_prompt:
         total_chars += len(system_prompt)
     if messages:
-        total_chars += sum(len(str(msg)) for msg in messages)
+        total_chars += estimate_messages_tokens_rough(messages) * 4
     if tools:
         total_chars += len(str(tools))
     return total_chars // 4
