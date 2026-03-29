@@ -526,7 +526,7 @@ def _get_env_config() -> Dict[str, Any]:
 
 
 def _create_environment(env_type: str, image: str, cwd: str, timeout: int,
-                        ssh_config: dict = None, ccfg: dict = None,
+                        ssh_config: dict = None, container_config: dict = None,
                         local_config: dict = None,
                         task_id: str = "default",
                         host_cwd: str = None):
@@ -539,14 +539,14 @@ def _create_environment(env_type: str, image: str, cwd: str, timeout: int,
         cwd: Working directory
         timeout: Default command timeout
         ssh_config: SSH connection config (for env_type="ssh")
-        ccfg: Resource config for container backends (cpu, memory, disk, persistent)
+        container_config: Resource config for container backends (cpu, memory, disk, persistent)
         task_id: Task identifier for environment reuse and snapshot keying
         host_cwd: Optional host working directory to bind into Docker when explicitly enabled
         
     Returns:
         Environment instance with execute() method
     """
-    cc = ccfg or {}
+    cc = container_config or {}
     cpu = cc.get("container_cpu", 1)
     memory = cc.get("container_memory", 5120)
     disk = cc.get("container_disk", 51200)
@@ -951,9 +951,9 @@ def terminal_tool(
                                 "persistent": config.get("ssh_persistent", False),
                             }
 
-                        ccfg = None
+                        container_config = None
                         if env_type in ("docker", "singularity", "modal", "daytona"):
-                            ccfg = {
+                            container_config = {
                                 "container_cpu": config.get("container_cpu", 1),
                                 "container_memory": config.get("container_memory", 5120),
                                 "container_disk": config.get("container_disk", 51200),
@@ -974,7 +974,7 @@ def terminal_tool(
                             cwd=cwd,
                             timeout=effective_timeout,
                             ssh_config=ssh_config,
-                            ccfg=ccfg,
+                            container_config=container_config,
                             local_config=local_config,
                             task_id=effective_task_id,
                             host_cwd=config.get("host_cwd"),
