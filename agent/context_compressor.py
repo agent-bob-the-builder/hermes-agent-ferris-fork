@@ -24,6 +24,14 @@ from agent.model_metadata import (
 
 logger = logging.getLogger(__name__)
 
+# Rust compressor (optional — fast-path in compress())
+try:
+    import rust_compressor
+except Exception:
+    rust_compressor = None
+
+_force_python = False  # test override — set True to force Python path
+
 SUMMARY_PREFIX = (
     "[CONTEXT COMPACTION] Earlier turns in this conversation were compacted "
     "to save context space. The summary below describes work that was "
@@ -555,6 +563,33 @@ Write only the summary body. Do not include any preamble or prefix."""
         After compression, orphaned tool_call / tool_result pairs are cleaned
         up so the API never receives mismatched IDs.
         """
+
+        # Rust fast-path
+        if rust_compressor is not None and not _force_python:
+            try:
+                result, summary_text = rust_compressor.compress_async(
+                    model=self.model,
+                    messages=messages,
+                    context_length=self.context_length,
+                    threshold_percent=self.threshold_percent,
+                    protect_first_n=self.protect_first_n,
+                    protect_last_n=self.protect_last_n,
+                    max_summary_tokens=self.max_summary_tokens,
+                    summary_target_ratio=self.summary_target_ratio,
+                    previous_summary=self._previous_summary or "",
+                    compression_count=self.compression_count,
+                    quiet=self.quiet_mode,
+                    api_key=None,
+                    base_url=None,
+                    provider=None,
+                )
+                if summary_text:
+                    self._previous_summary = summary_text
+                self.compression_count += 1
+                return result
+            except Exception:
+                pass  # Fall through to Python implementation
+
         n_messages = len(messages)
         if n_messages <= self.protect_first_n + self.protect_last_n + 1:
             if not self.quiet_mode:

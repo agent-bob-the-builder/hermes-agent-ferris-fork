@@ -126,7 +126,8 @@ class TestGenerateSummaryNoneContent:
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = "[CONTEXT SUMMARY]: tool calls happened"
 
-        with patch("agent.context_compressor.get_model_context_length", return_value=100000):
+        with patch("agent.context_compressor.get_model_context_length", return_value=100000), \
+            patch("agent.context_compressor._force_python", True):
             c = ContextCompressor(model="test", quiet_mode=True)
 
         messages = [
@@ -146,7 +147,8 @@ class TestGenerateSummaryNoneContent:
 
     def test_none_content_in_system_message_compress(self):
         """System message with content=None should not crash during compress."""
-        with patch("agent.context_compressor.get_model_context_length", return_value=100000):
+        with patch("agent.context_compressor.get_model_context_length", return_value=100000), \
+            patch("agent.context_compressor._force_python", True):
             c = ContextCompressor(model="test", quiet_mode=True, protect_first_n=2, protect_last_n=2)
 
         msgs = [{"role": "system", "content": None}] + [
@@ -165,7 +167,8 @@ class TestNonStringContent:
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = {"text": "some summary"}
 
-        with patch("agent.context_compressor.get_model_context_length", return_value=100000):
+        with patch("agent.context_compressor.get_model_context_length", return_value=100000), \
+            patch("agent.context_compressor._force_python", True):
             c = ContextCompressor(model="test", quiet_mode=True)
 
         messages = [
@@ -183,7 +186,8 @@ class TestNonStringContent:
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = None
 
-        with patch("agent.context_compressor.get_model_context_length", return_value=100000):
+        with patch("agent.context_compressor.get_model_context_length", return_value=100000), \
+            patch("agent.context_compressor._force_python", True):
             c = ContextCompressor(model="test", quiet_mode=True)
 
         messages = [
@@ -216,7 +220,8 @@ class TestCompressWithClient:
         mock_response.choices[0].message.content = "[CONTEXT SUMMARY]: stuff happened"
         mock_client.chat.completions.create.return_value = mock_response
 
-        with patch("agent.context_compressor.get_model_context_length", return_value=100000):
+        with patch("agent.context_compressor.get_model_context_length", return_value=100000), \
+            patch("agent.context_compressor._force_python", True):
             c = ContextCompressor(model="test", quiet_mode=True, protect_first_n=2, protect_last_n=2)
 
         msgs = [{"role": "user" if i % 2 == 0 else "assistant", "content": f"msg {i}"} for i in range(10)]
@@ -235,7 +240,8 @@ class TestCompressWithClient:
         mock_response.choices[0].message.content = "[CONTEXT SUMMARY]: compressed middle"
         mock_client.chat.completions.create.return_value = mock_response
 
-        with patch("agent.context_compressor.get_model_context_length", return_value=100000):
+        with patch("agent.context_compressor.get_model_context_length", return_value=100000), \
+            patch("agent.context_compressor._force_python", True):
             c = ContextCompressor(
                 model="test",
                 quiet_mode=True,
@@ -283,7 +289,8 @@ class TestCompressWithClient:
         mock_response.choices[0].message.content = "[CONTEXT SUMMARY]: stuff happened"
         mock_client.chat.completions.create.return_value = mock_response
 
-        with patch("agent.context_compressor.get_model_context_length", return_value=100000):
+        with patch("agent.context_compressor.get_model_context_length", return_value=100000), \
+            patch("agent.context_compressor._force_python", True):
             c = ContextCompressor(model="test", quiet_mode=True, protect_first_n=2, protect_last_n=2)
 
         # Last head message (index 1) is "assistant" → summary should be "user"
@@ -311,7 +318,8 @@ class TestCompressWithClient:
         mock_response.choices[0].message.content = "[CONTEXT SUMMARY]: stuff happened"
         mock_client.chat.completions.create.return_value = mock_response
 
-        with patch("agent.context_compressor.get_model_context_length", return_value=100000):
+        with patch("agent.context_compressor.get_model_context_length", return_value=100000), \
+            patch("agent.context_compressor._force_python", True):
             c = ContextCompressor(model="test", quiet_mode=True, protect_first_n=3, protect_last_n=2)
 
         # Last head message (index 2) is "user" → summary should be "assistant"
@@ -340,7 +348,8 @@ class TestCompressWithClient:
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = "summary text"
 
-        with patch("agent.context_compressor.get_model_context_length", return_value=100000):
+        with patch("agent.context_compressor.get_model_context_length", return_value=100000), \
+            patch("agent.context_compressor._force_python", True):
             c = ContextCompressor(model="test", quiet_mode=True, protect_first_n=2, protect_last_n=2)
 
         # Head ends with tool (index 1), tail starts with user (index 6).
@@ -379,7 +388,8 @@ class TestCompressWithClient:
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = "summary text"
 
-        with patch("agent.context_compressor.get_model_context_length", return_value=100000):
+        with patch("agent.context_compressor.get_model_context_length", return_value=100000), \
+            patch("agent.context_compressor._force_python", True):
             c = ContextCompressor(model="test", quiet_mode=True, protect_first_n=3, protect_last_n=3)
 
         # Head: [system, user, assistant]  →  last head = assistant
@@ -418,7 +428,8 @@ class TestCompressWithClient:
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = "summary text"
 
-        with patch("agent.context_compressor.get_model_context_length", return_value=100000):
+        with patch("agent.context_compressor.get_model_context_length", return_value=100000), \
+            patch("agent.context_compressor._force_python", True):
             c = ContextCompressor(model="test", quiet_mode=True, protect_first_n=2, protect_last_n=2)
 
         # Head: [system, user]        → last head = user
@@ -455,7 +466,8 @@ class TestCompressWithClient:
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = "summary text"
 
-        with patch("agent.context_compressor.get_model_context_length", return_value=100000):
+        with patch("agent.context_compressor.get_model_context_length", return_value=100000), \
+            patch("agent.context_compressor._force_python", True):
             c = ContextCompressor(model="test", quiet_mode=True, protect_first_n=2, protect_last_n=2)
 
         # Head=assistant, Tail=assistant → summary_role="user", no collision
@@ -478,7 +490,8 @@ class TestCompressWithClient:
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = "[CONTEXT SUMMARY]: compressed middle"
 
-        with patch("agent.context_compressor.get_model_context_length", return_value=100000):
+        with patch("agent.context_compressor.get_model_context_length", return_value=100000), \
+            patch("agent.context_compressor._force_python", True):
             c = ContextCompressor(
                 model="test",
                 quiet_mode=True,
@@ -520,45 +533,53 @@ class TestSummaryTargetRatio:
 
     def test_tail_budget_scales_with_context(self):
         """Tail token budget should be threshold_tokens * summary_target_ratio."""
-        with patch("agent.context_compressor.get_model_context_length", return_value=200_000):
+        with patch("agent.context_compressor.get_model_context_length", return_value=200_000), \
+            patch("agent.context_compressor._force_python", True):
             c = ContextCompressor(model="test", quiet_mode=True, summary_target_ratio=0.40)
         # 200K * 0.50 threshold * 0.40 ratio = 40K
         assert c.tail_token_budget == 40_000
 
-        with patch("agent.context_compressor.get_model_context_length", return_value=1_000_000):
+        with patch("agent.context_compressor.get_model_context_length", return_value=1_000_000), \
+            patch("agent.context_compressor._force_python", True):
             c = ContextCompressor(model="test", quiet_mode=True, summary_target_ratio=0.40)
         # 1M * 0.50 threshold * 0.40 ratio = 200K
         assert c.tail_token_budget == 200_000
 
     def test_summary_cap_scales_with_context(self):
         """Max summary tokens should be 5% of context, capped at 12K."""
-        with patch("agent.context_compressor.get_model_context_length", return_value=200_000):
+        with patch("agent.context_compressor.get_model_context_length", return_value=200_000), \
+            patch("agent.context_compressor._force_python", True):
             c = ContextCompressor(model="test", quiet_mode=True)
         assert c.max_summary_tokens == 10_000  # 200K * 0.05
 
-        with patch("agent.context_compressor.get_model_context_length", return_value=1_000_000):
+        with patch("agent.context_compressor.get_model_context_length", return_value=1_000_000), \
+            patch("agent.context_compressor._force_python", True):
             c = ContextCompressor(model="test", quiet_mode=True)
         assert c.max_summary_tokens == 12_000  # capped at 12K ceiling
 
     def test_ratio_clamped(self):
         """Ratio should be clamped to [0.10, 0.80]."""
-        with patch("agent.context_compressor.get_model_context_length", return_value=100_000):
+        with patch("agent.context_compressor.get_model_context_length", return_value=100_000), \
+            patch("agent.context_compressor._force_python", True):
             c = ContextCompressor(model="test", quiet_mode=True, summary_target_ratio=0.05)
         assert c.summary_target_ratio == 0.10
 
-        with patch("agent.context_compressor.get_model_context_length", return_value=100_000):
+        with patch("agent.context_compressor.get_model_context_length", return_value=100_000), \
+            patch("agent.context_compressor._force_python", True):
             c = ContextCompressor(model="test", quiet_mode=True, summary_target_ratio=0.95)
         assert c.summary_target_ratio == 0.80
 
     def test_default_threshold_is_50_percent(self):
         """Default compression threshold should be 50%."""
-        with patch("agent.context_compressor.get_model_context_length", return_value=100_000):
+        with patch("agent.context_compressor.get_model_context_length", return_value=100_000), \
+            patch("agent.context_compressor._force_python", True):
             c = ContextCompressor(model="test", quiet_mode=True)
         assert c.threshold_percent == 0.50
         assert c.threshold_tokens == 50_000
 
     def test_default_protect_last_n_is_20(self):
         """Default protect_last_n should be 20."""
-        with patch("agent.context_compressor.get_model_context_length", return_value=100_000):
+        with patch("agent.context_compressor.get_model_context_length", return_value=100_000), \
+            patch("agent.context_compressor._force_python", True):
             c = ContextCompressor(model="test", quiet_mode=True)
         assert c.protect_last_n == 20

@@ -45,7 +45,19 @@ import threading
 import time
 from pathlib import Path  # noqa: F401 — used by test mocks
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+
+if TYPE_CHECKING:
+    from openai import OpenAI, AsyncOpenAI
+
+def __getattr__(name: str):
+    """Lazy module-level alias so mock.patch("agent.auxiliary_client.OpenAI") works."""
+    if name in ("OpenAI", "AsyncOpenAI"):
+        from openai import OpenAI as _O, AsyncOpenAI as _AO
+        globals()["OpenAI"] = _O
+        globals()["AsyncOpenAI"] = _AO
+        return _O if name == "OpenAI" else _AO
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 from hermes_cli.config import get_hermes_home
@@ -151,12 +163,11 @@ def _convert_content_for_responses(content: Any) -> Any:
     return converted or ""
 
 
-from openai import OpenAI
 class _CodexCompletionsAdapter:
     """Drop-in shim that accepts chat.completions.create() kwargs and
     routes them through the Codex Responses streaming API."""
 
-    def __init__(self, real_client: OpenAI, model: str):
+    def __init__(self, real_client: "OpenAI", model: str):
         self._client = real_client
         self._model = model
 
@@ -283,7 +294,7 @@ class CodexAuxiliaryClient:
     Also exposes .api_key and .base_url for introspection by async wrappers.
     """
 
-    def __init__(self, real_client: OpenAI, model: str):
+    def __init__(self, real_client: "OpenAI", model: str):
         self._real_client = real_client
         adapter = _CodexCompletionsAdapter(real_client, model)
         self.chat = _CodexChatShim(adapter)
@@ -497,13 +508,12 @@ def _read_codex_access_token() -> Optional[str]:
         return None
 
 
-def _resolve_api_key_provider() -> Tuple[Optional[OpenAI], Optional[str]]:
+def _resolve_api_key_provider() -> "Tuple[Optional[OpenAI], Optional[str]]":
     """Try each API-key provider in PROVIDER_REGISTRY order.
 
     Returns (client, model) for the first provider with usable runtime
     credentials, or (None, None) if none are configured.
     """
-    from openai import OpenAI
     try:
         from hermes_cli.auth import PROVIDER_REGISTRY, resolve_api_key_provider_credentials
     except ImportError:
@@ -564,8 +574,7 @@ def _get_auxiliary_env_override(task: str, suffix: str) -> Optional[str]:
     return None
 
 
-def _try_openrouter() -> Tuple[Optional[OpenAI], Optional[str]]:
-    from openai import OpenAI
+def _try_openrouter() -> "Tuple[Optional[OpenAI], Optional[str]]":
     or_key = os.getenv("OPENROUTER_API_KEY")
     if not or_key:
         return None, None
@@ -574,8 +583,7 @@ def _try_openrouter() -> Tuple[Optional[OpenAI], Optional[str]]:
                    default_headers=_OR_HEADERS), _OPENROUTER_MODEL
 
 
-def _try_nous() -> Tuple[Optional[OpenAI], Optional[str]]:
-    from openai import OpenAI
+def _try_nous() -> "Tuple[Optional[OpenAI], Optional[str]]":
     nous = _read_nous_auth()
     if not nous:
         return None, None
@@ -649,8 +657,7 @@ def _current_custom_base_url() -> str:
     return custom_base or ""
 
 
-def _try_custom_endpoint() -> Tuple[Optional[OpenAI], Optional[str]]:
-    from openai import OpenAI
+def _try_custom_endpoint() -> "Tuple[Optional[OpenAI], Optional[str]]":
     custom_base, custom_key = _resolve_custom_runtime()
     if not custom_base or not custom_key:
         return None, None
@@ -660,7 +667,6 @@ def _try_custom_endpoint() -> Tuple[Optional[OpenAI], Optional[str]]:
 
 
 def _try_codex() -> Tuple[Optional[Any], Optional[str]]:
-    from openai import OpenAI
     codex_token = _read_codex_access_token()
     if not codex_token:
         return None, None
@@ -710,7 +716,7 @@ def _try_anthropic() -> Tuple[Optional[Any], Optional[str]]:
     return AnthropicAuxiliaryClient(real_client, model, token, base_url, is_oauth=is_oauth), model
 
 
-def _resolve_forced_provider(forced: str) -> Tuple[Optional[OpenAI], Optional[str]]:
+def _resolve_forced_provider(forced: str) -> "Tuple[Optional[OpenAI], Optional[str]]":
     """Resolve a specific forced provider.  Returns (None, None) if creds missing."""
     if forced == "openrouter":
         client, model = _try_openrouter()
@@ -744,7 +750,7 @@ def _resolve_forced_provider(forced: str) -> Tuple[Optional[OpenAI], Optional[st
     return None, None
 
 
-def _resolve_auto() -> Tuple[Optional[OpenAI], Optional[str]]:
+def _resolve_auto() -> "Tuple[Optional[OpenAI], Optional[str]]":
     """Full auto-detection chain: OpenRouter → Nous → custom → Codex → API-key → None."""
     global auxiliary_is_nous
     auxiliary_is_nous = False  # Reset — _try_nous() will set True if it wins
@@ -885,7 +891,6 @@ def resolve_provider_client(
                                "but no Codex OAuth token found (run: hermes model)")
                 return None, None
             final_model = model or _CODEX_AUX_MODEL
-            from openai import OpenAI
             raw_client = OpenAI(api_key=codex_token, base_url=_CODEX_AUX_BASE_URL)
             return (raw_client, final_model)
         # Standard path: wrap in CodexAuxiliaryClient adapter
@@ -913,7 +918,6 @@ def resolve_provider_client(
                 )
                 return None, None
             final_model = model or _read_main_model() or "gpt-4o-mini"
-            from openai import OpenAI
             client = OpenAI(api_key=custom_key, base_url=custom_base)
             return (_to_async_client(client, final_model) if async_mode
                     else (client, final_model))
@@ -975,7 +979,6 @@ def resolve_provider_client(
 
             headers.update(copilot_default_headers())
 
-        from openai import OpenAI
         client = OpenAI(api_key=api_key, base_url=base_url,
                         **({"default_headers": headers} if headers else {}))
         logger.debug("resolve_provider_client: %s (%s)", provider, final_model)
@@ -1000,7 +1003,7 @@ def resolve_provider_client(
 
 # ── Public API ──────────────────────────────────────────────────────────────
 
-def get_text_auxiliary_client(task: str = "") -> Tuple[Optional[OpenAI], Optional[str]]:
+def get_text_auxiliary_client(task: str = "") -> "Tuple[Optional[OpenAI], Optional[str]]":
     """Return (client, default_model_slug) for text-only auxiliary tasks.
 
     Args:
@@ -1170,7 +1173,7 @@ def resolve_vision_provider_client(
     return requested, client, final_model
 
 
-def get_vision_auxiliary_client() -> Tuple[Optional[OpenAI], Optional[str]]:
+def get_vision_auxiliary_client() -> "Tuple[Optional[OpenAI], Optional[str]]":
     """Return (client, default_model_slug) for vision/multimodal auxiliary tasks."""
     _, client, final_model = resolve_vision_provider_client(async_mode=False)
     return client, final_model
