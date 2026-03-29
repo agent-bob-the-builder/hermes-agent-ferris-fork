@@ -1,0 +1,17 @@
+[package]
+name = "prompt_builder_rs"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "_prompt_builder_rust"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3.workspace = true
+regex.workspace = true
+serde_json.workspace = true
+once_cell.workspace = true
+
+[package.metadata.maturin]
+name = "_prompt_builder_rust"

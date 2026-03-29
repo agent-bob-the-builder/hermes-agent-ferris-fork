@@ -405,41 +405,27 @@ class ShellFileOperations(FileOperations):
             numbered.append(f"{i:6d}|{line}")
         return '\n'.join(numbered)
     
-    def _expand_path(self, path: str) -> str:
+    def _native_expand_path(self, path: str) -> str:
         """
         Expand shell-style paths like ~ and ~user to absolute paths.
-        
-        This must be done BEFORE shell escaping, since ~ doesn't expand
-        inside single quotes.
+        Uses native Python — no shell commands.
         """
         if not path:
             return path
-        
-        # Handle ~ and ~user
+
         if path.startswith('~'):
-            # Get home directory via the terminal environment
-            result = self._exec("echo $HOME")
-            if result.exit_code == 0 and result.stdout.strip():
-                home = result.stdout.strip()
-                if path == '~':
-                    return home
-                elif path.startswith('~/'):
-                    return home + path[1:]  # Replace ~ with home
-                # ~username format - extract and validate username before
-                # letting shell expand it (prevent shell injection via
-                # paths like "~; rm -rf /").
-                rest = path[1:]  # strip leading ~
-                slash_idx = rest.find('/')
-                username = rest[:slash_idx] if slash_idx >= 0 else rest
-                if username and re.fullmatch(r'[a-zA-Z0-9._-]+', username):
-                    # Only expand ~username (not the full path) to avoid shell
-                    # injection via path suffixes like "~user/$(malicious)".
-                    expand_result = self._exec(f"echo ~{username}")
-                    if expand_result.exit_code == 0 and expand_result.stdout.strip():
-                        user_home = expand_result.stdout.strip()
-                        suffix = path[1 + len(username):]  # e.g. "/rest/of/path"
-                        return user_home + suffix
-        
+            # Validate before using expanduser (security: no command injection)
+            if path == '~':
+                return os.path.expanduser('~')
+            if path.startswith('~/'):
+                return os.path.expanduser('~') + path[1:]
+            # ~username format — validate username is safe before expanding
+            rest = path[1:]  # strip leading ~
+            slash_idx = rest.find('/')
+            username = rest[:slash_idx] if slash_idx >= 0 else rest
+            if username and re.fullmatch(r'[a-zA-Z0-9._-]+', username):
+                return os.path.expanduser(f'~{username}') + path[1 + len(username):]
+
         return path
     
     def _escape_shell_arg(self, arg: str) -> str:
@@ -465,39 +451,27 @@ class ShellFileOperations(FileOperations):
     def read_file(self, path: str, offset: int = 1, limit: int = 500) -> ReadResult:
         """
         Read a file with pagination, binary detection, and line numbers.
-        
+        Uses native Python I/O — no shell commands.
+
         Args:
             path: File path (absolute or relative to cwd)
             offset: Line number to start from (1-indexed, default 1)
             limit: Maximum lines to return (default 500, max 2000)
-        
+
         Returns:
             ReadResult with content, metadata, or error info
         """
-        # Expand ~ and other shell paths
-        path = self._expand_path(path)
-        
-        # Clamp limit
+        # Expand ~ paths using native Python
+        path = self._native_expand_path(path)
         limit = min(limit, MAX_LINES)
-        
-        # Check if file exists and get size (wc -c is POSIX, works on Linux + macOS)
-        stat_cmd = f"wc -c < {self._escape_shell_arg(path)} 2>/dev/null"
-        stat_result = self._exec(stat_cmd)
-        
-        if stat_result.exit_code != 0:
-            # File not found - try to suggest similar files
-            return self._suggest_similar_files(path)
-        
+
+        # Get file size and check existence with os.stat()
         try:
-            file_size = int(stat_result.stdout.strip())
-        except ValueError:
-            file_size = 0
-        
-        # Check if file is too large
-        if file_size > MAX_FILE_SIZE:
-            # Still try to read, but warn
-            pass
-        
+            stat_result = os.stat(path)
+            file_size = stat_result.st_size
+        except OSError:
+            return self._suggest_similar_files(path)
+
         # Images are never inlined — redirect to the vision tool
         if self._is_image(path):
             return ReadResult(
@@ -509,42 +483,52 @@ class ShellFileOperations(FileOperations):
                     "Use vision_analyze with this file path to inspect the image contents."
                 ),
             )
-        
-        # Read a sample to check for binary content
-        sample_cmd = f"head -c 1000 {self._escape_shell_arg(path)} 2>/dev/null"
-        sample_result = self._exec(sample_cmd)
-        
-        if self._is_likely_binary(path, sample_result.stdout):
+
+        # Binary detection: read first 1000 bytes and check for non-printable chars
+        try:
+            with open(path, 'rb') as f:
+                sample = f.read(1000)
+            sample_text = sample.decode('utf-8', errors='replace')
+        except OSError:
+            sample_text = ''
+
+        if self._is_likely_binary(path, sample_text):
             return ReadResult(
                 is_binary=True,
                 file_size=file_size,
                 error="Binary file - cannot display as text. Use appropriate tools to handle this file type."
             )
-        
-        # Read with pagination using sed
-        end_line = offset + limit - 1
-        read_cmd = f"sed -n '{offset},{end_line}p' {self._escape_shell_arg(path)}"
-        read_result = self._exec(read_cmd)
-        
-        if read_result.exit_code != 0:
-            return ReadResult(error=f"Failed to read file: {read_result.stdout}")
-        
-        # Get total line count
-        wc_cmd = f"wc -l < {self._escape_shell_arg(path)}"
-        wc_result = self._exec(wc_cmd)
+
+        # Read the file content with pagination
         try:
-            total_lines = int(wc_result.stdout.strip())
-        except ValueError:
-            total_lines = 0
-        
-        # Check if truncated
+            with open(path, 'r', encoding='utf-8', errors='replace') as f:
+                all_lines = f.readlines()
+        except OSError as e:
+            return ReadResult(error=f"Failed to read file: {e}")
+
+        total_lines = len(all_lines)
+        end_line = offset + limit - 1  # inclusive
+
+        # Clamp to available lines
+        if offset > total_lines:
+            return ReadResult(
+                content='',
+                total_lines=total_lines,
+                file_size=file_size,
+                truncated=False,
+                hint=f"Offset {offset} exceeds file length ({total_lines} lines). Use offset=1."
+            )
+
+        slice_lines = all_lines[offset - 1:end_line]
+        read_content = ''.join(slice_lines)
         truncated = total_lines > end_line
+
         hint = None
         if truncated:
             hint = f"Use offset={end_line + 1} to continue reading (showing {offset}-{end_line} of {total_lines} lines)"
-        
+
         return ReadResult(
-            content=self._add_line_numbers(read_result.stdout, offset),
+            content=self._add_line_numbers(read_content, offset),
             total_lines=total_lines,
             file_size=file_size,
             truncated=truncated,
@@ -619,28 +603,28 @@ class ShellFileOperations(FileOperations):
         )
     
     def _suggest_similar_files(self, path: str) -> ReadResult:
-        """Suggest similar files when the requested file is not found."""
+        """Suggest similar files when the requested file is not found.
+        Uses native Python os.listdir — no shell commands.
+        """
         # Get directory and filename
         dir_path = os.path.dirname(path) or "."
         filename = os.path.basename(path)
-        
-        # List files in directory
-        ls_cmd = f"ls -1 {self._escape_shell_arg(dir_path)} 2>/dev/null | head -20"
-        ls_result = self._exec(ls_cmd)
-        
+
         similar = []
-        if ls_result.exit_code == 0 and ls_result.stdout.strip():
-            files = ls_result.stdout.strip().split('\n')
+        try:
+            entries = os.listdir(dir_path)
+        except OSError:
+            return ReadResult(error=f"File not found: {path}", similar_files=[])
+
+        for f in entries:
             # Simple similarity: files that share some characters with the target
-            for f in files:
-                # Check if filenames share significant overlap
-                common = set(filename.lower()) & set(f.lower())
-                if len(common) >= len(filename) * 0.5:  # 50% character overlap
-                    similar.append(os.path.join(dir_path, f))
-        
+            common = set(filename.lower()) & set(f.lower())
+            if len(common) >= len(filename) * 0.5:  # 50% character overlap
+                similar.append(os.path.join(dir_path, f))
+
         return ReadResult(
             error=f"File not found: {path}",
-            similar_files=similar[:5]  # Limit to 5 suggestions
+            similar_files=similar[:5]
         )
     
     # =========================================================================
@@ -719,21 +703,19 @@ class ShellFileOperations(FileOperations):
         Returns:
             PatchResult with diff and lint results
         """
-        # Expand ~ and other shell paths
-        path = self._expand_path(path)
+        # Expand ~ and other shell paths (native Python, no shell)
+        path = self._native_expand_path(path)
 
         # Block writes to sensitive paths
         if _is_write_denied(path):
             return PatchResult(error=f"Write denied: '{path}' is a protected system/credential file.")
 
-        # Read current content
-        read_cmd = f"cat {self._escape_shell_arg(path)} 2>/dev/null"
-        read_result = self._exec(read_cmd)
-        
-        if read_result.exit_code != 0:
-            return PatchResult(error=f"Failed to read file: {path}")
-        
-        content = read_result.stdout
+        # Read current content (native Python I/O)
+        try:
+            with open(path, 'r', encoding='utf-8', errors='replace') as f:
+                content = f.read()
+        except OSError as e:
+            return PatchResult(error=f"Failed to read file: {e}")
         
         # Import and use fuzzy matching
         from tools.fuzzy_match import fuzzy_find_and_replace
@@ -851,12 +833,11 @@ class ShellFileOperations(FileOperations):
         Returns:
             SearchResult with matches or file list
         """
-        # Expand ~ and other shell paths
-        path = self._expand_path(path)
-        
+        # Expand ~ and other shell paths (native Python, no shell)
+        path = self._native_expand_path(path)
+
         # Validate that the path exists before searching
-        check = self._exec(f"test -e {self._escape_shell_arg(path)} && echo exists || echo not_found")
-        if "not_found" in check.stdout:
+        if not os.path.exists(path):
             return SearchResult(
                 error=f"Path not found: {path}. Verify the path exists (use 'terminal' to check).",
                 total_count=0
