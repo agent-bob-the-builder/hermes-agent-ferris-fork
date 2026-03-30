@@ -3,9 +3,7 @@ use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::{PyAnyMethods, PyDict, PyList, PyListMethods, PyModuleMethods, PySet};
 use std::collections::{HashMap, HashSet};
-use std::hash::Hash;
-use std::sync::{Arc, Mutex, mpsc::{channel, Sender, Receiver}, atomic::{AtomicBool, Ordering}};
-use std::thread::{self, ThreadId};
+use std::sync::{Mutex, atomic::{AtomicBool, Ordering}, mpsc::channel};
 
 // Legacy toolset mapping
 fn legacy_toolset_map() -> HashMap<&'static str, Vec<&'static str>> {
@@ -559,17 +557,8 @@ fn handle_function_call(
     honcho_manager: Option<Py<PyAny>>,
     honcho_session_key: Option<String>,
 ) -> PyResult<String> {
-    let read_search_tools: HashSet<&str> = HashSet::from(["read_file", "search_files"]);
     let agent_loop_tools: HashSet<&str> =
         HashSet::from(["todo", "memory", "session_search", "delegate_task"]);
-
-    if !read_search_tools.contains(function_name.as_str()) {
-        if let Ok(file_tools) = py.import("tools.file_tools") {
-            if let Ok(notify) = file_tools.getattr("notify_other_tool_call") {
-                let _ = notify.call1((task_id.clone().unwrap_or_else(|| "default".to_string()),));
-            }
-        }
-    }
 
     if agent_loop_tools.contains(function_name.as_str()) {
         return Ok(json_error(format!(
@@ -578,7 +567,7 @@ fn handle_function_call(
         )));
     }
 
-    // Build kwargs before releasing GIL (they don't need GIL, just py-bound Py objects)
+    // Build kwargs while GIL is held (safe)
     let kwargs = PyDict::new(py);
     if let Some(ref tid) = task_id {
         kwargs.set_item("task_id", tid)?;
@@ -590,47 +579,47 @@ fn handle_function_call(
         kwargs.set_item("honcho_session_key", sk)?;
     }
     if function_name == "execute_code" {
-        let sandbox_enabled = enabled_tools
-            .or(last_resolved_tool_names.clone())
-            .unwrap_or_default();
-        kwargs.set_item("enabled_tools", PyList::new(py, &sandbox_enabled)?)?;
+        let sandbox = enabled_tools.or(last_resolved_tool_names.clone()).unwrap_or_default();
+        kwargs.set_item("enabled_tools", PyList::new(py, &sandbox)?)?;
     } else if let Some(ref ut) = user_task {
         kwargs.set_item("user_task", ut)?;
     }
 
-    let fn_name_clone = function_name.clone();
-    let fn_args_py = function_args.bind(py).clone();
-    let kwargs_py = kwargs.bind(py).clone();
+    // Clone Python objects that will cross to the thread
+    let fn_name = function_name.clone();
+    let fa = function_args.bind(py).clone();
+    let kw = kwargs.bind(py).clone();
 
-    // Release GIL for the duration of the thread work. Python::attach() re-acquires
-    // the GIL inside the thread (a thread starting without Python has no thread-state).
-    let (tx, rx) = channel::<PyResult<Py<PyAny>>>();
-    py.allow_threads(move || {
-        let result = Python::attach(|py_inner| {
-            let registry = match get_cached_registry(py_inner) {
-                Ok(r) => r,
-                Err(e) => return Err(e),
-            };
-            registry.call_method(
-                "dispatch",
-                (fn_name_clone.clone(), fn_args_py.bind(py_inner)),
-                Some(&kwargs_py.bind(py_inner)),
-            )
+    // Release GIL — spawn thread that re-attaches to call Python dispatch
+    let (tx, rx) = channel::<Result<Py<PyAny>, PyErr>>();
+    thread::spawn(move || {
+        let r = Python::with_gil(|py| {
+            let registry = get_cached_registry(py)?;
+            registry.call_method("dispatch", (fn_name, fa.bind(py)), Some(&kw.bind(py)))
         });
-        let _ = tx.send(result);
+        let _ = tx.send(r);
     });
 
+    let result = rx.recv().map_err(|_| json_error("Rust handle_function_call: thread error".to_owned()))?;
 
+    result.extract::<String>().map_err(|err| {
+        logger_call(py, "error", &format!("Error executing {}: {}", function_name, err));
+        err
+    })
+}
 
 // -------------------------------------------------------------------------------------------------
 // refresh_toolset_cache — clears stale caches and rebuilds from current registry state.
 // Called from Python after MCP/plugin discovery so the Rust backend picks up any new tools.
 // -------------------------------------------------------------------------------------------------
 
+use std::thread;
+
 #[pyfunction]
 fn refresh_toolset_cache(py: Python<'_>) -> PyResult<()> {
     init_toolset_cache(py)
 }
+
 
 // -------------------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------------------

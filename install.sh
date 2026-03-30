@@ -364,5 +364,7 @@ read -p "  → Run hermes now? [Y/n] " -r </dev/tty && echo ""
 if [[ ! "$REPLY" =~ ^[Nn]$ ]]; then
     echo "  Launching hermes... (Ctrl+C to exit)"
     sleep 1
-    cd "$HERMES_DIR" && exec "$HERMES_DIR/venv/bin/python3" "$HERMES_DIR/cli.py"
+    # Give hermes a real TTY so prompt_toolkit doesn't complain about fd=0
+    # Using 'script -qec' (quiet, exec, close) — closes the PTY after hermes exits
+    cd "$HERMES_DIR" && exec script -qec "$HERMES_DIR/venv/bin/python3 $HERMES_DIR/cli.py" /dev/null
 fi

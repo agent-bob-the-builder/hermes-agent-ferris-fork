@@ -7,7 +7,6 @@
 use pyo3::prelude::*;
 use pyo3::wrap_pyfunction;
 use regex::Regex;
-use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -339,7 +338,7 @@ fn is_leap_year(year: i64) -> bool {
         identity = None,
         system_message = None,
         memory_store_json = None,
-        user_profile_json = None,
+        _user_profile_json = None,
         honcho_block = None,
         valid_tool_names_json = None,
         skip_context_files = false,
@@ -507,37 +506,7 @@ fn build(
 // Internal micro-benchmarks (not exposed as pyfunction — run via Python)
 // ---------------------------------------------------------------------------
 
-struct _BenchResult {
-
-impl BenchResult {
-    fn new(name: &str, mut values: Vec<f64>) -> Self {
-        values.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        let n = values.len();
-        let mean_ms = values.iter().sum::<f64>() / n as f64;
-        let median_ms = if n % 2 == 0 {
-            (values[n / 2 - 1] + values[n / 2]) / 2.0
-        } else {
-            values[n / 2]
-        };
-        let min_ms = values[0];
-        let max_ms = values[n - 1];
-        let p95_idx = ((n as f64) * 0.95).ceil() as usize;
-        let p95_ms = values[p95_idx.min(n - 1)];
-        BenchResult { name: name.to_string(), mean_ms, median_ms, min_ms, max_ms, p95_ms, runs: n }
-    }
-
-    fn to_json(&self) -> serde_json::Value {
-        json!({
-            "name": self.name,
-            "mean_ms": self.mean_ms,
-            "median_ms": self.median_ms,
-            "min_ms": self.min_ms,
-            "max_ms": self.max_ms,
-            "p95_ms": self.p95_ms,
-            "runs": self.runs
-        })
-    }
-}
+// BenchResult removed (unused)
 
 // ---------------------------------------------------------------------------
 // Module definition
