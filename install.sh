@@ -114,8 +114,10 @@ import zipfile, shutil, os, sys, subprocess, tempfile
 
 hermes = os.environ.get("HERMES_DIR", "/root/.hermes/hermes-agent")
 venv_python = os.path.join(hermes, "venv/bin/python3")
-site = os.path.join(hermes, "venv/lib/python3.11/site-packages")
 maturin = os.path.join(hermes, "venv/bin/maturin")
+result = subprocess.run([venv_python, "-c", "import sys; print(f'python{sys.version_info.major}.{sys.version_info.minor}')"], capture_output=True, text=True)
+python_version = result.stdout.strip()
+site = os.path.join(hermes, f"venv/lib/{python_version}/site-packages")
 
 crates = [
     ("rust/compressor/Cargo.toml",       "rust_compressor"),
@@ -182,7 +184,7 @@ reload_path
     ok "venv created"
 
     info "Installing Python dependencies..."
-    uv pip install --python "$HERMES_DIR/venv/bin/python3" -e . -q || fail "Python deps install failed"
+    cd "$HERMES_DIR" && uv pip install --python "$HERMES_DIR/venv/bin/python3" -e . -q || fail "Python deps install failed"
     ok "Python packages (pyproject.toml)"
 
     mkdir -p ~/.hermes/skills
