@@ -64,7 +64,7 @@ install_build_deps() {
     fi
     info "Installing build dependencies (cc, libc-dev)..."
     if need apt-get; then
-        apt-get install -y --no-install-recommends cc libc6-dev || fail "apt-get install build deps failed"
+        apt-get install -y --no-install-recommends build-essential || fail "apt-get install build deps failed"
     elif need yum; then
         yum install -y gcc gcc-c++ make || fail "yum install build deps failed"
     elif need dnf; then
