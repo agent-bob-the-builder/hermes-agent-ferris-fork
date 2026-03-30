@@ -938,20 +938,20 @@ class AIAgent:
                     client_kwargs["default_headers"] = headers
 
             self.api_key = client_kwargs.get("api_key", "")
-            try:
-                self.client = self._create_openai_client(client_kwargs, reason="agent_init", shared=True)
-                if not self.quiet_mode:
-                    print(f"🤖 AI Agent initialized with model: {self.model}")
-                    if base_url:
-                        print(f"🔗 Using custom base URL: {base_url}")
-                    # Always show API key info (masked) for debugging auth issues
-                    key_used = client_kwargs.get("api_key", "none")
-                    if key_used and key_used != "dummy-key" and len(key_used) > 12:
-                        print(f"🔑 Using API key: {key_used[:8]}...{key_used[-4:]}")
-                    else:
-                        print(f"⚠️  Warning: API key appears invalid or missing (got: '{key_used[:20] if key_used else 'none'}...')")
-            except Exception as e:
-                raise RuntimeError(f"Failed to initialize OpenAI client: {e}")
+            # Defer OpenAI client creation to first API call.
+            # Creating the client here imports openai+httpx (~700ms) even when
+            # the agent is only inspecting tools or running in quiet benchmark mode.
+            # _ensure_primary_openai_client() handles lazy creation on first use.
+            self.client = None
+            if not self.quiet_mode:
+                print(f"🤖 AI Agent initialized with model: {self.model}")
+                if base_url:
+                    print(f"🔗 Using custom base URL: {base_url}")
+                key_used = client_kwargs.get("api_key", "none")
+                if key_used and key_used != "dummy-key" and len(key_used) > 12:
+                    print(f"🔑 Using API key: {key_used[:8]}...{key_used[-4:]}")
+                else:
+                    print(f"⚠️  Warning: API key appears invalid or missing (got: '{key_used[:20] if key_used else 'none'}...')")
         
         # Provider fallback chain — ordered list of backup providers tried
         # when the primary is exhausted (rate-limit, overload, connection

@@ -839,7 +839,7 @@ _AUTO_PROVIDER_LABELS = {
 }
 
 
-def _resolve_auto() -> "Tuple[Optional[OpenAI], Optional[str]]:"
+def _resolve_auto() -> "Tuple[Optional[OpenAI], Optional[str]]":
     """Full auto-detection chain: OpenRouter → Nous → custom → Codex → API-key → None."""
     global auxiliary_is_nous
     auxiliary_is_nous = False  # Reset — _try_nous() will set True if it wins
