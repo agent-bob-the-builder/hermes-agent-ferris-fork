@@ -61,7 +61,8 @@ import sys
 import tempfile
 import threading
 import time
-import requests
+# lazy: only imported when _resolve_cdp_endpoint is actually called
+# import requests  — deferred to function body
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 from agent.auxiliary_client import call_llm
@@ -192,6 +193,7 @@ def _resolve_cdp_override(cdp_url: str) -> str:
         version_url = discovery_url.rstrip("/") + "/json/version"
 
     try:
+        import requests  # lazy — only needed when CDP endpoint resolution is attempted
         response = requests.get(version_url, timeout=10)
         response.raise_for_status()
         payload = response.json()

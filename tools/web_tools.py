@@ -42,7 +42,6 @@ import os
 import re
 import asyncio
 from typing import List, Dict, Any, Optional
-import httpx
 from tools.debug_helpers import DebugSession
 from tools.url_safety import is_safe_url
 from tools.website_policy import check_website_access
@@ -181,6 +180,7 @@ def _tavily_request(endpoint: str, payload: dict) -> dict:
         )
     payload["api_key"] = api_key
     url = f"{_TAVILY_BASE_URL}/{endpoint.lstrip('/')}"
+    import httpx  # lazy — only needed when Tavily API is called
     logger.info("Tavily %s request to %s", endpoint, url)
     response = httpx.post(url, json=payload, timeout=60)
     response.raise_for_status()

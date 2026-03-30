@@ -81,7 +81,6 @@ import weakref
 from types import SimpleNamespace
 import uuid
 from typing import List, Dict, Any, Optional
-from openai import OpenAI
 import fire
 from datetime import datetime
 from pathlib import Path
@@ -3580,6 +3579,7 @@ class AIAgent:
                 self._client_log_context(),
             )
             return client
+        from openai import OpenAI
         client = OpenAI(**client_kwargs)
         logger.info(
             "OpenAI client created (%s, shared=%s) %s",
