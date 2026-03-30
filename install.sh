@@ -42,20 +42,19 @@ install_uv() {
         return
     fi
     info "Installing uv..."
-    if need curl; then
-        curl -fsSL https://astral.sh/uv/install.sh | sh -s -- -y 2>&1 | grep -vE "^$" || true
-    elif need wget; then
-        wget -qO- https://astral.sh/uv/install.sh | sh -s -- -y 2>&1 | grep -vE "^$" || true
-    else
-        fail "uv install requires curl or wget"
-    fi
-    # Reload PATH so uv is available
+    (
+        if need curl; then
+            curl -fsSL https://astral.sh/uv/install.sh | sh 2>&1 | grep -vE "^$"
+        elif need wget; then
+            wget -qO- https://astral.sh/uv/install.sh | sh 2>&1 | grep -vE "^$"
+        else
+            exit 1
+        fi
+    ) || fail "uv install failed"
+    # Reload PATH so uv is available immediately
     export PATH="$HOME/.local/bin:$PATH"
-    if need uv; then
-        ok "uv"
-    else
-        fail "uv install failed"
-    fi
+    need uv || fail "uv install failed"
+    ok "uv"
 }
 
 ensure_rust_sources() {
