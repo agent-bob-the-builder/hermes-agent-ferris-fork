@@ -56,6 +56,28 @@ install_uv() {
     ok "uv"
 }
 
+# ── Install system build dependencies ───────────────────────────────────────
+install_build_deps() {
+    if need cc; then
+        ok "cc"
+        return
+    fi
+    info "Installing build dependencies (cc, libc-dev)..."
+    if need apt-get; then
+        apt-get install -y --no-install-recommends cc libc6-dev || fail "apt-get install build deps failed"
+    elif need yum; then
+        yum install -y gcc gcc-c++ make || fail "yum install build deps failed"
+    elif need dnf; then
+        dnf install -y gcc make || fail "dnf install build deps failed"
+    elif need apk; then
+        apk add --no-cache gcc musl-dev make || fail "apk install build deps failed"
+    else
+        fail "No package manager found (apt/yum/dnf/apk) — cannot install cc"
+    fi
+    need cc || fail "cc not found after install"
+    ok "cc"
+}
+
 # ── Install Rust toolchain ───────────────────────────────────────────────────
 install_rust() {
     # Source cargo env if already installed
@@ -121,6 +143,7 @@ ensure_rust_sources() {
 # ── Build Rust extensions ────────────────────────────────────────────────────
 build_rust_extensions() {
     [[ -f "$HERMES_DIR/rust/Cargo.toml" ]] || ensure_rust_sources
+    install_build_deps
     install_rust
 
     reload_path
