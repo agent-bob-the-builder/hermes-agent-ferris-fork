@@ -778,6 +778,13 @@ OPTIONAL_ENV_VARS = {
         "password": False,
         "category": "messaging",
     },
+    "DISCORD_PASSIVE_MODE": {
+        "description": "When true, the bot receives ALL messages without requiring @mention — useful for context awareness. When false (default), the bot only sees messages where it is mentioned or in DMs/free channels.",
+        "prompt": "Enable passive message reading (true/false)",
+        "url": None,
+        "password": False,
+        "category": "messaging",
+    },
     "SLACK_BOT_TOKEN": {
         "description": "Slack bot token (xoxb-). Get from OAuth & Permissions after installing your app. "
                        "Required scopes: chat:write, app_mentions:read, channels:history, groups:history, "

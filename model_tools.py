@@ -72,6 +72,7 @@ def _run_async(coro):
 
     if loop and loop.is_running():
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(asyncio.run, coro)
             return future.result(timeout=300)
@@ -133,6 +134,7 @@ def _ensure_tool_module_loaded(mod_name: str) -> bool:
             return True
         try:
             import importlib
+
             importlib.import_module(mod_name)
             _DISCOVERED_MODULES.add(mod_name)
             return True
@@ -206,6 +208,7 @@ _TOOL_MODULE_MAP = {
 
 def _ensure_tools_for_toolset(toolset_name: str):
     from toolsets import resolve_toolset
+
     try:
         tools = resolve_toolset(toolset_name)
     except Exception:
@@ -232,6 +235,7 @@ def _ensure_mcp_discovered():
     _MCP_DISCOVERED = True
     try:
         from tools.mcp_tool import discover_mcp_tools
+
         discover_mcp_tools()
     except Exception as e:
         logger.debug("MCP tool discovery failed: %s", e)
@@ -244,6 +248,7 @@ def _ensure_plugins_discovered():
     _PLUGIN_DISCOVERED = True
     try:
         from hermes_cli.plugins import discover_plugins
+
         discover_plugins()
     except Exception as e:
         logger.debug("Plugin discovery failed: %s", e)
@@ -259,6 +264,7 @@ def _ensure_plugins_discovered():
 # =============================================================================
 
 _rust = None  # None = not yet tried; False = tried/failed; object = OK
+_use_rust = False  # True when Rust backend is available and initialized
 
 
 def _ensure_rust_backend():
@@ -267,6 +273,7 @@ def _ensure_rust_backend():
         return _rust or False
     try:
         from _model_tools_rust import _model_tools_rust as _rust_mod
+
         _rust_mod.initialize()
 
         def _set_last_resolved(names: List[str]) -> None:
@@ -275,6 +282,8 @@ def _ensure_rust_backend():
 
         _rust_mod.register_last_resolved_callback(_set_last_resolved)
         _rust = _rust_mod
+        global _use_rust
+        _use_rust = True
         logger.debug("model_tools: Rust backend initialized OK")
     except Exception as e:
         logger.debug("model_tools: Rust backend init failed (%s), using Python", e)
@@ -346,18 +355,30 @@ _LEGACY_TOOLSET_MAP = {
     "image_tools": ["image_generate"],
     "skills_tools": ["skills_list", "skill_view", "skill_manage"],
     "browser_tools": [
-        "browser_navigate", "browser_snapshot", "browser_click",
-        "browser_type", "browser_scroll", "browser_back",
-        "browser_press", "browser_close", "browser_get_images",
-        "browser_vision", "browser_console",
+        "browser_navigate",
+        "browser_snapshot",
+        "browser_click",
+        "browser_type",
+        "browser_scroll",
+        "browser_back",
+        "browser_press",
+        "browser_close",
+        "browser_get_images",
+        "browser_vision",
+        "browser_console",
     ],
     "cronjob_tools": ["cronjob"],
     "rl_tools": [
-        "rl_list_environments", "rl_select_environment",
-        "rl_get_current_config", "rl_edit_config",
-        "rl_start_training", "rl_check_status",
-        "rl_stop_training", "rl_get_results",
-        "rl_list_runs", "rl_test_inference",
+        "rl_list_environments",
+        "rl_select_environment",
+        "rl_get_current_config",
+        "rl_edit_config",
+        "rl_start_training",
+        "rl_check_status",
+        "rl_stop_training",
+        "rl_get_results",
+        "rl_list_runs",
+        "rl_test_inference",
     ],
     "file_tools": ["read_file", "write_file", "patch", "search_files"],
     "tts_tools": ["text_to_speech"],
@@ -442,6 +463,7 @@ def get_tool_definitions(
 
     elif disabled_toolsets:
         from toolsets import get_all_toolsets
+
         for ts_name in get_all_toolsets():
             tools_to_include.update(_cached_resolve_toolset(ts_name))
 
@@ -465,6 +487,7 @@ def get_tool_definitions(
                     print(f"⚠️  Unknown toolset: {toolset_name}")
     else:
         from toolsets import get_all_toolsets
+
         for ts_name in get_all_toolsets():
             tools_to_include.update(_cached_resolve_toolset(ts_name))
 
@@ -477,6 +500,7 @@ def get_tool_definitions(
             SANDBOX_ALLOWED_TOOLS,
             build_execute_code_schema,
         )
+
         sandbox_enabled = SANDBOX_ALLOWED_TOOLS & available_tool_names
         dynamic_schema = build_execute_code_schema(sandbox_enabled)
         for i, td in enumerate(filtered_tools):
@@ -576,6 +600,7 @@ def handle_function_call(
         if not _notify_initialized:
             try:
                 from tools.file_tools import notify_other_tool_call
+
                 _cached_notify_fn = notify_other_tool_call
             except Exception:
                 pass
@@ -596,6 +621,7 @@ def handle_function_call(
         if not _invoke_hook_initialized:
             try:
                 from hermes_cli.plugins import invoke_hook
+
                 _cached_invoke_hook = invoke_hook
             except Exception:
                 pass
