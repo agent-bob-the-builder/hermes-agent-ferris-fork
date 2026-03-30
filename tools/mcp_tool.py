@@ -86,41 +86,84 @@ logger = logging.getLogger(__name__)
 # Graceful import -- MCP SDK is an optional dependency
 # ---------------------------------------------------------------------------
 
-_MCP_AVAILABLE = False
-_MCP_HTTP_AVAILABLE = False
-_MCP_SAMPLING_TYPES = False
-try:
-    from mcp import ClientSession, StdioServerParameters
-    from mcp.client.stdio import stdio_client
-    _MCP_AVAILABLE = True
+# ---------------------------------------------------------------------------
+# Lazy MCP SDK import -- only paid for when an MCP server is actually used.
+# ---------------------------------------------------------------------------
+
+# Module-level cache once import succeeds
+_mcp_sdk: Optional[dict] = None
+
+
+def _ensure_mcp_sdk():
+    """Lazily import the MCP SDK once.  Returns a dict with keys:
+        ClientSession, StdioServerParameters, stdio_client,
+        streamablehttp_client, streamable_http_client, new_http_api,
+        sampling_types
+    Raises ImportError if the SDK is not installed.
+    """
+    global _mcp_sdk
+    if _mcp_sdk is not None:
+        return _mcp_sdk
+
+    import importlib as _importlib
+    mcp = _importlib.import_module("mcp")
+
+    result: dict = {
+        "ClientSession": getattr(mcp, "ClientSession"),
+        "StdioServerParameters": getattr(mcp, "StdioServerParameters"),
+        "sampling_types": False,
+        "new_http_api": False,
+        "streamablehttp_client": None,
+        "streamable_http_client": None,
+        "stdio_client": None,
+    }
+
+    # stdio transport
     try:
-        from mcp.client.streamable_http import streamablehttp_client
-        _MCP_HTTP_AVAILABLE = True
+        from mcp.client.stdio import stdio_client as _sc
+        result["stdio_client"] = _sc
     except ImportError:
-        _MCP_HTTP_AVAILABLE = False
-    # Prefer the non-deprecated API (mcp >= 1.24.0); fall back to the
-    # deprecated wrapper for older SDK versions.
+        pass
+
+    # HTTP transports (prefer non-deprecated API, mcp >= 1.24.0)
     try:
-        from mcp.client.streamable_http import streamable_http_client
-        _MCP_NEW_HTTP = True
+        from mcp.client.streamable_http import streamablehttp_client as _shc
+        result["streamablehttp_client"] = _shc
+        result["new_http_api"] = True
     except ImportError:
-        _MCP_NEW_HTTP = False
-    # Sampling types -- separated so older SDK versions don't break MCP support
+        try:
+            from mcp.client.streamable_http import streamable_http_client as _shc2
+            result["streamable_http_client"] = _shc2
+        except ImportError:
+            pass
+
+    # Sampling types (optional -- older SDK versions don't have them)
     try:
         from mcp.types import (
             CreateMessageResult,
             CreateMessageResultWithTools,
-            ErrorData,
+            ErrorData as _ErrorData,
             SamplingCapability,
             SamplingToolsCapability,
             TextContent,
             ToolUseContent,
         )
-        _MCP_SAMPLING_TYPES = True
+        result["ErrorData"] = _ErrorData
+        result["sampling_types"] = True
     except ImportError:
-        logger.debug("MCP sampling types not available -- sampling disabled")
-except ImportError:
-    logger.debug("mcp package not installed -- MCP tool support disabled")
+        pass
+
+    _mcp_sdk = result
+    return _mcp_sdk
+
+
+def _ensure_mcp_available() -> bool:
+    """True iff the MCP SDK is installed."""
+    try:
+        _ensure_mcp_sdk()
+        return True
+    except ImportError:
+        return False
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -457,8 +500,9 @@ class SamplingHandler:
     @staticmethod
     def _error(message: str, code: int = -1):
         """Return ErrorData (MCP spec) or raise as fallback."""
-        if _MCP_SAMPLING_TYPES:
-            return ErrorData(code=code, message=message)
+        sdk = _ensure_mcp_sdk()
+        if sdk["sampling_types"]:
+            return sdk["ErrorData"](code=code, message=message)
         raise Exception(message)
 
     # -- Response building ---------------------------------------------------
@@ -543,10 +587,13 @@ class SamplingHandler:
 
     def session_kwargs(self) -> dict:
         """Return kwargs to pass to ClientSession for sampling support."""
+        sdk = _ensure_mcp_sdk()
+        if not sdk["sampling_types"]:
+            return {}
         return {
             "sampling_callback": self,
-            "sampling_capabilities": SamplingCapability(
-                tools=SamplingToolsCapability(),
+            "sampling_capabilities": sdk["types"]["SamplingCapability"](
+                tools=sdk["types"]["SamplingToolsCapability"](),
             ),
         }
 
@@ -559,6 +606,10 @@ class SamplingHandler:
         ``CreateMessageResult``, ``CreateMessageResultWithTools``, or
         ``ErrorData``.
         """
+        # Local import of typing helpers (lazy — only used in this method)
+        sdk = _ensure_mcp_sdk()
+        types = sdk.get("types", {})
+
         # Rate limit
         if not self._check_rate_limit():
             logger.warning(
@@ -731,15 +782,16 @@ class MCPServerTask:
 
         safe_env = _build_safe_env(user_env)
         command, safe_env = _resolve_stdio_command(command, safe_env)
-        server_params = StdioServerParameters(
+        sdk = _ensure_mcp_sdk()
+        server_params = sdk["StdioServerParameters"](
             command=command,
             args=args,
             env=safe_env if safe_env else None,
         )
 
         sampling_kwargs = self._sampling.session_kwargs() if self._sampling else {}
-        async with stdio_client(server_params) as (read_stream, write_stream):
-            async with ClientSession(read_stream, write_stream, **sampling_kwargs) as session:
+        async with sdk["stdio_client"](server_params) as (read_stream, write_stream):
+            async with sdk["ClientSession"](read_stream, write_stream, **sampling_kwargs) as session:
                 await session.initialize()
                 self.session = session
                 await self._discover_tools()
@@ -748,7 +800,8 @@ class MCPServerTask:
 
     async def _run_http(self, config: dict):
         """Run the server using HTTP/StreamableHTTP transport."""
-        if not _MCP_HTTP_AVAILABLE:
+        sdk = _ensure_mcp_sdk()
+        if sdk["streamablehttp_client"] is None and sdk["streamable_http_client"] is None:
             raise ImportError(
                 f"MCP server '{self.name}' requires HTTP transport but "
                 "mcp.client.streamable_http is not available. "
@@ -770,7 +823,8 @@ class MCPServerTask:
 
         sampling_kwargs = self._sampling.session_kwargs() if self._sampling else {}
 
-        if _MCP_NEW_HTTP:
+        sdk = _ensure_mcp_sdk()
+        if sdk["new_http_api"]:
             # New API (mcp >= 1.24.0): build an explicit httpx.AsyncClient
             # matching the SDK's own create_mcp_http_client defaults.
             import httpx
@@ -787,10 +841,10 @@ class MCPServerTask:
             # Caller owns the client lifecycle — the SDK skips cleanup when
             # http_client is provided, so we wrap in async-with.
             async with httpx.AsyncClient(**client_kwargs) as http_client:
-                async with streamable_http_client(url, http_client=http_client) as (
+                async with sdk["streamable_http_client"](url, http_client=http_client) as (
                     read_stream, write_stream, _get_session_id,
                 ):
-                    async with ClientSession(read_stream, write_stream, **sampling_kwargs) as session:
+                    async with sdk["ClientSession"](read_stream, write_stream, **sampling_kwargs) as session:
                         await session.initialize()
                         self.session = session
                         await self._discover_tools()
@@ -804,10 +858,10 @@ class MCPServerTask:
             }
             if _oauth_auth is not None:
                 _http_kwargs["auth"] = _oauth_auth
-            async with streamablehttp_client(url, **_http_kwargs) as (
+            async with sdk["streamablehttp_client"](url, **_http_kwargs) as (
                 read_stream, write_stream, _get_session_id,
             ):
-                async with ClientSession(read_stream, write_stream, **sampling_kwargs) as session:
+                async with sdk["ClientSession"](read_stream, write_stream, **sampling_kwargs) as session:
                     await session.initialize()
                     self.session = session
                     await self._discover_tools()
@@ -837,7 +891,8 @@ class MCPServerTask:
 
         # Set up sampling handler if enabled and SDK types are available
         sampling_config = config.get("sampling", {})
-        if sampling_config.get("enabled", True) and _MCP_SAMPLING_TYPES:
+        sdk = _ensure_mcp_sdk()
+        if sampling_config.get("enabled", True) and sdk["sampling_types"]:
             self._sampling = SamplingHandler(self.name, sampling_config)
         else:
             self._sampling = None
@@ -1660,7 +1715,7 @@ def discover_mcp_tools() -> List[str]:
     Returns:
         List of all registered MCP tool names.
     """
-    if not _MCP_AVAILABLE:
+    if not _ensure_mcp_available():
         logger.debug("MCP SDK not available -- skipping MCP tool discovery")
         return []
 
@@ -1785,7 +1840,7 @@ def probe_mcp_server_tools() -> Dict[str, List[tuple]]:
         Dict mapping server name to list of (tool_name, description) tuples.
         Servers that fail to connect are omitted from the result.
     """
-    if not _MCP_AVAILABLE:
+    if not _ensure_mcp_available():
         return {}
 
     servers_config = _load_mcp_config()

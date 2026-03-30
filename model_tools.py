@@ -30,10 +30,8 @@ from tools.registry import registry
 from toolsets import resolve_toolset, validate_toolset
 
 # Cached references for hot-path imports — resolved once, reused every call
-# These are imported eagerly at module load (before any tool modules are needed)
-# so they are always available in handle_function_call without per-call imports.
-_cached_notify_fn = None  # tools.file_tools.notify_other_tool_call
-_cached_invoke_hook = None  # hermes_cli.plugins.invoke_hook
+_cached_notify_fn = None
+_cached_invoke_hook = None
 _notify_initialized = False
 _invoke_hook_initialized = False
 
@@ -41,22 +39,15 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# Async Bridging  (single source of truth -- used by registry.dispatch too)
+# Async Bridging
 # =============================================================================
 
-_tool_loop = None  # persistent loop for the main (CLI) thread
+_tool_loop = None
 _tool_loop_lock = threading.Lock()
-_worker_thread_local = threading.local()  # per-worker-thread persistent loops
+_worker_thread_local = threading.local()
 
 
 def _get_tool_loop():
-    """Return a long-lived event loop for running async tool handlers.
-
-    Using a persistent loop (instead of asyncio.run() which creates and
-    *closes* a fresh loop every time) prevents "Event loop is closed"
-    errors that occur when cached httpx/AsyncOpenAI clients attempt to
-    close their transport on a dead loop during garbage collection.
-    """
     global _tool_loop
     with _tool_loop_lock:
         if _tool_loop is None or _tool_loop.is_closed():
@@ -65,19 +56,6 @@ def _get_tool_loop():
 
 
 def _get_worker_loop():
-    """Return a persistent event loop for the current worker thread.
-
-    Each worker thread (e.g., delegate_task's ThreadPoolExecutor threads)
-    gets its own long-lived loop stored in thread-local storage.  This
-    prevents the "Event loop is closed" errors that occurred when
-    asyncio.run() was used per-call: asyncio.run() creates a loop, runs
-    the coroutine, then *closes* the loop — but cached httpx/AsyncOpenAI
-    clients remain bound to that now-dead loop and raise RuntimeError
-    during garbage collection or subsequent use.
-
-    By keeping the loop alive for the thread's lifetime, cached clients
-    stay valid and their cleanup runs on a live loop.
-    """
     loop = getattr(_worker_thread_local, "loop", None)
     if loop is None or loop.is_closed():
         loop = asyncio.new_event_loop()
@@ -87,45 +65,17 @@ def _get_worker_loop():
 
 
 def _run_async(coro):
-    """Run an async coroutine from a sync context.
-
-    If the current thread already has a running event loop (e.g., inside
-    the gateway's async stack or Atropos's event loop), we spin up a
-    disposable thread so asyncio.run() can create its own loop without
-    conflicting.
-
-    For the common CLI path (no running loop), we use a persistent event
-    loop so that cached async clients (httpx / AsyncOpenAI) remain bound
-    to a live loop and don't trigger "Event loop is closed" on GC.
-
-    When called from a worker thread (parallel tool execution), we use a
-    per-thread persistent loop to avoid both contention with the main
-    thread's shared loop AND the "Event loop is closed" errors caused by
-    asyncio.run()'s create-and-destroy lifecycle.
-
-    This is the single source of truth for sync->async bridging in tool
-    handlers. The RL paths (agent_loop.py, tool_context.py) also provide
-    outer thread-pool wrapping as defense-in-depth, but each handler is
-    self-protecting via this function.
-    """
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         loop = None
 
     if loop and loop.is_running():
-        # Inside an async context (gateway, RL env) — run in a fresh thread.
         import concurrent.futures
-
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(asyncio.run, coro)
             return future.result(timeout=300)
 
-    # If we're on a worker thread (e.g., parallel tool execution in
-    # delegate_task), use a per-thread persistent loop.  This avoids
-    # contention with the main thread's shared loop while keeping cached
-    # httpx/AsyncOpenAI clients bound to a live loop for the thread's
-    # lifetime — preventing "Event loop is closed" on GC cleanup.
     if threading.current_thread() is not threading.main_thread():
         worker_loop = _get_worker_loop()
         return worker_loop.run_until_complete(coro)
@@ -135,59 +85,144 @@ def _run_async(coro):
 
 
 # =============================================================================
-# Tool Discovery  (importing each module triggers its registry.register calls)
+# Lazy Tool Discovery
+#
+# Tool modules are imported on-demand rather than at module load time.
+# MCP (~500ms), browser, RL, and other heavy tools are only loaded when needed.
+# The registry is populated incrementally; all tools are guaranteed loaded
+# before get_tool_definitions() returns.
 # =============================================================================
 
+_TOOL_MODULES = [
+    "tools.web_tools",
+    "tools.terminal_tool",
+    "tools.file_tools",
+    "tools.vision_tools",
+    "tools.mixture_of_agents_tool",
+    "tools.image_generation_tool",
+    "tools.skills_tool",
+    "tools.skill_manager_tool",
+    "tools.browser_tool",
+    "tools.cronjob_tools",
+    "tools.rl_training_tool",
+    "tools.tts_tool",
+    "tools.todo_tool",
+    "tools.memory_tool",
+    "tools.session_search_tool",
+    "tools.clarify_tool",
+    "tools.code_execution_tool",
+    "tools.delegate_tool",
+    "tools.process_registry",
+    "tools.send_message_tool",
+    "tools.honcho_tools",
+    "tools.homeassistant_tool",
+]
 
-def _discover_tools():
-    """Import all tool modules to trigger their registry.register() calls.
+_DISCOVERED_MODULES: set = set()
+_DISCOVERY_LOCK = threading.Lock()
 
-    Wrapped in a function so import errors in optional tools (e.g., fal_client
-    not installed) don't prevent the rest from loading.
-    """
-    _modules = [
-        "tools.web_tools",
-        "tools.terminal_tool",
-        "tools.file_tools",
-        "tools.vision_tools",
-        "tools.mixture_of_agents_tool",
-        "tools.image_generation_tool",
-        "tools.skills_tool",
-        "tools.skill_manager_tool",
-        "tools.browser_tool",
-        "tools.cronjob_tools",
-        "tools.rl_training_tool",
-        "tools.tts_tool",
-        "tools.todo_tool",
-        "tools.memory_tool",
-        "tools.session_search_tool",
-        "tools.clarify_tool",
-        "tools.code_execution_tool",
-        "tools.delegate_tool",
-        "tools.process_registry",
-        "tools.send_message_tool",
-        "tools.honcho_tools",
-        "tools.homeassistant_tool",
-    ]
-    import importlib
-
-    for mod_name in _modules:
-        try:
-            importlib.import_module(mod_name)
-        except Exception as e:
-            logger.warning("Could not import tool module %s: %s", mod_name, e)
-
-
-_discover_tools()
-
-# ---------------------------------------------------------------------------
-# Deferred tool discovery — MCP and plugin tools are discovered lazily on
-# first get_tool_definitions() call rather than blocking module import.
-# This significantly improves cold-start time for processes that don't need
-# MCP servers or user plugins.
-# ---------------------------------------------------------------------------
 _MCP_DISCOVERED = False
 _PLUGIN_DISCOVERED = False
+
+
+def _ensure_tool_module_loaded(mod_name: str) -> bool:
+    if mod_name in _DISCOVERED_MODULES:
+        return True
+    with _DISCOVERY_LOCK:
+        if mod_name in _DISCOVERED_MODULES:
+            return True
+        try:
+            import importlib
+            importlib.import_module(mod_name)
+            _DISCOVERED_MODULES.add(mod_name)
+            return True
+        except Exception as e:
+            logger.warning("Could not import tool module %s: %s", mod_name, e)
+            _DISCOVERED_MODULES.add(mod_name)
+            return False
+
+
+def _ensure_all_tools_discovered():
+    for mod_name in _TOOL_MODULES:
+        _ensure_tool_module_loaded(mod_name)
+
+
+# Tool name -> module name mapping for scoped discovery
+_TOOL_MODULE_MAP = {
+    "web_search": "tools.web_tools",
+    "web_extract": "tools.web_tools",
+    "terminal": "tools.terminal_tool",
+    "process": "tools.process_registry",
+    "read_file": "tools.file_tools",
+    "write_file": "tools.file_tools",
+    "patch": "tools.file_tools",
+    "search_files": "tools.file_tools",
+    "vision_analyze": "tools.vision_tools",
+    "image_generate": "tools.image_generation_tool",
+    "mixture_of_agents": "tools.mixture_of_agents_tool",
+    "skills_list": "tools.skills_tool",
+    "skill_view": "tools.skills_tool",
+    "skill_manage": "tools.skill_manager_tool",
+    "browser_navigate": "tools.browser_tool",
+    "browser_snapshot": "tools.browser_tool",
+    "browser_click": "tools.browser_tool",
+    "browser_type": "tools.browser_tool",
+    "browser_scroll": "tools.browser_tool",
+    "browser_back": "tools.browser_tool",
+    "browser_press": "tools.browser_tool",
+    "browser_close": "tools.browser_tool",
+    "browser_get_images": "tools.browser_tool",
+    "browser_vision": "tools.browser_tool",
+    "browser_console": "tools.browser_tool",
+    "cronjob": "tools.cronjob_tools",
+    "text_to_speech": "tools.tts_tool",
+    "todo": "tools.todo_tool",
+    "memory": "tools.memory_tool",
+    "session_search": "tools.session_search_tool",
+    "clarify": "tools.clarify_tool",
+    "execute_code": "tools.code_execution_tool",
+    "delegate_task": "tools.delegate_tool",
+    "send_message": "tools.send_message_tool",
+    "honcho_context": "tools.honcho_tools",
+    "honcho_profile": "tools.honcho_tools",
+    "honcho_search": "tools.honcho_tools",
+    "honcho_conclude": "tools.honcho_tools",
+    "ha_list_entities": "tools.homeassistant_tool",
+    "ha_get_state": "tools.homeassistant_tool",
+    "ha_list_services": "tools.homeassistant_tool",
+    "ha_call_service": "tools.homeassistant_tool",
+    "rl_list_environments": "tools.rl_training_tool",
+    "rl_select_environment": "tools.rl_training_tool",
+    "rl_get_current_config": "tools.rl_training_tool",
+    "rl_edit_config": "tools.rl_training_tool",
+    "rl_start_training": "tools.rl_training_tool",
+    "rl_check_status": "tools.rl_training_tool",
+    "rl_stop_training": "tools.rl_training_tool",
+    "rl_get_results": "tools.rl_training_tool",
+    "rl_list_runs": "tools.rl_training_tool",
+    "rl_test_inference": "tools.rl_training_tool",
+}
+
+
+def _ensure_tools_for_toolset(toolset_name: str):
+    from toolsets import resolve_toolset
+    try:
+        tools = resolve_toolset(toolset_name)
+    except Exception:
+        _ensure_all_tools_discovered()
+        return
+
+    needed = {_TOOL_MODULE_MAP[t] for t in tools if t in _TOOL_MODULE_MAP}
+    for mod_name in needed:
+        _ensure_tool_module_loaded(mod_name)
+
+
+def _ensure_tool_for_dispatch(tool_name: str):
+    mod_name = _TOOL_MODULE_MAP.get(tool_name)
+    if mod_name:
+        _ensure_tool_module_loaded(mod_name)
+    else:
+        _ensure_all_tools_discovered()
 
 
 def _ensure_mcp_discovered():
@@ -213,65 +248,91 @@ def _ensure_plugins_discovered():
     except Exception as e:
         logger.debug("Plugin discovery failed: %s", e)
 
-# =============================================================================
-# Rust backend (_model_tools_rust) — fast path for hot functions
-# =============================================================================
-# Initialized after MCP/plugin discovery (above) so all tools are registered.
-# Single init is sufficient — no separate refresh call needed.
-
-_use_rust = False
-_rust = None
-
-try:
-    from _model_tools_rust import _model_tools_rust as _rust
-
-    _rust.initialize()
-
-    # Register a callback so Rust can update _last_resolved_tool_names at the end
-    # of get_tool_definitions — avoids a separate Python round-trip to extract names
-    def _set_last_resolved(names: List[str]) -> None:
-        global _last_resolved_tool_names
-        _last_resolved_tool_names = names
-
-    _rust.register_last_resolved_callback(_set_last_resolved)
-
-    _use_rust = True
-    logger.debug("model_tools: Rust backend initialized OK")
-except Exception as e:
-    logger.debug("model_tools: Rust backend init failed (%s), using Python", e)
-    _rust = None
-
-# Rust init runs after MCP/plugin discovery (see above) — single init is sufficient.
-
 
 # =============================================================================
-# Backward-compat constants  (built once after discovery)
+# Rust backend — deferred until first get_tool_definitions
+#
+# _rust.initialize() requires the Python tool registry to be populated first.
+# We defer both the Rust import AND init to the first get_tool_definitions()
+# call, after Python-side tool discovery is complete.
+# _rust takes three states: None="not tried yet", False="tried/failed", object="ok"
 # =============================================================================
 
-if _use_rust:
-    TOOL_TO_TOOLSET_MAP: Dict[str, str] = _rust.get_tool_to_toolset_map()
-    TOOLSET_REQUIREMENTS: Dict[str, dict] = _rust.get_toolset_requirements()
-else:
-    TOOL_TO_TOOLSET_MAP: Dict[str, str] = registry.get_tool_to_toolset_map()
-    TOOLSET_REQUIREMENTS: Dict[str, dict] = registry.get_toolset_requirements()
+_rust = None  # None = not yet tried; False = tried/failed; object = OK
 
-# Backward-compat alias — tests import this directly
-_USING_RUST_BACKEND: bool = _use_rust
 
-# Resolved tool names from the last get_tool_definitions() call.
-# Used by code_execution_tool to know which tools are available in this session.
+def _ensure_rust_backend():
+    global _rust
+    if _rust is not None:
+        return _rust or False
+    try:
+        from _model_tools_rust import _model_tools_rust as _rust_mod
+        _rust_mod.initialize()
+
+        def _set_last_resolved(names: List[str]) -> None:
+            global _last_resolved_tool_names
+            _last_resolved_tool_names = names
+
+        _rust_mod.register_last_resolved_callback(_set_last_resolved)
+        _rust = _rust_mod
+        logger.debug("model_tools: Rust backend initialized OK")
+    except Exception as e:
+        logger.debug("model_tools: Rust backend init failed (%s), using Python", e)
+        _rust = False
+    return _rust
+
+
+# =============================================================================
+# Module-level lazy constants (populated on first access, cached thereafter)
+# Exported for backward compatibility with code that imports them directly.
+# =============================================================================
+
+_TOOL_TO_TOOLSET_MAP: Optional[Dict[str, str]] = None
+_TOOLSET_REQUIREMENTS: Optional[Dict[str, dict]] = None
+
+
+def _ensure_constants():
+    global _TOOL_TO_TOOLSET_MAP, _TOOLSET_REQUIREMENTS, _USING_RUST_BACKEND
+    if _TOOL_TO_TOOLSET_MAP is not None:
+        return
+    rust = _ensure_rust_backend()
+    if rust:
+        _TOOL_TO_TOOLSET_MAP = rust.get_tool_to_toolset_map()
+        _TOOLSET_REQUIREMENTS = rust.get_toolset_requirements()
+        _USING_RUST_BACKEND = True
+    else:
+        _TOOL_TO_TOOLSET_MAP = registry.get_tool_to_toolset_map()
+        _TOOLSET_REQUIREMENTS = registry.get_toolset_requirements()
+        _USING_RUST_BACKEND = False
+
+
+# Module-level __getattr__ for lazy TOOL_TO_TOOLSET_MAP / TOOLSET_REQUIREMENTS
+def __getattr__(name: str):
+    if name in ("TOOL_TO_TOOLSET_MAP", "TOOLSET_REQUIREMENTS"):
+        _ensure_constants()
+        return globals()[f"_{name}"]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+_USING_RUST_BACKEND: bool = False
 _last_resolved_tool_names: List[str] = []
 
-# ---------------------------------------------------------------------------
-# Module-level cache for get_tool_definitions — avoids re-filtering/re-sorting
-# on every call.  The tool registry is static during a process lifetime;
-# only the enabled_toolsets / disabled_toolsets / quiet_mode filter args vary.
-# ---------------------------------------------------------------------------
+# Cache for resolved toolset -> tool names
+_toolset_resolve_cache: Dict[str, List[str]] = {}
+
+
+def _cached_resolve_toolset(name: str) -> List[str]:
+    if name not in _toolset_resolve_cache:
+        _toolset_resolve_cache[name] = resolve_toolset(name)
+    return _toolset_resolve_cache[name]
+
+
+# Module-level cache for get_tool_definitions
 _get_definitions_cache: Dict[tuple, List[Dict[str, Any]]] = {}
 
 
 # =============================================================================
-# Legacy toolset name mapping  (old _tools-suffixed names -> tool name lists)
+# Legacy toolset name mapping
 # =============================================================================
 
 _LEGACY_TOOLSET_MAP = {
@@ -282,30 +343,18 @@ _LEGACY_TOOLSET_MAP = {
     "image_tools": ["image_generate"],
     "skills_tools": ["skills_list", "skill_view", "skill_manage"],
     "browser_tools": [
-        "browser_navigate",
-        "browser_snapshot",
-        "browser_click",
-        "browser_type",
-        "browser_scroll",
-        "browser_back",
-        "browser_press",
-        "browser_close",
-        "browser_get_images",
-        "browser_vision",
-        "browser_console",
+        "browser_navigate", "browser_snapshot", "browser_click",
+        "browser_type", "browser_scroll", "browser_back",
+        "browser_press", "browser_close", "browser_get_images",
+        "browser_vision", "browser_console",
     ],
     "cronjob_tools": ["cronjob"],
     "rl_tools": [
-        "rl_list_environments",
-        "rl_select_environment",
-        "rl_get_current_config",
-        "rl_edit_config",
-        "rl_start_training",
-        "rl_check_status",
-        "rl_stop_training",
-        "rl_get_results",
-        "rl_list_runs",
-        "rl_test_inference",
+        "rl_list_environments", "rl_select_environment",
+        "rl_get_current_config", "rl_edit_config",
+        "rl_start_training", "rl_check_status",
+        "rl_stop_training", "rl_get_results",
+        "rl_list_runs", "rl_test_inference",
     ],
     "file_tools": ["read_file", "write_file", "patch", "search_files"],
     "tts_tools": ["text_to_speech"],
@@ -313,7 +362,7 @@ _LEGACY_TOOLSET_MAP = {
 
 
 # =============================================================================
-# get_tool_definitions  (the main schema provider)
+# get_tool_definitions
 # =============================================================================
 
 
@@ -335,14 +384,12 @@ def get_tool_definitions(
     Returns:
         Filtered list of OpenAI-format tool definitions.
     """
-    # ---- Deferred discovery (run once per process) ----
     _ensure_mcp_discovered()
     _ensure_plugins_discovered()
 
-    # ---- Module-level cache (stable for the process lifetime) ----
-    # Tools are registered once at startup and never change.  Caching the
-    # filtered result avoids repeated toolset resolution, schema filtering,
-    # and cross-reference patching on every call.
+    rust = _ensure_rust_backend()
+    _ensure_constants()
+
     _cache_key = (
         tuple(sorted(enabled_toolsets) if enabled_toolsets else ()),
         tuple(sorted(disabled_toolsets) if disabled_toolsets else ()),
@@ -351,29 +398,29 @@ def get_tool_definitions(
     if _cache_key in _get_definitions_cache:
         return _get_definitions_cache[_cache_key]
 
-    # Fast path: use Rust backend
-    if _use_rust:
+    # Ensure all Python tools are discovered before Rust sees them
+    _ensure_all_tools_discovered()
+
+    if rust:
         try:
-            result = _rust.get_tool_definitions(
+            result = rust.get_tool_definitions(
                 enabled_toolsets=enabled_toolsets,
                 disabled_toolsets=disabled_toolsets,
                 quiet_mode=quiet_mode,
             )
-            # Rust backend calls set_last_resolved_callback to update _last_resolved_tool_names
             return result
         except Exception as e:
             logger.warning(
                 "Rust get_tool_definitions failed: %s, falling back to Python", e
             )
 
-    # Python fallback follows
-    # Determine which tool names the caller wants
+    # Python fallback
     tools_to_include: set = set()
 
     if enabled_toolsets:
         for toolset_name in enabled_toolsets:
             if validate_toolset(toolset_name):
-                resolved = resolve_toolset(toolset_name)
+                resolved = _cached_resolve_toolset(toolset_name)
                 tools_to_include.update(resolved)
                 if not quiet_mode:
                     print(
@@ -392,13 +439,12 @@ def get_tool_definitions(
 
     elif disabled_toolsets:
         from toolsets import get_all_toolsets
-
         for ts_name in get_all_toolsets():
-            tools_to_include.update(resolve_toolset(ts_name))
+            tools_to_include.update(_cached_resolve_toolset(ts_name))
 
         for toolset_name in disabled_toolsets:
             if validate_toolset(toolset_name):
-                resolved = resolve_toolset(toolset_name)
+                resolved = _cached_resolve_toolset(toolset_name)
                 tools_to_include.difference_update(resolved)
                 if not quiet_mode:
                     print(
@@ -416,35 +462,18 @@ def get_tool_definitions(
                     print(f"⚠️  Unknown toolset: {toolset_name}")
     else:
         from toolsets import get_all_toolsets
-
         for ts_name in get_all_toolsets():
-            tools_to_include.update(resolve_toolset(ts_name))
+            tools_to_include.update(_cached_resolve_toolset(ts_name))
 
-    # Plugin-registered tools are now resolved through the normal toolset
-    # path — validate_toolset() / resolve_toolset() / get_all_toolsets()
-    # all check the tool registry for plugin-provided toolsets.  No bypass
-    # needed; plugins respect enabled_toolsets / disabled_toolsets like any
-    # other toolset.
-
-    # Ask the registry for schemas (only returns tools whose check_fn passes)
     filtered_tools = registry.get_definitions(tools_to_include, quiet=quiet_mode)
 
-    # The set of tool names that actually passed check_fn filtering.
-    # Use this (not tools_to_include) for any downstream schema that references
-    # other tools by name — otherwise the model sees tools mentioned in
-    # descriptions that don't actually exist, and hallucinates calls to them.
     available_tool_names = {t["function"]["name"] for t in filtered_tools}
 
-    # Rebuild execute_code schema to only list sandbox tools that are actually
-    # available.  Without this, the model sees "web_search is available in
-    # execute_code" even when the API key isn't configured or the toolset is
-    # disabled (#560-discord).
     if "execute_code" in available_tool_names:
         from tools.code_execution_tool import (
             SANDBOX_ALLOWED_TOOLS,
             build_execute_code_schema,
         )
-
         sandbox_enabled = SANDBOX_ALLOWED_TOOLS & available_tool_names
         dynamic_schema = build_execute_code_schema(sandbox_enabled)
         for i, td in enumerate(filtered_tools):
@@ -452,10 +481,6 @@ def get_tool_definitions(
                 filtered_tools[i] = {"type": "function", "function": dynamic_schema}
                 break
 
-    # Strip web tool cross-references from browser_navigate description when
-    # web_search / web_extract are not available.  The static schema says
-    # "prefer web_search or web_extract" which causes the model to hallucinate
-    # those tools when they're missing.
     if "browser_navigate" in available_tool_names:
         web_tools_available = {"web_search", "web_extract"} & available_tool_names
         if not web_tools_available:
@@ -484,19 +509,14 @@ def get_tool_definitions(
 
     _last_resolved_tool_names = [t["function"]["name"] for t in filtered_tools]
 
-    # Populate cache and return
     _get_definitions_cache[_cache_key] = filtered_tools
     return filtered_tools
 
 
 # =============================================================================
-# handle_function_call  (the main dispatcher)
+# handle_function_call
 # =============================================================================
 
-# Tools whose execution is intercepted by the agent loop (run_agent.py)
-# because they need agent-level state (TodoStore, MemoryStore, etc.).
-# The registry still holds their schemas; dispatch just returns a stub error
-# so if something slips through, the LLM sees a sensible message.
 _AGENT_LOOP_TOOLS = {"todo", "memory", "session_search", "delegate_task"}
 _READ_SEARCH_TOOLS = {"read_file", "search_files"}
 
@@ -518,20 +538,21 @@ def handle_function_call(
         function_args: Arguments for the function.
         task_id: Unique identifier for terminal/browser session isolation.
         user_task: The user's original task (for browser_snapshot context).
-        enabled_tools: Tool names enabled for this session.  When provided,
-                       execute_code uses this list to determine which sandbox
-                       tools to generate.  Falls back to the process-global
-                       ``_last_resolved_tool_names`` for backward compat.
+        enabled_tools: Tool names enabled for this session.
         honcho_manager: Honcho manager instance for Honcho-tool calls.
         honcho_session_key: Session key for Honcho-tool calls.
 
     Returns:
         Function result as a JSON string.
     """
-    # Fast path: use Rust backend
-    if _use_rust:
+    # Lazy discovery: only load the specific tool module we need
+    _ensure_tool_for_dispatch(function_name)
+
+    rust = _ensure_rust_backend()
+
+    if rust:
         try:
-            return _rust.handle_function_call(
+            return rust.handle_function_call(
                 function_name=function_name,
                 function_args=function_args,
                 task_id=task_id,
@@ -546,19 +567,15 @@ def handle_function_call(
                 "Rust handle_function_call failed: %s, falling back to Python", e
             )
 
-    # Python fallback follows
-    # Notify the read-loop tracker when a non-read/search tool runs,
-    # so the *consecutive* counter resets (reads after other work are fine).
-    # Uses cached reference — no per-call import overhead.
+    # Python fallback
     if function_name not in _READ_SEARCH_TOOLS:
         global _cached_notify_fn, _notify_initialized
         if not _notify_initialized:
             try:
                 from tools.file_tools import notify_other_tool_call
-
                 _cached_notify_fn = notify_other_tool_call
             except Exception:
-                pass  # file_tools may not be loaded yet
+                pass
             _notify_initialized = True
         if _cached_notify_fn is not None:
             try:
@@ -576,7 +593,6 @@ def handle_function_call(
         if not _invoke_hook_initialized:
             try:
                 from hermes_cli.plugins import invoke_hook
-
                 _cached_invoke_hook = invoke_hook
             except Exception:
                 pass
@@ -593,8 +609,6 @@ def handle_function_call(
                 pass
 
         if function_name == "execute_code":
-            # Prefer the caller-provided list so subagents can't overwrite
-            # the parent's tool set via the process-global.
             sandbox_enabled = (
                 enabled_tools
                 if enabled_tools is not None
@@ -644,25 +658,24 @@ def handle_function_call(
 
 
 def get_all_tool_names() -> List[str]:
-    """Return all registered tool names."""
+    _ensure_all_tools_discovered()
     return registry.get_all_tool_names()
 
 
 def get_toolset_for_tool(tool_name: str) -> Optional[str]:
-    """Return the toolset a tool belongs to."""
-    return registry.get_toolset_for_tool(tool_name)
+    _ensure_constants()
+    return _TOOL_TO_TOOLSET_MAP.get(tool_name)
 
 
 def get_available_toolsets() -> Dict[str, dict]:
-    """Return toolset availability info for UI display."""
+    _ensure_constants()
     return registry.get_available_toolsets()
 
 
 def check_toolset_requirements() -> Dict[str, bool]:
-    """Return {toolset: available_bool} for every registered toolset."""
+    _ensure_constants()
     return registry.check_toolset_requirements()
 
 
 def check_tool_availability(quiet: bool = False) -> Tuple[List[str], List[dict]]:
-    """Return (available_toolsets, unavailable_info)."""
     return registry.check_tool_availability(quiet=quiet)
