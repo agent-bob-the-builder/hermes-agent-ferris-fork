@@ -657,7 +657,7 @@ class ShellFileOperations(FileOperations):
             WriteResult with bytes written or error
         """
         # Expand ~ and other shell paths
-        path = self._expand_path(path)
+        path = self._native_expand_path(path)
 
         # Block writes to sensitive paths
         if _is_write_denied(path):

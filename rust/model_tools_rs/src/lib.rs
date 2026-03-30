@@ -82,6 +82,8 @@ lazy_static! {
     static ref CACHED_REGISTRY_MOD: Mutex<Option<Py<PyAny>>> = Mutex::new(None);
     // Cached invoke_hook — resolved once at init, reused every call
     static ref CACHED_INVOKE_HOOK: Mutex<Option<Py<PyAny>>> = Mutex::new(None);
+    // Python callback to update _last_resolved_tool_names in the Python module
+    static ref SET_LAST_RESOLVED_CALLBACK: Mutex<Option<Py<PyAny>>> = Mutex::new(None);
 }
 
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
@@ -529,6 +531,15 @@ fn get_tool_definitions(
         }
     }
 
+    // Invoke Python callback to update _last_resolved_tool_names
+    if let Some(ref cb) = *SET_LAST_RESOLVED_CALLBACK.lock().unwrap() {
+        let py_names: Vec<&str> = available_tool_names.iter().map(|s| s.as_str()).collect();
+        let py_list = PyList::new(py, &py_names)?;
+        if let Err(e) = cb.call1(py, (py_list,)) {
+            logger_call(py, "warning", &format!("set_last_resolved_callback failed: {}", e));
+        }
+    }
+
     Ok(filtered_tools)
 }
 
@@ -587,6 +598,18 @@ fn refresh_toolset_cache(py: Python<'_>) -> PyResult<()> {
 }
 
 // -------------------------------------------------------------------------------------------------
+// -------------------------------------------------------------------------------------------------
+// register_last_resolved_callback — Python calls this to register a callback
+// that Rust invokes at the end of get_tool_definitions to update _last_resolved_tool_names
+// -------------------------------------------------------------------------------------------------
+
+#[pyfunction]
+fn register_last_resolved_callback(py: Python<'_>, callback: Py<PyAny>) -> PyResult<()> {
+    let mut guard = SET_LAST_RESOLVED_CALLBACK.lock().unwrap();
+    *guard = Some(callback);
+    Ok(())
+}
+
 // Query functions
 // -------------------------------------------------------------------------------------------------
 
@@ -771,6 +794,7 @@ fn _model_tools_rust(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<(
     module.add_function(wrap_pyfunction!(check_tool_availability, module)?)?;
     module.add_function(wrap_pyfunction!(sanitize_api_messages, module)?)?;
     module.add_function(wrap_pyfunction!(refresh_toolset_cache, module)?)?;
+    module.add_function(wrap_pyfunction!(register_last_resolved_callback, module)?)?;
     module.add(
         "__doc__",
         "Rust backend for Hermes model_tools orchestration.",

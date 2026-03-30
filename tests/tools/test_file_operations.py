@@ -3,7 +3,7 @@
 import os
 import pytest
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from tools.file_operations import (
     _is_write_denied,
@@ -293,32 +293,28 @@ class TestSearchPathValidation:
     def test_search_existing_path_proceeds(self, mock_env):
         """search() should proceed normally when the path exists."""
         def side_effect(command, **kwargs):
-            if "test -e" in command:
-                return {"output": "exists", "returncode": 0}
             if "command -v" in command:
                 return {"output": "yes", "returncode": 0}
             # rg returns exit 1 (no matches) with empty output
             return {"output": "", "returncode": 1}
         mock_env.execute.side_effect = side_effect
         ops = ShellFileOperations(mock_env)
-        result = ops.search("pattern", path="/existing/path")
+        with patch("os.path.exists", return_value=True):
+            result = ops.search("pattern", path="/existing/path")
         assert result.error is None
         assert result.total_count == 0  # No matches but no error
 
     def test_search_rg_error_exit_code(self, mock_env):
         """search() should report error when rg returns exit code 2."""
-        call_count = {"n": 0}
         def side_effect(command, **kwargs):
-            call_count["n"] += 1
-            if "test -e" in command:
-                return {"output": "exists", "returncode": 0}
             if "command -v" in command:
                 return {"output": "yes", "returncode": 0}
             # rg returns exit 2 (error) with empty output
             return {"output": "", "returncode": 2}
         mock_env.execute.side_effect = side_effect
         ops = ShellFileOperations(mock_env)
-        result = ops.search("pattern", path="/some/path")
+        with patch("os.path.exists", return_value=True):
+            result = ops.search("pattern", path="/some/path")
         assert result.error is not None
         assert "search failed" in result.error.lower() or "Search error" in result.error
 

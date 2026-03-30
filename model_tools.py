@@ -226,6 +226,15 @@ try:
     from _model_tools_rust import _model_tools_rust as _rust
 
     _rust.initialize()
+
+    # Register a callback so Rust can update _last_resolved_tool_names at the end
+    # of get_tool_definitions — avoids a separate Python round-trip to extract names
+    def _set_last_resolved(names: List[str]) -> None:
+        global _last_resolved_tool_names
+        _last_resolved_tool_names = names
+
+    _rust.register_last_resolved_callback(_set_last_resolved)
+
     _use_rust = True
     logger.debug("model_tools: Rust backend initialized OK")
 except Exception as e:
@@ -350,8 +359,7 @@ def get_tool_definitions(
                 disabled_toolsets=disabled_toolsets,
                 quiet_mode=quiet_mode,
             )
-            # Keep Python-side mirror in sync for code that reads _last_resolved_tool_names
-            _last_resolved_tool_names = [t["function"]["name"] for t in result]
+            # Rust backend calls set_last_resolved_callback to update _last_resolved_tool_names
             return result
         except Exception as e:
             logger.warning(
@@ -464,6 +472,7 @@ def get_tool_definitions(
                     }
                     break
 
+    global _last_resolved_tool_names
     if not quiet_mode:
         if filtered_tools:
             tool_names = [t["function"]["name"] for t in filtered_tools]
@@ -473,7 +482,6 @@ def get_tool_definitions(
         else:
             print("🛠️  No tools selected (all filtered out or unavailable)")
 
-    global _last_resolved_tool_names
     _last_resolved_tool_names = [t["function"]["name"] for t in filtered_tools]
 
     # Populate cache and return
