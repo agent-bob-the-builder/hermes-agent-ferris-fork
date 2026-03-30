@@ -568,20 +568,20 @@ Write only the summary body. Do not include any preamble or prefix."""
         if rust_compressor is not None and not _force_python:
             try:
                 result, summary_text = rust_compressor.compress_async(
-                    model=self.model,
-                    messages=messages,
-                    context_length=self.context_length,
-                    threshold_percent=self.threshold_percent,
-                    protect_first_n=self.protect_first_n,
-                    protect_last_n=self.protect_last_n,
-                    max_summary_tokens=self.max_summary_tokens,
-                    summary_target_ratio=self.summary_target_ratio,
-                    previous_summary=self._previous_summary or "",
-                    compression_count=self.compression_count,
-                    quiet=self.quiet_mode,
-                    api_key=None,
-                    base_url=None,
-                    provider=None,
+                    messages,
+                    self.model,
+                    self.context_length,
+                    self.threshold_percent,
+                    self.protect_first_n,
+                    self.protect_last_n,
+                    self.summary_target_ratio,
+                    self.summary_model or None,
+                    self.provider or "",
+                    self.base_url or "",
+                    self.api_key or "",
+                    self._previous_summary,
+                    self.compression_count,
+                    self.quiet_mode,
                 )
                 if summary_text:
                     self._previous_summary = summary_text

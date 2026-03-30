@@ -272,7 +272,7 @@ def _ensure_rust_backend():
     if _rust is not None:
         return _rust or False
     try:
-        from _model_tools_rust import _model_tools_rust as _rust_mod
+        import _model_tools_rust as _rust_mod
 
         _rust_mod.initialize()
 
