@@ -267,7 +267,7 @@ class TestExpiredCodexFallback:
         monkeypatch.setenv("HERMES_HOME", str(hermes_home))
         monkeypatch.setenv("OPENROUTER_API_KEY", "or-test-key")
 
-        with patch("agent.auxiliary_client.OpenAI") as mock_openai:
+        with patch("openai.OpenAI") as mock_openai:
             mock_openai.return_value = MagicMock()
             from agent.auxiliary_client import _resolve_auto
             client, model = _resolve_auto()
