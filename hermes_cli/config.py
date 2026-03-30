@@ -34,6 +34,8 @@ _EXTRA_ENV_KEYS = frozenset({
     "SIGNAL_ACCOUNT", "SIGNAL_HTTP_URL",
     "SIGNAL_ALLOWED_USERS", "SIGNAL_GROUP_ALLOWED_USERS",
     "DINGTALK_CLIENT_ID", "DINGTALK_CLIENT_SECRET",
+    "FEISHU_APP_ID", "FEISHU_APP_SECRET", "FEISHU_ENCRYPT_KEY", "FEISHU_VERIFICATION_TOKEN",
+    "WECOM_BOT_ID", "WECOM_SECRET",
     "TERMINAL_ENV", "TERMINAL_SSH_KEY", "TERMINAL_SSH_PORT",
     "WHATSAPP_MODE", "WHATSAPP_ENABLED",
     "MATTERMOST_HOME_CHANNEL", "MATTERMOST_REPLY_MODE",
@@ -135,6 +137,7 @@ def ensure_hermes_home():
 
 DEFAULT_CONFIG = {
     "model": "anthropic/claude-opus-4.6",
+    "fallback_providers": [],
     "toolsets": ["hermes-cli"],
     "agent": {
         "max_turns": 90,
@@ -284,6 +287,7 @@ DEFAULT_CONFIG = {
         "show_cost": False,       # Show $ cost in the status bar (off by default)
         "skin": "default",
         "tool_progress_command": False,  # Enable /verbose command in messaging gateway
+        "tool_preview_length": 0,  # Max chars for tool call previews (0 = no limit, show full paths/commands)
     },
 
     # Privacy settings
@@ -366,6 +370,13 @@ DEFAULT_CONFIG = {
     # Never saved to sessions, logs, or trajectories.
     "prefill_messages_file": "",
     
+    # Skills — external skill directories for sharing skills across tools/agents.
+    # Each path is expanded (~, ${VAR}) and resolved.  Read-only — skill creation
+    # always goes to ~/.hermes/skills/.
+    "skills": {
+        "external_dirs": [],   # e.g. ["~/.agents/skills", "/shared/team-skills"]
+    },
+
     # Honcho AI-native memory -- reads ~/.honcho/config.json as single source of truth.
     # This section is only needed for hermes-specific overrides; everything else
     # (apiKey, workspace, peerName, sessions, enabled) comes from the global config.
@@ -419,6 +430,12 @@ DEFAULT_CONFIG = {
             "domains": [],
             "shared_files": [],
         },
+    },
+
+    "cron": {
+        # Wrap delivered cron responses with a header (task name) and footer
+        # ("The agent cannot see this message").  Set to false for clean output.
+        "wrap_response": True,
     },
 
     # Config schema version - bump this when adding new required fields
@@ -820,6 +837,20 @@ OPTIONAL_ENV_VARS = {
     "MATTERMOST_ALLOWED_USERS": {
         "description": "Comma-separated Mattermost user IDs allowed to use the bot",
         "prompt": "Allowed Mattermost user IDs (comma-separated)",
+        "url": None,
+        "password": False,
+        "category": "messaging",
+    },
+    "MATTERMOST_REQUIRE_MENTION": {
+        "description": "Require @mention in Mattermost channels (default: true). Set to false to respond to all messages.",
+        "prompt": "Require @mention in channels",
+        "url": None,
+        "password": False,
+        "category": "messaging",
+    },
+    "MATTERMOST_FREE_RESPONSE_CHANNELS": {
+        "description": "Comma-separated Mattermost channel IDs where bot responds without @mention",
+        "prompt": "Free-response channel IDs (comma-separated)",
         "url": None,
         "password": False,
         "category": "messaging",

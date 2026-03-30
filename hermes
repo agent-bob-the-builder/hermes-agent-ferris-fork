@@ -1,9 +1,9 @@
 #!/root/.hermes/hermes-agent-ferris-fork/.venv/bin/python3
 """
-Hermes Agent CLI Launcher
+Hermes Agent CLI launcher.
 
-This is a convenience wrapper to launch the Hermes CLI.
-Usage: ./hermes [options]
+This wrapper should behave like the installed `hermes` command, including
+subcommands such as `gateway`, `cron`, and `doctor`.
 """
 
 if __name__ == "__main__":

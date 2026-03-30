@@ -898,6 +898,26 @@ class BasePlatformAdapter(ABC):
                 except Exception:
                     pass
     
+    # ── Processing lifecycle hooks ──────────────────────────────────────────
+    # Subclasses override these to react to message processing events
+    # (e.g. Discord adds 👀/✅/❌ reactions).
+
+    async def on_processing_start(self, event: MessageEvent) -> None:
+        """Hook called when background processing begins."""
+
+    async def on_processing_complete(self, event: MessageEvent, success: bool) -> None:
+        """Hook called when background processing completes."""
+
+    async def _run_processing_hook(self, hook_name: str, *args: Any, **kwargs: Any) -> None:
+        """Run a lifecycle hook without letting failures break message flow."""
+        hook = getattr(self, hook_name, None)
+        if not callable(hook):
+            return
+        try:
+            await hook(*args, **kwargs)
+        except Exception as e:
+            logger.warning("[%s] %s hook failed: %s", self.name, hook_name, e)
+
     @staticmethod
     def _is_retryable_error(error: Optional[str]) -> bool:
         """Return True if the error string looks like a transient network failure."""
@@ -1005,7 +1025,7 @@ class BasePlatformAdapter(ABC):
             # simultaneous messages. Queue them without interrupting the active run,
             # then process them immediately after the current task finishes.
             if event.message_type == MessageType.PHOTO:
-                print(f"[{self.name}] 🖼️ Queuing photo follow-up for session {session_key} without interrupt")
+                logger.debug("[%s] Queuing photo follow-up for session %s without interrupt", self.name, session_key)
                 existing = self._pending_messages.get(session_key)
                 if existing and existing.message_type == MessageType.PHOTO:
                     existing.media_urls.extend(event.media_urls)
@@ -1020,7 +1040,7 @@ class BasePlatformAdapter(ABC):
                 return  # Don't interrupt now - will run after current task completes
 
             # Default behavior for non-photo follow-ups: interrupt the running agent
-            print(f"[{self.name}] ⚡ New message while session {session_key} is active - triggering interrupt")
+            logger.debug("[%s] New message while session %s is active — triggering interrupt", self.name, session_key)
             self._pending_messages[session_key] = event
             # Signal the interrupt (the processing task checks this)
             self._active_sessions[session_key].set()
@@ -1060,6 +1080,18 @@ class BasePlatformAdapter(ABC):
 
     async def _process_message_background(self, event: MessageEvent, session_key: str) -> None:
         """Background task that actually processes the message."""
+        # Track delivery outcomes for the processing-complete hook
+        delivery_attempted = False
+        delivery_succeeded = False
+
+        def _record_delivery(result):
+            nonlocal delivery_attempted, delivery_succeeded
+            if result is None:
+                return
+            delivery_attempted = True
+            if getattr(result, "success", False):
+                delivery_succeeded = True
+
         # Create interrupt event for this session
         interrupt_event = asyncio.Event()
         self._active_sessions[session_key] = interrupt_event
@@ -1069,6 +1101,8 @@ class BasePlatformAdapter(ABC):
         typing_task = asyncio.create_task(self._keep_typing(event.source.chat_id, metadata=_thread_metadata))
         
         try:
+            await self._run_processing_hook("on_processing_start", event)
+
             # Call the handler (this can take a while with tool calls)
             response = await self._message_handler(event)
             
@@ -1138,6 +1172,7 @@ class BasePlatformAdapter(ABC):
                         reply_to=event.message_id,
                         metadata=_thread_metadata,
                     )
+                    _record_delivery(result)
 
                 # Human-like pacing delay between text and media
                 human_delay = self._get_human_delay()
@@ -1206,9 +1241,9 @@ class BasePlatformAdapter(ABC):
                             )
 
                         if not media_result.success:
-                            print(f"[{self.name}] Failed to send media ({ext}): {media_result.error}")
+                            logger.warning("[%s] Failed to send media (%s): %s", self.name, ext, media_result.error)
                     except Exception as media_err:
-                        print(f"[{self.name}] Error sending media: {media_err}")
+                        logger.warning("[%s] Error sending media: %s", self.name, media_err)
 
                 # Send auto-detected local files as native attachments
                 for file_path in local_files:
@@ -1237,10 +1272,14 @@ class BasePlatformAdapter(ABC):
                     except Exception as file_err:
                         logger.error("[%s] Error sending local file %s: %s", self.name, file_path, file_err)
 
+            # Determine overall success for the processing hook
+            processing_ok = delivery_succeeded if delivery_attempted else not bool(response)
+            await self._run_processing_hook("on_processing_complete", event, processing_ok)
+
             # Check if there's a pending message that was queued during our processing
             if session_key in self._pending_messages:
                 pending_event = self._pending_messages.pop(session_key)
-                print(f"[{self.name}] 📨 Processing queued message from interrupt")
+                logger.debug("[%s] Processing queued message from interrupt", self.name)
                 # Clean up current session before processing pending
                 if session_key in self._active_sessions:
                     del self._active_sessions[session_key]
@@ -1253,10 +1292,12 @@ class BasePlatformAdapter(ABC):
                 await self._process_message_background(pending_event, session_key)
                 return  # Already cleaned up
                 
+        except asyncio.CancelledError:
+            await self._run_processing_hook("on_processing_complete", event, False)
+            raise
         except Exception as e:
-            print(f"[{self.name}] Error handling message: {e}")
-            import traceback
-            traceback.print_exc()
+            await self._run_processing_hook("on_processing_complete", event, False)
+            logger.error("[%s] Error handling message: %s", self.name, e, exc_info=True)
             # Send the error to the user so they aren't left with radio silence
             try:
                 error_type = type(e).__name__
