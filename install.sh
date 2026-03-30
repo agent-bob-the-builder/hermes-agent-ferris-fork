@@ -151,6 +151,24 @@ ensure_hermes_sources() {
     ok "hermes sources downloaded"
 }
 
+# ── Patch cli.py to fix asyncio event loop deprecation ─────────────────────────
+patch_cli_event_loop() {
+    local cli="$HERMES_DIR/cli.py"
+    if [[ ! -f "$cli" ]]; then
+        warn "cli.py not found — skipping event loop patch"
+        return
+    fi
+    # Fix: replace deprecated asyncio.get_event_loop() with new_event_loop()
+    # This prevents DeprecationWarning and crash on fresh install in non-TTY env
+    if grep -q '_aio.get_event_loop()' "$cli" 2>/dev/null; then
+        info "Patching cli.py asyncio event loop (fixes installer crash)..."
+        sed -i 's/_loop = _aio\.get_event_loop()/_loop = _aio.new_event_loop()\n                    _aio.set_event_loop(_loop)/' "$cli"
+        ok "cli.py patched"
+    else
+        ok "cli.py event loop already patched"
+    fi
+}
+
 # ── Ensure rust sources present ────────────────────────────────────────────────
 ensure_rust_sources() {
     if [[ -f "$HERMES_DIR/rust/Cargo.toml" ]]; then
@@ -313,6 +331,9 @@ reload_path
 
     # Clone repo if source files are missing (handles fresh/empty clone scenario)
     ensure_hermes_sources
+
+    # Patch cli.py event loop before any python code runs
+    patch_cli_event_loop
 
     info "Creating virtual environment..."
     uv venv "$HERMES_DIR/venv" --python python3 --seed || fail "uv venv failed"

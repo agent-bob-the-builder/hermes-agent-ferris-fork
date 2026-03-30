@@ -357,7 +357,7 @@ fn build(
     identity: Option<String>,
     system_message: Option<String>,
     memory_store_json: Option<String>,
-    user_profile_json: Option<String>,
+    _user_profile_json: Option<String>,
     honcho_block: Option<String>,
     valid_tool_names_json: Option<String>,
     skip_context_files: bool,
@@ -507,15 +507,7 @@ fn build(
 // Internal micro-benchmarks (not exposed as pyfunction — run via Python)
 // ---------------------------------------------------------------------------
 
-struct BenchResult {
-    name: String,
-    mean_ms: f64,
-    median_ms: f64,
-    min_ms: f64,
-    max_ms: f64,
-    p95_ms: f64,
-    runs: usize,
-}
+struct _BenchResult {
 
 impl BenchResult {
     fn new(name: &str, mut values: Vec<f64>) -> Self {

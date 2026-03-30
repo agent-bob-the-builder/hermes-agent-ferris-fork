@@ -3,7 +3,9 @@ use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::{PyAnyMethods, PyDict, PyList, PyListMethods, PyModuleMethods, PySet};
 use std::collections::{HashMap, HashSet};
-use std::sync::{Mutex, atomic::{AtomicBool, Ordering}};
+use std::hash::Hash;
+use std::sync::{Arc, Mutex, mpsc::{channel, Sender, Receiver}, atomic::{AtomicBool, Ordering}};
+use std::thread::{self, ThreadId};
 
 // Legacy toolset mapping
 fn legacy_toolset_map() -> HashMap<&'static str, Vec<&'static str>> {
@@ -557,8 +559,6 @@ fn handle_function_call(
     honcho_manager: Option<Py<PyAny>>,
     honcho_session_key: Option<String>,
 ) -> PyResult<String> {
-    // Suppress unused warnings for parameters not yet wired up in Rust dispatch
-    let _ = (&function_args, &user_task, &enabled_tools, &last_resolved_tool_names, &honcho_manager, &honcho_session_key);
     let read_search_tools: HashSet<&str> = HashSet::from(["read_file", "search_files"]);
     let agent_loop_tools: HashSet<&str> =
         HashSet::from(["todo", "memory", "session_search", "delegate_task"]);
@@ -578,13 +578,48 @@ fn handle_function_call(
         )));
     }
 
-    // handle_function_call delegated to Python — raises NotImplementedError so the
-    // Python caller falls back to its own registry.dispatch().
-    // This avoids the GIL deadlock from Rust calling Python while the GIL is held.
-    Err(PyErr::new::<pyo3::exceptions::PyNotImplementedError, _>(
-        "Rust handle_function_call not implemented — use Python dispatch".to_owned(),
-    ))
-}
+    // Build kwargs before releasing GIL (they don't need GIL, just py-bound Py objects)
+    let kwargs = PyDict::new(py);
+    if let Some(ref tid) = task_id {
+        kwargs.set_item("task_id", tid)?;
+    }
+    if let Some(ref manager) = honcho_manager {
+        kwargs.set_item("honcho_manager", manager.bind(py))?;
+    }
+    if let Some(ref sk) = honcho_session_key {
+        kwargs.set_item("honcho_session_key", sk)?;
+    }
+    if function_name == "execute_code" {
+        let sandbox_enabled = enabled_tools
+            .or(last_resolved_tool_names.clone())
+            .unwrap_or_default();
+        kwargs.set_item("enabled_tools", PyList::new(py, &sandbox_enabled)?)?;
+    } else if let Some(ref ut) = user_task {
+        kwargs.set_item("user_task", ut)?;
+    }
+
+    let fn_name_clone = function_name.clone();
+    let fn_args_py = function_args.bind(py).clone();
+    let kwargs_py = kwargs.bind(py).clone();
+
+    // Release GIL for the duration of the thread work. Python::attach() re-acquires
+    // the GIL inside the thread (a thread starting without Python has no thread-state).
+    let (tx, rx) = channel::<PyResult<Py<PyAny>>>();
+    py.allow_threads(move || {
+        let result = Python::attach(|py_inner| {
+            let registry = match get_cached_registry(py_inner) {
+                Ok(r) => r,
+                Err(e) => return Err(e),
+            };
+            registry.call_method(
+                "dispatch",
+                (fn_name_clone.clone(), fn_args_py.bind(py_inner)),
+                Some(&kwargs_py.bind(py_inner)),
+            )
+        });
+        let _ = tx.send(result);
+    });
+
 
 
 // -------------------------------------------------------------------------------------------------

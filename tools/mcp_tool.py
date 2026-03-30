@@ -1075,6 +1075,15 @@ _mcp_thread: Optional[threading.Thread] = None
 _lock = threading.Lock()
 
 
+def _ensure_mcp_available() -> bool:
+    """Return True if the mcp package is installed."""
+    try:
+        import mcp  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 def _ensure_mcp_loop():
     """Start the background event loop thread if not already running."""
     global _mcp_loop, _mcp_thread
