@@ -585,22 +585,13 @@ fn handle_function_call(
         kwargs.set_item("user_task", ut)?;
     }
 
-    // Clone Python objects that will cross to the thread
-    let fn_name = function_name.clone();
-    let fa = function_args.bind(py).clone();
-    let kw = kwargs.bind(py).clone();
-
-    // Release GIL — spawn thread that re-attaches to call Python dispatch
-    let (tx, rx) = channel::<Result<Py<PyAny>, PyErr>>();
-    thread::spawn(move || {
-        let r = Python::with_gil(|py| {
-            let registry = get_cached_registry(py)?;
-            registry.call_method("dispatch", (fn_name, fa.bind(py)), Some(&kw.bind(py)))
-        });
-        let _ = tx.send(r);
-    });
-
-    let result = rx.recv().map_err(|_| json_error("Rust handle_function_call: thread error".to_owned()))?;
+    // Call Python dispatch while GIL is held
+    let registry = get_cached_registry(py)?;
+    let result = registry.call_method(
+        "dispatch",
+        (function_name.as_str(), function_args.bind(py)),
+        Some(&kwargs),
+    )?;
 
     result.extract::<String>().map_err(|err| {
         logger_call(py, "error", &format!("Error executing {}: {}", function_name, err));
