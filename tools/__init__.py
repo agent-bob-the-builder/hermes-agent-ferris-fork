@@ -4,7 +4,14 @@ Tools Package — lazy loading via __getattr__.
 
 Every subpackage/tool module is loaded on first access, not at package import time.
 This keeps `import tools` fast (~0ms) and defers all tool module imports until
-they're actually needed (typically when the agent activates a specific toolset).
+they're actually needed.
+
+Subpackage access:
+    from tools import terminal_tool   → lazy-loads tools/terminal_tool
+    from tools import web_tools       → lazy-loads tools/web_tools
+
+Standalone helpers:
+    check_file_requirements()   → delegates to terminal_tool (avoids circular import)
 """
 
 from __future__ import annotations
@@ -27,7 +34,6 @@ __all__ = [
     "clarify_tool",
     "code_execution_tool",
     "delegate_tool",
-    "registry",
 ]
 
 
@@ -67,15 +73,15 @@ _LAZY_CACHE: dict[str, Any] = {}
 
 
 def __getattr__(name: str) -> Any:
-    # Tool subpackage — load lazily on first access
+    # Subpackage — load lazily on first access
     if name in _TOOL_SUBPACKAGES:
         if name not in _LAZY_CACHE:
             _LAZY_CACHE[name] = __import__(f"tools.{name}", fromlist=[name])
         return _LAZY_CACHE[name]
 
-    # registry — special case (exposed for compatibility, no tool loading)
-    if name == "registry":
-        from tools.registry import registry as reg
-        return reg
+    # Inline helpers (defined directly to avoid needing subpackage imports)
+    if name == "check_file_requirements":
+        from tools.terminal_tool import check_terminal_requirements
+        return check_terminal_requirements
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

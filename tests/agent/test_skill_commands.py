@@ -174,7 +174,6 @@ Generate some audio.
 
         def fake_secret_callback(var_name, prompt, metadata=None):
             calls.append((var_name, prompt, metadata))
-            os.environ[var_name] = "stored-in-test"
             return {
                 "success": True,
                 "stored_as": var_name,
@@ -250,7 +249,6 @@ Generate some audio.
         monkeypatch.delenv("HERMES_GATEWAY_SESSION", raising=False)
 
         def fake_secret_callback(var_name, prompt, metadata=None):
-            os.environ[var_name] = "stored-in-test"
             return {
                 "success": True,
                 "stored_as": var_name,

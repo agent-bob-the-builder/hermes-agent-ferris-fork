@@ -577,7 +577,6 @@ def _get_auxiliary_env_override(task: str, suffix: str) -> Optional[str]:
 
 
 def _try_openrouter() -> "Tuple[Optional[OpenAI], Optional[str]]":
-    from openai import OpenAI
     or_key = os.getenv("OPENROUTER_API_KEY")
     if not or_key:
         return None, None

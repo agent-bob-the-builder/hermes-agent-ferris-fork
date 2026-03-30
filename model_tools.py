@@ -295,6 +295,9 @@ def _ensure_constants():
     global _TOOL_TO_TOOLSET_MAP, _TOOLSET_REQUIREMENTS, _USING_RUST_BACKEND
     if _TOOL_TO_TOOLSET_MAP is not None:
         return
+    # Ensure all tool modules are loaded and have called registry.register()
+    # so that registry._tools is populated before we try to build the map.
+    _ensure_all_tools_discovered()
     rust = _ensure_rust_backend()
     if rust:
         _TOOL_TO_TOOLSET_MAP = rust.get_tool_to_toolset_map()
