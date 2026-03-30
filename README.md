@@ -1,6 +1,6 @@
 # Hermes Agent Ferris Fork ☤
 
-A **Rust-accelerated fork** of [Hermes Agent](https://github.com/NousResearch/hermes-agent) by Nous Research. Maintained by [syntox](https://github.com/agent-bob-the-builder) at [github.com/agent-bob-the-builder/hermes-agent-ferris-fork](https://github.com/agent-bob-the-builder/hermes-agent-ferris-fork).
+A performance oriented **Rust fork** of [Hermes Agent](https://github.com/NousResearch/hermes-agent) by Nous Research. Maintained by [agent-bob-the-builder](https://github.com/agent-bob-the-builder) at [github.com/agent-bob-the-builder/hermes-agent-ferris-fork](https://github.com/agent-bob-the-builder/hermes-agent-ferris-fork).
 
 ---
 
@@ -51,49 +51,6 @@ graph TD
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/agent-bob-the-builder/hermes-agent-ferris-fork/main/install.sh | bash
-```
-
-Or clone and run manually:
-
-```bash
-git clone git@github.com:agent-bob-the-builder/hermes-agent-ferris-fork.git
-cd hermes-agent-ferris-fork
-./install.sh
-```
-
-`./install.sh` has three modes:
-
-| Command | What it does |
-|---|---|
-| `./install.sh` | Full install: Python deps + Rust toolchain + all 3 PyO3 extensions + skills symlink |
-| `./install.sh --deps` | Python deps only — skip Rust build |
-| `./install.sh --rust` | Rust build only — skip Python deps |
-
-Verify all extensions loaded:
-
-```bash
-python3 -c "import rust_compressor, _model_tools_rust, _prompt_builder_rust; print('All Rust extensions loaded OK')"
-```
-
-Update: `git pull && ./install.sh`
-
----
-
-## Configure
-
-Set your model in `~/.hermes/config.yaml`:
-
-```yaml
-model:
-  default: MiniMax-M2.7
-  provider: minimax
-  base_url: https://api.minimax.io/v1
-```
-
-Or run the interactive setup:
-
-```bash
-python3 cli.py setup
 ```
 
 ---
