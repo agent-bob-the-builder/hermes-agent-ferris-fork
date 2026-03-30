@@ -35,7 +35,7 @@ class TestFirecrawlClientConfig:
     def test_cloud_mode_key_only(self):
         """API key without URL → cloud Firecrawl."""
         with patch.dict(os.environ, {"FIRECRAWL_API_KEY": "fc-test"}):
-            with patch("tools.web_tools.Firecrawl") as mock_fc:
+            with patch("firecrawl.Firecrawl") as mock_fc:
                 from tools.web_tools import _get_firecrawl_client
                 result = _get_firecrawl_client()
                 mock_fc.assert_called_once_with(api_key="fc-test")
@@ -47,7 +47,7 @@ class TestFirecrawlClientConfig:
             "FIRECRAWL_API_KEY": "fc-test",
             "FIRECRAWL_API_URL": "http://localhost:3002",
         }):
-            with patch("tools.web_tools.Firecrawl") as mock_fc:
+            with patch("firecrawl.Firecrawl") as mock_fc:
                 from tools.web_tools import _get_firecrawl_client
                 result = _get_firecrawl_client()
                 mock_fc.assert_called_once_with(
@@ -58,7 +58,7 @@ class TestFirecrawlClientConfig:
     def test_self_hosted_no_key(self):
         """URL only, no key → self-hosted without auth."""
         with patch.dict(os.environ, {"FIRECRAWL_API_URL": "http://localhost:3002"}):
-            with patch("tools.web_tools.Firecrawl") as mock_fc:
+            with patch("firecrawl.Firecrawl") as mock_fc:
                 from tools.web_tools import _get_firecrawl_client
                 result = _get_firecrawl_client()
                 mock_fc.assert_called_once_with(api_url="http://localhost:3002")
@@ -66,7 +66,7 @@ class TestFirecrawlClientConfig:
 
     def test_no_config_raises_with_helpful_message(self):
         """Neither key nor URL → ValueError with guidance."""
-        with patch("tools.web_tools.Firecrawl"):
+        with patch("firecrawl.Firecrawl"):
             from tools.web_tools import _get_firecrawl_client
             with pytest.raises(ValueError, match="FIRECRAWL_API_KEY"):
                 _get_firecrawl_client()
@@ -76,7 +76,7 @@ class TestFirecrawlClientConfig:
     def test_singleton_returns_same_instance(self):
         """Second call returns cached client without re-constructing."""
         with patch.dict(os.environ, {"FIRECRAWL_API_KEY": "fc-test"}):
-            with patch("tools.web_tools.Firecrawl") as mock_fc:
+            with patch("firecrawl.Firecrawl") as mock_fc:
                 from tools.web_tools import _get_firecrawl_client
                 client1 = _get_firecrawl_client()
                 client2 = _get_firecrawl_client()
@@ -87,7 +87,7 @@ class TestFirecrawlClientConfig:
         """If Firecrawl() raises, next call should retry (not return None)."""
         import tools.web_tools
         with patch.dict(os.environ, {"FIRECRAWL_API_KEY": "fc-test"}):
-            with patch("tools.web_tools.Firecrawl") as mock_fc:
+            with patch("firecrawl.Firecrawl") as mock_fc:
                 mock_fc.side_effect = [RuntimeError("init failed"), MagicMock()]
                 from tools.web_tools import _get_firecrawl_client
 
@@ -107,7 +107,7 @@ class TestFirecrawlClientConfig:
             "FIRECRAWL_API_KEY": "",
             "FIRECRAWL_API_URL": "http://localhost:3002",
         }):
-            with patch("tools.web_tools.Firecrawl") as mock_fc:
+            with patch("firecrawl.Firecrawl") as mock_fc:
                 from tools.web_tools import _get_firecrawl_client
                 _get_firecrawl_client()
                 # Empty string is falsy, so only api_url should be passed
@@ -116,7 +116,7 @@ class TestFirecrawlClientConfig:
     def test_empty_string_key_no_url_raises(self):
         """FIRECRAWL_API_KEY='' with no URL → should raise."""
         with patch.dict(os.environ, {"FIRECRAWL_API_KEY": ""}):
-            with patch("tools.web_tools.Firecrawl"):
+            with patch("firecrawl.Firecrawl"):
                 from tools.web_tools import _get_firecrawl_client
                 with pytest.raises(ValueError):
                     _get_firecrawl_client()
