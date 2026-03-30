@@ -1,8 +1,6 @@
 [workspace]
 resolver = "2"
 members = [
-    "compressor",
-    "model_tools_rs",
     "prompt_builder_rs",
 ]
 
