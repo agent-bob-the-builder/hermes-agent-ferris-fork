@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations  # Defer annotation evaluation — avoids eager SDK imports at class-body time
+
 """
 Hermes Agent CLI - Interactive Terminal Interface
 
@@ -25,6 +27,7 @@ import uuid
 import textwrap
 from contextlib import contextmanager
 from pathlib import Path
+
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
@@ -476,9 +479,9 @@ from rich.text import Text as _RichText
 
 import fire
 
-# Import the agent and tool systems
-from run_agent import AIAgent
-from model_tools import get_tool_definitions, get_toolset_for_tool
+# Deferred: AIAgent pulls in the openai SDK eagerly (~600ms).
+# AIAgent is lazily imported inside _init_agent (line ~2099).
+# model_tools is lazily imported inside each call-site below (lines ~2637, ~4766).
 
 # Extracted CLI modules (Phase 3)
 from hermes_cli.banner import build_welcome_banner
@@ -2090,6 +2093,8 @@ class HermesCLI:
                 "args": list(self.acp_args or []),
             }
             effective_model = model_override or self.model
+            # Lazy import: AIAgent pulls in the openai SDK (~600ms), defer to first real use.
+            from run_agent import AIAgent
             self.agent = AIAgent(
                 model=effective_model,
                 api_key=runtime.get("api_key"),
@@ -4067,6 +4072,8 @@ class HermesCLI:
 
         def run_background():
             try:
+                # Lazy import: defer openai SDK load until background task actually starts.
+                from run_agent import AIAgent
                 bg_agent = AIAgent(
                     model=turn_route["model"],
                     api_key=turn_route["runtime"].get("api_key"),
