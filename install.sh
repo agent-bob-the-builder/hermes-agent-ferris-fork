@@ -63,17 +63,48 @@ install_build_deps() {
         return
     fi
     info "Installing build dependencies (cc, libc-dev)..."
+
+    # ── Linux ──────────────────────────────────────────────────────────────
     if need apt-get; then
+        # Debian / Ubuntu / Linux Mint / WSL
         apt-get install -y --no-install-recommends build-essential || fail "apt-get install build deps failed"
+
     elif need yum; then
+        # CentOS 7 / older RHEL — yum is an alias for dnf in CentOS 8+
         yum install -y gcc gcc-c++ make || fail "yum install build deps failed"
+
     elif need dnf; then
+        # Fedora / CentOS 8+ / RHEL 8+
         dnf install -y gcc make || fail "dnf install build deps failed"
+
     elif need apk; then
+        # Alpine Linux / Docker Alpine
         apk add --no-cache gcc musl-dev make || fail "apk install build deps failed"
+
+    # ── macOS ──────────────────────────────────────────────────────────────
+    elif need brew; then
+        # Homebrew — auto-installs gcc (creates /usr/local/bin/gcc-13 etc.)
+        brew install gcc || fail "brew install gcc failed"
+
+    # ── Windows (Git Bash / MSYS2 / Cygwin) ─────────────────────────────────
+    elif need pacman; then
+        # MSYS2 / Git Bash on Windows
+        pacman -Sy --noconfirm gcc make || fail "pacman install gcc failed"
+
+    # ── Windows native (PowerShell / cmd) ──────────────────────────────────
+    elif need choco; then
+        # Chocolatey
+        choco install -y visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools" || \
+        choco install -y mingw || fail "choco install failed"
+
+    elif need scoop; then
+        scoop install gcc make || fail "scoop install failed"
+
     else
-        fail "No package manager found (apt/yum/dnf/apk) — cannot install cc"
+        fail "No package manager found — cannot install build tools." \
+             "Supported: apt/yum/dnf/apk (Linux), brew (macOS), pacman/choco/scoop (Windows)"
     fi
+
     need cc || fail "cc not found after install"
     ok "cc"
 }
@@ -251,9 +282,9 @@ result = subprocess.run([venv_python, "-c",
     "print('All Rust extensions loaded OK')"])
 if result.returncode != 0:
     print(f"[build] ERROR: extension load failure", file=sys.stderr)
-    print(result.stderr[-800:], file=sys.stderr)
+    print((result.stderr or "")[-800:], file=sys.stderr)
     sys.exit(1)
-for line in result.stdout.strip().split("\n"):
+for line in (result.stdout or "").strip().split("\n"):
     log(f"  {line}")
 PYEOF
 }
