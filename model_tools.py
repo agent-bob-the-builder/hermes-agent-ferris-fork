@@ -351,7 +351,6 @@ def get_tool_definitions(
                 quiet_mode=quiet_mode,
             )
             # Keep Python-side mirror in sync for code that reads _last_resolved_tool_names
-            global _last_resolved_tool_names
             _last_resolved_tool_names = [t["function"]["name"] for t in result]
             return result
         except Exception as e:
