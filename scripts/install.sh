@@ -1103,7 +1103,7 @@ build_rust_extensions() {
     for crate in compressor model_tools_rs prompt_builder_rs; do
         if [ -d "rust/$crate" ] && [ -f "rust/$crate/Cargo.toml" ]; then
             log_info "  Building rust/$crate ..."
-            if maturin develop --manifest-path rust/Cargo.toml -p "$crate" --release 2>/dev/null; then
+            if maturin develop --manifest-path "rust/$crate/Cargo.toml" --release 2>/dev/null; then
                 log_success "  rust/$crate built"
                 ext_count=$((ext_count + 1))
             else

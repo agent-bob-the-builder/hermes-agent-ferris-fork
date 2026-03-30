@@ -142,13 +142,21 @@ def _ensure_mcp_sdk():
         from mcp.types import (
             CreateMessageResult,
             CreateMessageResultWithTools,
-            ErrorData as _ErrorData,
+            ErrorData,
             SamplingCapability,
             SamplingToolsCapability,
             TextContent,
             ToolUseContent,
         )
-        result["ErrorData"] = _ErrorData
+        result["types"] = {
+            "CreateMessageResult": CreateMessageResult,
+            "CreateMessageResultWithTools": CreateMessageResultWithTools,
+            "ErrorData": ErrorData,
+            "SamplingCapability": SamplingCapability,
+            "SamplingToolsCapability": SamplingToolsCapability,
+            "TextContent": TextContent,
+            "ToolUseContent": ToolUseContent,
+        }
         result["sampling_types"] = True
     except ImportError:
         pass
