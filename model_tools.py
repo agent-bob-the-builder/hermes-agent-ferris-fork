@@ -345,11 +345,15 @@ def get_tool_definitions(
     # Fast path: use Rust backend
     if _use_rust:
         try:
-            return _rust.get_tool_definitions(
+            result = _rust.get_tool_definitions(
                 enabled_toolsets=enabled_toolsets,
                 disabled_toolsets=disabled_toolsets,
                 quiet_mode=quiet_mode,
             )
+            # Keep Python-side mirror in sync for code that reads _last_resolved_tool_names
+            global _last_resolved_tool_names
+            _last_resolved_tool_names = [t["function"]["name"] for t in result]
+            return result
         except Exception as e:
             logger.warning(
                 "Rust get_tool_definitions failed: %s, falling back to Python", e

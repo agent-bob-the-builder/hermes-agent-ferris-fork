@@ -68,4 +68,5 @@ USER.md
 *.py.*
 *.md.*
 *.new
-discord-exports/*
+discord-exports/
+.benchmarks/

@@ -1842,3 +1842,11 @@ registry.register(
     is_async=True,
     emoji="📄",
 )
+
+def __getattr__(name: str):
+    """Lazy module-level aliases to avoid importing optional dependencies at module load."""
+    if name == "Firecrawl":
+        from firecrawl import Firecrawl as _FC
+        globals()["Firecrawl"] = _FC
+        return _FC
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
