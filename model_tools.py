@@ -237,6 +237,15 @@ def _ensure_mcp_discovered():
         from tools.mcp_tool import discover_mcp_tools
 
         discover_mcp_tools()
+
+        # After MCP tools are registered, refresh the Rust toolset cache
+        # so the backend sees the newly added MCP tools.
+        rust = _ensure_rust_backend()
+        if rust:
+            try:
+                rust.refresh_toolset_cache()
+            except Exception:
+                pass  # Stale .so, ignore
     except Exception as e:
         logger.debug("MCP tool discovery failed: %s", e)
 
@@ -250,6 +259,15 @@ def _ensure_plugins_discovered():
         from hermes_cli.plugins import discover_plugins
 
         discover_plugins()
+
+        # After plugins are registered, refresh the Rust toolset cache
+        # so the backend sees any newly added plugin tools.
+        rust = _ensure_rust_backend()
+        if rust:
+            try:
+                rust.refresh_toolset_cache()
+            except Exception:
+                pass  # Stale .so, ignore
     except Exception as e:
         logger.debug("Plugin discovery failed: %s", e)
 
