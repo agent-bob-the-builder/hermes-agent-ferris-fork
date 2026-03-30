@@ -321,6 +321,37 @@ else
 fi
 reload_path
 
+# ── Install hermes CLI wrapper ─────────────────────────────────────────────────
+install_hermes_cli() {
+    mkdir -p "$HOME/.local/bin"
+    # Create a wrapper script that sets HERMES_DIR and calls the venv python
+    local hermes_wrapper="$HOME/.local/bin/hermes"
+    cat > "$hermes_wrapper" << 'WRAPPER'
+#!/bin/bash
+# hermes CLI wrapper — auto-sets HERMES_DIR based on symlink location, then
+# delegates to the hermes-agent venv Python.
+HERMES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export HERMES_DIR
+exec "$HERMES_DIR/venv/bin/python3" "$HERMES_DIR/cli.py" "$@"
+WRAPPER
+    chmod +x "$hermes_wrapper"
+    # Detect shell rc files
+    for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
+        if [[ -f "$rc" ]]; then
+            # Avoid duplicate exports
+            if ! grep -q "export hermes=" "$rc" 2>/dev/null; then
+                echo "" >> "$rc"
+                echo "# hermes-agent (ferris-fork)" >> "$rc"
+                echo "export hermes=\"$HOME/.local/bin/hermes\"" >> "$rc"
+                ok "Added hermes export to $rc"
+            fi
+        fi
+    done
+    ok "hermes CLI installed to $HOME/.local/bin/hermes"
+}
+
+install_hermes_cli
+
 [[ $SKIP_DEPS -eq 0 ]] && {
     info "Checking dependencies..."
     need python3 || fail "needed: python3"
