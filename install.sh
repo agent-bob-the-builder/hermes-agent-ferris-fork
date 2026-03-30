@@ -124,9 +124,9 @@ build_rust_extensions() {
     install_rust
 
     reload_path
-    if ! need maturin; then
+    if ! "$HERMES_DIR/venv/bin/python3" -c "import maturin" 2>/dev/null; then
         info "Installing maturin..."
-        uv pip install --system maturin -q || fail "maturin install failed"
+        "$HERMES_DIR/venv/bin/python3" -m pip install maturin -q || fail "maturin install failed"
     fi
     ok "maturin"
 
