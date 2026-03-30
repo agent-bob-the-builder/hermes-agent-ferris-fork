@@ -162,9 +162,9 @@ PYEOF
 # fall back to the script's own location via BASH_SOURCE[0].
 _hermes_pwd=$(pwd)
 _hermes_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
-if [[ -f "$_hermes_pwd/pyproject.toml" || -f "$_hermes_pwd/rust/Cargo.toml" ]]; then
+if [[ -f "$_hermes_pwd/pyproject.toml" || -f "$_hermes_pwd/setup.py" || -f "$_hermes_pwd/rust/Cargo.toml" ]]; then
     export HERMES_DIR="$_hermes_pwd"
-elif [[ -f "$_hermes_script_dir/pyproject.toml" || -f "$_hermes_script_dir/rust/Cargo.toml" ]]; then
+elif [[ -f "$_hermes_script_dir/pyproject.toml" || -f "$_hermes_script_dir/setup.py" || -f "$_hermes_script_dir/rust/Cargo.toml" ]]; then
     export HERMES_DIR="$_hermes_script_dir"
 else
     export HERMES_DIR="$_hermes_pwd"
@@ -184,6 +184,9 @@ reload_path
     ok "venv created"
 
     info "Installing Python dependencies..."
+    if [[ ! -f "$HERMES_DIR/pyproject.toml" && ! -f "$HERMES_DIR/setup.py" ]]; then
+        fail "Neither pyproject.toml nor setup.py found in $HERMES_DIR — run 'git clone' first or check your HERMES_DIR"
+    fi
     cd "$HERMES_DIR" && uv pip install --python "$HERMES_DIR/venv/bin/python3" -e . -q || fail "Python deps install failed"
     ok "Python packages (pyproject.toml)"
 
