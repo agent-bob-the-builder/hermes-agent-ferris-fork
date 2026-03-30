@@ -3,13 +3,12 @@ set -euo pipefail
 
 # ── Colours ──────────────────────────────────────────────────────────────────
 BOLD="\033[1m"; RESET="\033[0m"; BLUE="\033[34m"; GREEN="\033[32m"; YELLOW="\033[33m"; RED="\033[31m"
-info()  { echo -e "${BLUE}[info]${RESET}  $*"; }
-ok()    { echo -e "${GREEN}[ ok ]${RESET}  $*"; }
+info()  { echo -e "${BLUE}[info]${RESET}  $*" >&2; }
+ok()    { echo -e "${GREEN}[ ok ]${RESET}  $*" >&2; }
 warn()  { echo -e "${YELLOW}[warn]${RESET}  $*" >&2; }
-fail()  { echo -e "${RED}[fail]${RESET}  $*" >&2; }
+fail()  { echo -e "${RED}[fail]${RESET}  $*" >&2; exit 1; }
 
 need()  { command -v "$1" &>/dev/null; }
-require() { need "$1" || { fail "needed: $1"; exit 1; }; }
 
 SKIP_DEPS=0; SKIP_RUST=0
 for arg in "$@"; do
@@ -24,108 +23,88 @@ done
 REPO_URL="https://github.com/agent-bob-the-builder/hermes-agent-ferris-fork"
 GITREF="${GITREF:-main}"
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
-PYINSTALL=""
-setup_python() {
-    if need uv; then
-        PYINSTALL="uv pip install"
-    elif need pip3; then
-        PYINSTALL="pip3 install"
-    elif need python3; then
-        PYINSTALL="python3 -m pip install"
-    fi
+# ── Env helpers ───────────────────────────────────────────────────────────────
+reload_path() {
+    export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+    # Source rustup env if present
+    [[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"
+    [[ -f "$HOME/.local/share/uv/uv.toml" ]] && . "$HOME/.local/bin/uv.env" 2>/dev/null || true
 }
 
+# ── Install uv ────────────────────────────────────────────────────────────────
 install_uv() {
     if need uv; then
         ok "uv"
         return
     fi
     info "Installing uv..."
-    (
-        if need curl; then
-            curl -fsSL https://astral.sh/uv/install.sh | sh 2>&1 | grep -vE "^$"
-        elif need wget; then
-            wget -qO- https://astral.sh/uv/install.sh | sh 2>&1 | grep -vE "^$"
-        else
-            exit 1
-        fi
-    ) || fail "uv install failed"
-    # Reload PATH so uv is available immediately
-    export PATH="$HOME/.local/bin:$PATH"
-    need uv || fail "uv install failed"
+    if ! need curl && ! need wget; then
+        fail "uv install requires curl or wget"
+    fi
+
+    local installer
+    if need curl; then
+        installer="curl -fsSL https://astral.sh/uv/install.sh"
+    else
+        installer="wget -qO- https://astral.sh/uv/install.sh"
+    fi
+    # Run the uv installer; it creates ~/.local/bin/uv and sources ~/.local/bin/env
+    eval "$installer | sh" || fail "uv install failed"
+    # uv installer should have added ~/.local/bin to PATH; verify
+    reload_path
+    need uv || fail "uv install failed (uv not in PATH after install)"
     ok "uv"
 }
 
+# ── Install Rust toolchain ───────────────────────────────────────────────────
+install_rust() {
+    # Source cargo env if already installed
+    [[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"
+
+    if need rustc; then
+        ok "rustc"
+        return
+    fi
+    info "Installing Rust..."
+    if ! need curl; then
+        fail "rust install requires curl"
+    fi
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable \
+        || fail "rustup install failed"
+    . "$HOME/.cargo/env"
+    need rustc || fail "rustc not found after install"
+    ok "rustc"
+}
+
+# ── Ensure rust sources present ───────────────────────────────────────────────
 ensure_rust_sources() {
-    if [[ -d "rust" && -f "rust/Cargo.toml" ]]; then
+    if [[ -d rust && -f rust/Cargo.toml ]]; then
         ok "rust sources present"
         return
     fi
-
     info "Downloading Rust sources from ${REPO_URL}..."
-    local tmp=$(mktemp -d)
-    git clone --depth=1 --branch "$GITREF" "$REPO_URL" "$tmp" 2>&1 | tail -2
+    local tmp
+    tmp=$(mktemp -d) || fail "mktemp failed"
+    git clone --depth=1 --branch "$GITREF" "$REPO_URL" "$tmp" \
+        || fail "git clone failed — check your network / repo URL"
     if [[ ! -d "$tmp/rust" || ! -f "$tmp/rust/Cargo.toml" ]]; then
         rm -rf "$tmp"
-        fail "failed to fetch rust sources from ${REPO_URL}@${GITREF}"
+        fail "rust/ not found in ${REPO_URL}@${GITREF} — repo may be incomplete"
     fi
     mv "$tmp/rust" rust/
     rm -rf "$tmp"
     ok "rust sources downloaded"
 }
 
-# ── Init ───────────────────────────────────────────────────────────────────────
-[[ $SKIP_DEPS -eq 0 ]] && setup_env() {
-    info "Checking dependencies..."
-    require python3 && require git
-    ok "python3, git"
-
-    install_uv
-    setup_python
-    ok "${PYINSTALL%% *}"
-
-    [[ -f .env ]] || cp .env.example .env 2>/dev/null || true
-    [[ -s .env ]] || warn "  → fill in your API keys / tokens in .env"
-}
-
-[[ $SKIP_DEPS -eq 0 ]] && install_python_deps() {
-    info "Installing Python dependencies..."
-    if [[ -z "$PYINSTALL" ]]; then
-        fail "no Python package manager found (tried uv, pip3, python3 -m pip)"
-    fi
-    $PYINSTALL -e . -q 2>&1 | grep -vE "^$" || true
-    ok "Python packages (pyproject.toml)"
-    mkdir -p ~/.hermes/skills
-    ok "skills dir exists: ~/.hermes/skills"
-}
-
-[[ $SKIP_DEPS -eq 0 ]] && setup_skills() {
-    mkdir -p ~/.hermes/skills
-    [[ -L ~/.hermes/skills/hermes-agent ]] || ln -s "$(pwd)" ~/.hermes/skills/hermes-agent
-}
-
-install_rust_toolchain() {
-    if need rustc; then
-        ok "rustc"
-    else
-        info "Installing Rust..."
-        if need curl; then
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable 2>&1 | tail -3
-        else
-            fail "rust install requires curl"
-        fi
-        ok "rustc"
-    fi
-}
-
+# ── Build Rust extensions ────────────────────────────────────────────────────
 build_rust_extensions() {
-    [[ -d "rust" && -f "rust/Cargo.toml" ]] || ensure_rust_sources
-    install_rust_toolchain
+    [[ -d rust && -f rust/Cargo.toml ]] || ensure_rust_sources
+    install_rust
 
+    reload_path
     if ! need maturin; then
         info "Installing maturin..."
-        $PYINSTALL install maturin -q || { fail "maturin install failed"; exit 1; }
+        uv pip install --system maturin -q || fail "maturin install failed"
     fi
     ok "maturin"
 
@@ -152,7 +131,8 @@ with tempfile.TemporaryDirectory() as tmpdir:
             cwd=hermes, capture_output=True, text=True
         )
         if result.returncode != 0:
-            print(f"maturin build failed for {module}: {result.stderr[-500:]}", file=sys.stderr)
+            print(f"maturin build failed for {module}", file=sys.stderr)
+            print(result.stderr[-800:], file=sys.stderr)
             sys.exit(1)
         whl = next(f for f in os.listdir(out) if f.endswith(".whl"))
         with zipfile.ZipFile(os.path.join(out, whl)) as z:
@@ -169,18 +149,41 @@ with tempfile.TemporaryDirectory() as tmpdir:
 result = subprocess.run([venv_python, "-c",
     "import rust_compressor, _model_tools_rust, _prompt_builder_rust; print('All Rust extensions loaded OK')"])
 if result.returncode != 0:
-    print("WARNING: Extensions may not all be loadable", file=sys.stderr)
+    print("Extension load failure:", result.stderr[-400:], file=sys.stderr)
     sys.exit(1)
 print("Extensions verified OK")
 PYEOF
 }
 
 # ── Main ──────────────────────────────────────────────────────────────────────
-export HERMES_DIR="$(pwd)"
-[[ $SKIP_DEPS -eq 0 ]] && setup_env
-[[ $SKIP_DEPS -eq 0 ]] && install_python_deps
+export HERMES_DIR="$(cd "$(dirname "$0")" && pwd)"
+reload_path
+
+[[ $SKIP_DEPS -eq 0 ]] && {
+    info "Checking dependencies..."
+    need python3 || fail "needed: python3"
+    need git || fail "needed: git"
+    ok "python3, git"
+
+    install_uv
+
+    info "Creating virtual environment..."
+    uv venv "$HERMES_DIR/venv" --python python3 || fail "uv venv failed"
+    ok "venv created"
+
+    info "Installing Python dependencies..."
+    uv pip install --python "$HERMES_DIR/venv/bin/python3" -e . -q || fail "Python deps install failed"
+    ok "Python packages (pyproject.toml)"
+
+    mkdir -p ~/.hermes/skills
+    [[ -L ~/.hermes/skills/hermes-agent ]] || ln -s "$HERMES_DIR" ~/.hermes/skills/hermes-agent
+    ok "skills dir"
+
+    [[ -f .env ]] || cp .env.example .env 2>/dev/null || true
+    [[ -s .env ]] || warn "  → fill in your API keys / tokens in .env"
+}
+
 [[ $SKIP_RUST -eq 0 ]] && build_rust_extensions
-[[ $SKIP_DEPS -eq 0 ]] && setup_skills
 
 echo ""
 echo -e "${BOLD}Install complete!${RESET}"
@@ -189,9 +192,9 @@ echo "  Next steps:"
 echo "    1. Edit .env and fill in your API keys"
 echo "    2. Run: python3 cli.py"
 echo ""
-read -p "  → Run hermes now? [Y/n] " -r; echo ""
+read -p "  → Run hermes now? [Y/n] " -r </dev/tty && echo ""
 if [[ ! "$REPLY" =~ ^[Nn]$ ]]; then
     echo "  Launching hermes... (Ctrl+C to exit)"
     sleep 1
-    exec python3 cli.py
+    cd "$HERMES_DIR" && exec python3 cli.py
 fi
