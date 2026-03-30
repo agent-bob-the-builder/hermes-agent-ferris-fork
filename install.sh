@@ -343,5 +343,5 @@ read -p "  → Run hermes now? [Y/n] " -r </dev/tty && echo ""
 if [[ ! "$REPLY" =~ ^[Nn]$ ]]; then
     echo "  Launching hermes... (Ctrl+C to exit)"
     sleep 1
-    cd "$HERMES_DIR" && exec python3 cli.py
+    cd "$HERMES_DIR" && exec "$HERMES_DIR/venv/bin/python3" cli.py
 fi
