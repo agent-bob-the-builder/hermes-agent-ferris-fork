@@ -7,6 +7,9 @@ edition.workspace = true
 name = "_model_tools_rust"
 crate-type = ["cdylib"]
 
+[profile.dev]
+opt-level = 0
+
 [dependencies]
 pyo3 = { workspace = true, features = ["serde"] }
 serde_json.workspace = true

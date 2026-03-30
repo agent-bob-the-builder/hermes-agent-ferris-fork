@@ -122,6 +122,7 @@ lazy_static! {
 
 /// Returns a cached reference to tools.registry.registry.
 /// Cached in CACHED_REGISTRY_MOD — resolved once at init, reused every call.
+#[allow(dead_code)]
 #[inline]
 fn get_cached_registry(py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
     let guard = CACHED_REGISTRY_MOD.lock().unwrap();
@@ -144,6 +145,7 @@ fn get_cached_registry(py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
 
 /// Returns the cached invoke_hook from hermes_cli.plugins.
 /// Resolved once on first call, reused every call thereafter.
+#[allow(dead_code)]
 #[inline]
 fn get_invoke_hook(py: Python<'_>) -> Option<Bound<'_, PyAny>> {
     let guard = CACHED_INVOKE_HOOK.lock().unwrap();
@@ -555,6 +557,8 @@ fn handle_function_call(
     honcho_manager: Option<Py<PyAny>>,
     honcho_session_key: Option<String>,
 ) -> PyResult<String> {
+    // Suppress unused warnings for parameters not yet wired up in Rust dispatch
+    let _ = (&function_args, &user_task, &enabled_tools, &last_resolved_tool_names, &honcho_manager, &honcho_session_key);
     let read_search_tools: HashSet<&str> = HashSet::from(["read_file", "search_files"]);
     let agent_loop_tools: HashSet<&str> =
         HashSet::from(["todo", "memory", "session_search", "delegate_task"]);
@@ -600,7 +604,7 @@ fn refresh_toolset_cache(py: Python<'_>) -> PyResult<()> {
 // -------------------------------------------------------------------------------------------------
 
 #[pyfunction]
-fn register_last_resolved_callback(py: Python<'_>, callback: Py<PyAny>) -> PyResult<()> {
+fn register_last_resolved_callback(_py: Python<'_>, callback: Py<PyAny>) -> PyResult<()> {
     let mut guard = SET_LAST_RESOLVED_CALLBACK.lock().unwrap();
     *guard = Some(callback);
     Ok(())

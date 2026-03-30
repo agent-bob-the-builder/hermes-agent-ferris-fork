@@ -6,6 +6,7 @@ members = [
     "prompt_builder_rs",
 ]
 
+
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
