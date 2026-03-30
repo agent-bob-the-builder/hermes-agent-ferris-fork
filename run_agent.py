@@ -883,39 +883,23 @@ class AIAgent:
                         "User-Agent": "KimiCLI/1.3",
                     }
             else:
-                # No explicit creds — use the centralized provider router
-                from agent.auxiliary_client import resolve_provider_client
-                _routed_client, _ = resolve_provider_client(
-                    self.provider or "auto", model=self.model, raw_codex=True)
-                if _routed_client is not None:
-                    client_kwargs = {
-                        "api_key": _routed_client.api_key,
-                        "base_url": str(_routed_client.base_url),
-                    }
-                    # Preserve any default_headers the router set
-                    if hasattr(_routed_client, '_default_headers') and _routed_client._default_headers:
-                        client_kwargs["default_headers"] = dict(_routed_client._default_headers)
-                else:
-                    # When the user explicitly chose a non-OpenRouter provider
-                    # but no credentials were found, fail fast with a clear
-                    # message instead of silently routing through OpenRouter.
-                    _explicit = (self.provider or "").strip().lower()
-                    if _explicit and _explicit not in ("auto", "openrouter", "custom"):
-                        raise RuntimeError(
-                            f"Provider '{_explicit}' is set in config.yaml but no API key "
-                            f"was found. Set the {_explicit.upper()}_API_KEY environment "
-                            f"variable, or switch to a different provider with `hermes model`."
-                        )
-                    # Final fallback: try raw OpenRouter key
-                    client_kwargs = {
-                        "api_key": os.getenv("OPENROUTER_API_KEY", ""),
-                        "base_url": OPENROUTER_BASE_URL,
-                        "default_headers": {
-                            "HTTP-Referer": "https://hermes-agent.nousresearch.com",
-                            "X-OpenRouter-Title": "Hermes Agent",
-                            "X-OpenRouter-Categories": "productivity,cli-agent",
-                        },
-                    }
+                # No explicit creds — defer provider routing until first API call.
+                # Storing the provider/model is enough; resolve_provider_client()
+                # is called lazily inside _ensure_primary_openai_client() so that
+                # openai/httpx are never imported during __init__ (~1s saving).
+                self._deferred_routing = True
+                self._deferred_provider = self.provider
+                self._deferred_model = self.model
+                # Placeholder — will be replaced by the routed values lazily
+                client_kwargs = {
+                    "api_key": os.getenv("OPENROUTER_API_KEY", ""),
+                    "base_url": OPENROUTER_BASE_URL,
+                    "default_headers": {
+                        "HTTP-Referer": "https://hermes-agent.nousresearch.com",
+                        "X-OpenRouter-Title": "Hermes Agent",
+                        "X-OpenRouter-Categories": "productivity,cli-agent",
+                    },
+                }
             
             self._client_kwargs = client_kwargs  # stored for rebuilding after interrupt
 
@@ -3658,11 +3642,30 @@ class AIAgent:
         return True
 
     def _ensure_primary_openai_client(self, *, reason: str) -> Any:
+        # Fast path: already created and not closed
         with self._openai_client_lock():
             client = getattr(self, "client", None)
             if client is not None and not self._is_openai_client_closed(client):
                 return client
 
+        # First call: perform deferred provider routing (imports openai here)
+        if getattr(self, "_deferred_routing", False):
+            from agent.auxiliary_client import resolve_provider_client
+            _routed_client, _ = resolve_provider_client(
+                self._deferred_provider or "auto",
+                model=self._deferred_model,
+                raw_codex=True,
+            )
+            if _routed_client is not None:
+                self._client_kwargs = {
+                    "api_key": _routed_client.api_key,
+                    "base_url": str(_routed_client.base_url),
+                }
+                if hasattr(_routed_client, "_default_headers") and _routed_client._default_headers:
+                    self._client_kwargs["default_headers"] = dict(_routed_client._default_headers)
+            self._deferred_routing = False
+
+        # Recreate closed client
         logger.warning(
             "Detected closed shared OpenAI client; recreating before use (%s) %s",
             reason,

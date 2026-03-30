@@ -126,7 +126,7 @@ build_rust_extensions() {
     reload_path
     if ! "$HERMES_DIR/venv/bin/python3" -c "import maturin" 2>/dev/null; then
         info "Installing maturin..."
-        "$HERMES_DIR/venv/bin/python3" -m pip install maturin -q || fail "maturin install failed"
+        uv pip install maturin --python "$HERMES_DIR/venv/bin/python3" -q || fail "maturin install failed"
     fi
     ok "maturin"
 
@@ -205,7 +205,7 @@ reload_path
     ensure_hermes_sources
 
     info "Creating virtual environment..."
-    uv venv "$HERMES_DIR/venv" --python python3 || fail "uv venv failed"
+    uv venv "$HERMES_DIR/venv" --python python3 --seed || fail "uv venv failed"
     ok "venv created"
 
     info "Installing Python dependencies..."
