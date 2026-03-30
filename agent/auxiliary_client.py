@@ -616,11 +616,12 @@ def _get_auxiliary_env_override(task: str, suffix: str) -> Optional[str]:
 
 
 def _try_openrouter() -> "Tuple[Optional[OpenAI], Optional[str]]":
-    from openai import OpenAI
-
+    # Fast path: check env vars before importing openai (~700ms cost).
+    # If no openrouter key is set, skip the import entirely.
     or_key = os.getenv("OPENROUTER_API_KEY")
     if not or_key:
         return None, None
+    from openai import OpenAI
     logger.debug("Auxiliary client: OpenRouter")
     return OpenAI(
         api_key=or_key, base_url=OPENROUTER_BASE_URL, default_headers=_OR_HEADERS

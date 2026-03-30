@@ -159,14 +159,30 @@ build_rust_extensions() {
     python3 - << 'PYEOF'
 import zipfile, shutil, os, sys, subprocess, tempfile
 
+def log(msg):
+    print(f"[build] {msg}", flush=True)
+
 hermes = os.environ.get("HERMES_DIR", "/root/.hermes/hermes-agent")
 venv_python = os.path.join(hermes, "venv/bin/python3")
-# maturin is installed as a uv tool (not in the project venv), so find it via PATH
-import shutil as _shutil
-maturin = _shutil.which("maturin") or (hermes + "/.local/bin/maturin")
+
+# Detect Python version from the venv
 result = subprocess.run([venv_python, "-c", "import sys; print(f'python{sys.version_info.major}.{sys.version_info.minor}')"], capture_output=True, text=True)
 python_version = result.stdout.strip()
 site = os.path.join(hermes, f"venv/lib/{python_version}/site-packages")
+log(f"Detected venv Python: {python_version}")
+log(f"Site-packages: {site}")
+
+# Find maturin (installed as uv tool, not in project venv)
+import shutil as _shutil
+maturin = _shutil.which("maturin") or (hermes + "/.local/bin/maturin")
+log(f"maturin: {maturin}")
+
+# Verify maturin works
+result = subprocess.run([maturin, "--version"], capture_output=True, text=True)
+if result.returncode == 0:
+    log(f"maturin version: {result.stdout.strip()}")
+else:
+    print(f"[build] WARN: maturin --version failed: {result.stderr.strip()}", flush=True)
 
 crates = [
     ("rust/compressor/Cargo.toml",       "rust_compressor"),
@@ -176,33 +192,69 @@ crates = [
 
 with tempfile.TemporaryDirectory() as tmpdir:
     for manifest, module in crates:
+        crate_name = manifest.split("/")[1]
+        log(f"Building crate {crate_name} ({module})...")
         out = os.path.join(tmpdir, os.path.dirname(manifest))
+        log(f"  manifest: {manifest}")
+        log(f"  output dir: {out}")
+
         result = subprocess.run(
             [maturin, "build", "--release", "--manifest-path", manifest, "-o", out],
             cwd=hermes, capture_output=True, text=True
         )
+
         if result.returncode != 0:
-            print(f"maturin build failed for {module}", file=sys.stderr)
-            print(result.stderr[-800:], file=sys.stderr)
+            print(f"[build] ERROR: maturin build failed for {module}", file=sys.stderr)
+            print(f"[build] --- stdout ---", file=sys.stderr)
+            print(result.stdout[-1200:], file=sys.stderr)
+            print(f"[build] --- stderr ---", file=sys.stderr)
+            print(result.stderr[-1200:], file=sys.stderr)
             sys.exit(1)
-        whl = next(f for f in os.listdir(out) if f.endswith(".whl"))
+
+        log(f"  build succeeded")
+
+        whl_files = [f for f in os.listdir(out) if f.endswith(".whl")]
+        if not whl_files:
+            print(f"[build] ERROR: no .whl file found in {out}", file=sys.stderr)
+            print(f"[build] Contents: {os.listdir(out)}", file=sys.stderr)
+            sys.exit(1)
+
+        whl = whl_files[0]
+        log(f"  wheel: {whl}")
+
         with zipfile.ZipFile(os.path.join(out, whl)) as z:
+            log(f"  wheel contains {len(z.namelist())} files")
             for f in z.namelist():
                 if f.endswith(".so") and module in f:
                     dest = os.path.join(site, module)
+                    log(f"  extracting {f} -> {dest}")
                     shutil.rmtree(dest, ignore_errors=True)
                     z.extract(f, site)
                     extracted = os.path.join(site, f)
                     if os.path.isdir(extracted):
                         os.rename(extracted, dest)
-                    print(f"Installed {module}")
+                    log(f"  installed {module}")
+                    break
+            else:
+                print(f"[build] WARN: no .so file for {module} in wheel", file=sys.stderr)
+                print(f"[build] Files in wheel: {[f for f in z.namelist() if module in f]}", file=sys.stderr)
 
+log("All crates built successfully")
+
+# Verify all extensions load
+log("Verifying extensions...")
 result = subprocess.run([venv_python, "-c",
-    "import rust_compressor, _model_tools_rust, _prompt_builder_rust; print('All Rust extensions loaded OK')"])
+    "import rust_compressor, _model_tools_rust, _prompt_builder_rust; "
+    "print('rust_compressor ok'); "
+    "print('_model_tools_rust ok'); "
+    "print('_prompt_builder_rust ok'); "
+    "print('All Rust extensions loaded OK')"])
 if result.returncode != 0:
-    print("Extension load failure:", result.stderr[-400:], file=sys.stderr)
+    print(f"[build] ERROR: extension load failure", file=sys.stderr)
+    print(result.stderr[-800:], file=sys.stderr)
     sys.exit(1)
-print("Extensions verified OK")
+for line in result.stdout.strip().split("\n"):
+    log(f"  {line}")
 PYEOF
 }
 

@@ -469,14 +469,24 @@ async def vision_analyze_tool(
 
 
 def check_vision_requirements() -> bool:
-    """Check if the configured runtime vision path can resolve a client."""
-    try:
-        from agent.auxiliary_client import resolve_vision_provider_client
+    """Check if the configured runtime vision path can resolve a client.
 
-        _provider, client, _model = resolve_vision_provider_client()
-        return client is not None
-    except Exception:
-        return False
+    Deferrable: intentionally skips the openai import chain (~700ms) during
+    AIAgent init.  The primary OpenAI client is created lazily on first API
+    call; vision validation runs at that point instead.
+    """
+    # Fast env-var check — the actual client resolution (which triggers the
+    # openai import chain) is deferred to the vision tool execution path.
+    # During AIAgent.__init__ we only check that at least one vision-capable
+    # env var is present.  This means vision tools are advertised even before
+    # we know for certain they can be served, but the alternative is paying
+    # ~700ms on every cold start to eagerly confirm the same thing.
+    return bool(
+        os.getenv("OPENROUTER_API_KEY")
+        or os.getenv("NOUS_API_KEY")
+        or os.getenv("OPENAI_API_KEY")
+        or os.getenv("ANTHROPIC_API_KEY")
+    )
 
 
 def get_debug_session_info() -> Dict[str, Any]:
