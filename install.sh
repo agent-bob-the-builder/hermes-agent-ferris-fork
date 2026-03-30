@@ -126,7 +126,9 @@ build_rust_extensions() {
     reload_path
     if ! "$HERMES_DIR/venv/bin/python3" -c "import maturin" 2>/dev/null; then
         info "Installing maturin..."
-        uv pip install maturin --python "$HERMES_DIR/venv/bin/python3" -q || fail "maturin install failed"
+        # Install maturin as a uv tool (not into the project venv) so it doesn't
+        # need pip present in the hermes venv.
+        uv tool install maturin -q || fail "maturin install failed"
     fi
     ok "maturin"
 
@@ -136,7 +138,9 @@ import zipfile, shutil, os, sys, subprocess, tempfile
 
 hermes = os.environ.get("HERMES_DIR", "/root/.hermes/hermes-agent")
 venv_python = os.path.join(hermes, "venv/bin/python3")
-maturin = os.path.join(hermes, "venv/bin/maturin")
+# maturin is installed as a uv tool (not in the project venv), so find it via PATH
+import shutil as _shutil
+maturin = _shutil.which("maturin") or (hermes + "/.local/bin/maturin")
 result = subprocess.run([venv_python, "-c", "import sys; print(f'python{sys.version_info.major}.{sys.version_info.minor}')"], capture_output=True, text=True)
 python_version = result.stdout.strip()
 site = os.path.join(hermes, f"venv/lib/{python_version}/site-packages")
