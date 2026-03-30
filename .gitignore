@@ -70,3 +70,4 @@ USER.md
 *.new
 discord-exports/
 .benchmarks/
+/skills
