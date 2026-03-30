@@ -76,7 +76,29 @@ install_rust() {
     ok "rustc"
 }
 
-# ── Ensure rust sources present ───────────────────────────────────────────────
+# ── Ensure hermes sources present ─────────────────────────────────────────────
+ensure_hermes_sources() {
+    if [[ -f "$HERMES_DIR/pyproject.toml" || -f "$HERMES_DIR/setup.py" ]]; then
+        ok "hermes sources present"
+        return
+    fi
+    info "Downloading hermes-agent-ferris-fork from ${REPO_URL}..."
+    local tmp
+    tmp=$(mktemp -d) || fail "mktemp failed"
+    git clone --depth=1 --branch "$GITREF" "$REPO_URL" "$tmp" \
+        || fail "git clone failed — check your network / repo URL"
+    if [[ ! -f "$tmp/pyproject.toml" && ! -f "$tmp/setup.py" ]]; then
+        rm -rf "$tmp"
+        fail "Neither pyproject.toml nor setup.py found in ${REPO_URL}@${GITREF} — repo may be incomplete"
+    fi
+    # Move all cloned contents into HERMES_DIR (may be a fresh dir)
+    mv "$tmp"/* "$HERMES_DIR/" 2>/dev/null || true
+    mv "$tmp"/.[!.]* "$HERMES_DIR/" 2>/dev/null || true
+    rm -rf "$tmp"
+    ok "hermes sources downloaded"
+}
+
+# ── Ensure rust sources present ────────────────────────────────────────────────
 ensure_rust_sources() {
     if [[ -f "$HERMES_DIR/rust/Cargo.toml" ]]; then
         ok "rust sources present"
@@ -179,14 +201,14 @@ reload_path
 
     install_uv
 
+    # Clone repo if source files are missing (handles fresh/empty clone scenario)
+    ensure_hermes_sources
+
     info "Creating virtual environment..."
     uv venv "$HERMES_DIR/venv" --python python3 || fail "uv venv failed"
     ok "venv created"
 
     info "Installing Python dependencies..."
-    if [[ ! -f "$HERMES_DIR/pyproject.toml" && ! -f "$HERMES_DIR/setup.py" ]]; then
-        fail "Neither pyproject.toml nor setup.py found in $HERMES_DIR — run 'git clone' first or check your HERMES_DIR"
-    fi
     cd "$HERMES_DIR" && uv pip install --python "$HERMES_DIR/venv/bin/python3" -e . -q || fail "Python deps install failed"
     ok "Python packages (pyproject.toml)"
 
