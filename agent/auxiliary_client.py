@@ -577,6 +577,8 @@ def _get_auxiliary_env_override(task: str, suffix: str) -> Optional[str]:
 
 
 def _try_openrouter() -> "Tuple[Optional[OpenAI], Optional[str]]":
+    from openai import OpenAI
+
     or_key = os.getenv("OPENROUTER_API_KEY")
     if not or_key:
         return None, None
@@ -672,12 +674,12 @@ def _try_custom_endpoint() -> "Tuple[Optional[OpenAI], Optional[str]]":
 
 def _try_codex() -> Tuple[Optional[Any], Optional[str]]:
     from openai import OpenAI
-    codex_token = _read_codex_access_token()
+
+    codex_token=_read_...en()
     if not codex_token:
         return None, None
     logger.debug("Auxiliary client: Codex OAuth (%s via Responses API)", _CODEX_AUX_MODEL)
-    from openai import OpenAI
-    real_client = OpenAI(api_key=codex_token, base_url=_CODEX_AUX_BASE_URL)
+    real_client = OpenAI(api_key=*** base_url=_CODEX_AUX_BASE_URL)
     return CodexAuxiliaryClient(real_client, _CODEX_AUX_MODEL), _CODEX_AUX_MODEL
 
 

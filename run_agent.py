@@ -81,6 +81,23 @@ import weakref
 from types import SimpleNamespace
 import uuid
 from typing import List, Dict, Any, Optional
+
+
+# Lazy import for backward compatibility with test mocks that use
+# ``patch("run_agent.OpenAI")`` / ``monkeypatch.setattr("run_agent.OpenAI", ...)``.
+# The OpenAI client is now lazily created inside _create_openai_client() to
+# avoid importing it when running in pure-Anthropic mode, but the test suite
+# still patches run_agent.OpenAI directly.
+def __getattr__(name: str):
+    if name in ("OpenAI", "AsyncOpenAI"):
+        from openai import OpenAI as _O, AsyncOpenAI as _AO
+
+        globals()["OpenAI"] = _O
+        globals()["AsyncOpenAI"] = _AO
+        return _O if name == "OpenAI" else _AO
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 import fire
 from datetime import datetime
 from pathlib import Path

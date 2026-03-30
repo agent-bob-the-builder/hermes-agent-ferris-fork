@@ -78,7 +78,7 @@ install_rust() {
 
 # ── Ensure rust sources present ───────────────────────────────────────────────
 ensure_rust_sources() {
-    if [[ -d rust && -f rust/Cargo.toml ]]; then
+    if [[ -f "$HERMES_DIR/rust/Cargo.toml" ]]; then
         ok "rust sources present"
         return
     fi
@@ -91,14 +91,14 @@ ensure_rust_sources() {
         rm -rf "$tmp"
         fail "rust/ not found in ${REPO_URL}@${GITREF} — repo may be incomplete"
     fi
-    mv "$tmp/rust" rust/
+    mv "$tmp/rust" "$HERMES_DIR/rust/"
     rm -rf "$tmp"
     ok "rust sources downloaded"
 }
 
 # ── Build Rust extensions ────────────────────────────────────────────────────
 build_rust_extensions() {
-    [[ -d rust && -f rust/Cargo.toml ]] || ensure_rust_sources
+    [[ -f "$HERMES_DIR/rust/Cargo.toml" ]] || ensure_rust_sources
     install_rust
 
     reload_path
@@ -156,7 +156,17 @@ PYEOF
 }
 
 # ── Main ──────────────────────────────────────────────────────────────────────
-export HERMES_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Resolve HERMES_DIR: prefer pwd (works for curl|bash from cloned dir),
+# fall back to the script's own location via BASH_SOURCE[0].
+_hermes_pwd=$(pwd)
+_hermes_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+if [[ -f "$_hermes_pwd/pyproject.toml" || -f "$_hermes_pwd/rust/Cargo.toml" ]]; then
+    export HERMES_DIR="$_hermes_pwd"
+elif [[ -f "$_hermes_script_dir/pyproject.toml" || -f "$_hermes_script_dir/rust/Cargo.toml" ]]; then
+    export HERMES_DIR="$_hermes_script_dir"
+else
+    export HERMES_DIR="$_hermes_pwd"
+fi
 reload_path
 
 [[ $SKIP_DEPS -eq 0 ]] && {
