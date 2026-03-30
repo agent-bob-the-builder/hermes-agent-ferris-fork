@@ -64,3 +64,8 @@ bench*.py
 SOUL.md
 PEOPLE/*
 USER.md
+*.data
+*.py.*
+*.md.*
+*.new
+discord-exports/*

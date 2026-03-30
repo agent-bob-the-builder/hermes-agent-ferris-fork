@@ -1,0 +1,8 @@
+[project]
+name = "pyperformance-bm-import-run-agent"
+version = "1.0"
+requires-python = ">=3.10"
+dependencies = ["pyperf"]
+
+[tool.pyperformance]
+name = "import_run_agent"

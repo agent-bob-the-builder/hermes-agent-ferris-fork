@@ -452,6 +452,7 @@ def _read_nous_auth() -> Optional[dict]:
     Returns the provider state dict if Nous is active with tokens,
     otherwise None.
     """
+    from openai import OpenAI
     try:
         if not _AUTH_JSON_PATH.is_file():
             return None
@@ -514,6 +515,7 @@ def _resolve_api_key_provider() -> "Tuple[Optional[OpenAI], Optional[str]]":
     Returns (client, model) for the first provider with usable runtime
     credentials, or (None, None) if none are configured.
     """
+    from openai import OpenAI
     try:
         from hermes_cli.auth import PROVIDER_REGISTRY, resolve_api_key_provider_credentials
     except ImportError:
@@ -575,6 +577,7 @@ def _get_auxiliary_env_override(task: str, suffix: str) -> Optional[str]:
 
 
 def _try_openrouter() -> "Tuple[Optional[OpenAI], Optional[str]]":
+    from openai import OpenAI
     or_key = os.getenv("OPENROUTER_API_KEY")
     if not or_key:
         return None, None
@@ -584,6 +587,7 @@ def _try_openrouter() -> "Tuple[Optional[OpenAI], Optional[str]]":
 
 
 def _try_nous() -> "Tuple[Optional[OpenAI], Optional[str]]":
+    from openai import OpenAI
     nous = _read_nous_auth()
     if not nous:
         return None, None
@@ -658,6 +662,7 @@ def _current_custom_base_url() -> str:
 
 
 def _try_custom_endpoint() -> "Tuple[Optional[OpenAI], Optional[str]]":
+    from openai import OpenAI
     custom_base, custom_key = _resolve_custom_runtime()
     if not custom_base or not custom_key:
         return None, None
@@ -667,10 +672,12 @@ def _try_custom_endpoint() -> "Tuple[Optional[OpenAI], Optional[str]]":
 
 
 def _try_codex() -> Tuple[Optional[Any], Optional[str]]:
+    from openai import OpenAI
     codex_token = _read_codex_access_token()
     if not codex_token:
         return None, None
     logger.debug("Auxiliary client: Codex OAuth (%s via Responses API)", _CODEX_AUX_MODEL)
+    from openai import OpenAI
     real_client = OpenAI(api_key=codex_token, base_url=_CODEX_AUX_BASE_URL)
     return CodexAuxiliaryClient(real_client, _CODEX_AUX_MODEL), _CODEX_AUX_MODEL
 
@@ -891,6 +898,7 @@ def resolve_provider_client(
                                "but no Codex OAuth token found (run: hermes model)")
                 return None, None
             final_model = model or _CODEX_AUX_MODEL
+            from openai import OpenAI
             raw_client = OpenAI(api_key=codex_token, base_url=_CODEX_AUX_BASE_URL)
             return (raw_client, final_model)
         # Standard path: wrap in CodexAuxiliaryClient adapter
@@ -918,6 +926,7 @@ def resolve_provider_client(
                 )
                 return None, None
             final_model = model or _read_main_model() or "gpt-4o-mini"
+            from openai import OpenAI
             client = OpenAI(api_key=custom_key, base_url=custom_base)
             return (_to_async_client(client, final_model) if async_mode
                     else (client, final_model))
@@ -979,6 +988,7 @@ def resolve_provider_client(
 
             headers.update(copilot_default_headers())
 
+        from openai import OpenAI
         client = OpenAI(api_key=api_key, base_url=base_url,
                         **({"default_headers": headers} if headers else {}))
         logger.debug("resolve_provider_client: %s (%s)", provider, final_model)
