@@ -2,25 +2,27 @@
 //!
 //! Replaces Python threading-based subprocess management with a clean async interface.
 //! Handles: spawn, async drain, kill, interrupt, exit codes, sudo password injection,
-//! encoding, timeout. No GIL contention — all I/O runs in background threads.
+//! timeout, process groups. No GIL contention — all I/O runs in background threads.
 
-use libc::{kill as libc_kill, setpgid, waitpid, WIFEXITED, WEXITSTATUS, WIFSIGNALED, WTERMSIG, SIGKILL};
+use libc::{kill as libc_kill, setpgid, waitpid, WEXITSTATUS, WIFEXITED, WIFSIGNALED, WTERMSIG, SIGKILL};
 use once_cell::sync::Lazy;
 use pyo3::prelude::*;
-use serde::Serialize;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use std::{io, thread};
+use std::thread;
 
-// Global process registry — allows interrupt/kill from anywhere in the Python call stack.
+// ─────────────────────────────────────────────────────────────────────────────
+// Global process registry
+// ─────────────────────────────────────────────────────────────────────────────
+
 static PROCESS_REGISTRY: Lazy<Mutex<HashMap<String, Arc<SubprocessState>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-// Simple monotonic counter for UUID v4 substitute
+// Simple monotonic counter for UUID substitute (no thread::id needed)
 static UUID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -50,19 +52,104 @@ impl SubprocessState {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Results
+// ExecuteResult — Python-facing return type
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[derive(Serialize)]
+/// Result of a completed subprocess execution.
+#[pyclass]
 pub struct ExecuteResult {
+    #[pyo3(get)]
     pub output: String,
+    #[pyo3(get)]
     pub returncode: i32,
+    #[pyo3(get)]
     pub interrupted: bool,
+    #[pyo3(get)]
     pub timed_out: bool,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Core spawn + drain
+// SubprocessHandle — Python-facing handle for a running process
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[pyclass]
+pub struct SubprocessHandle {
+    session_id: String,
+    state: Arc<SubprocessState>,
+    deadline: Option<Instant>,
+}
+
+#[pymethods]
+impl SubprocessHandle {
+    #[getter]
+    fn session_id(&self) -> &str {
+        &self.session_id
+    }
+
+    /// Blocking wait — polls until done, interrupted, or deadline.
+    /// Returns an ExecuteResult.
+    fn wait(&self) -> ExecuteResult {
+        let poll_interval = Duration::from_millis(20);
+
+        loop {
+            if self.state.interrupted.load(Ordering::Relaxed) {
+                return ExecuteResult {
+                    output: self.state.output.lock().unwrap().clone(),
+                    returncode: 130,
+                    interrupted: true,
+                    timed_out: false,
+                };
+            }
+
+            if let Some(deadline) = self.deadline {
+                if Instant::now() >= deadline {
+                    let _ = _kill_group(&self.state);
+                    return ExecuteResult {
+                        output: self.state.output.lock().unwrap().clone(),
+                        returncode: 124,
+                        interrupted: false,
+                        timed_out: true,
+                    };
+                }
+            }
+
+            if self.state.done.load(Ordering::Relaxed) {
+                return ExecuteResult {
+                    output: self.state.output.lock().unwrap().clone(),
+                    returncode: self.state.exit_code.lock().unwrap().unwrap_or(-1),
+                    interrupted: false,
+                    timed_out: false,
+                };
+            }
+
+            thread::sleep(poll_interval);
+        }
+    }
+
+    /// Read accumulated output so far without blocking.
+    fn drain_partial(&self) -> String {
+        self.state.output.lock().unwrap().clone()
+    }
+
+    /// True if the process has exited.
+    fn is_done(&self) -> bool {
+        self.state.done.load(Ordering::Relaxed)
+    }
+
+    /// Kill the process and all its children.
+    fn kill(&self) {
+        let _ = _kill_group(&self.state);
+    }
+
+    /// Interrupt the process (sets interrupted flag + kills).
+    fn interrupt(&self) {
+        self.state.interrupted.store(true, Ordering::Relaxed);
+        let _ = _kill_group(&self.state);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Module-level functions
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Spawn a subprocess and begin draining its output in background threads.
@@ -100,18 +187,20 @@ pub fn spawn(
     child.stdout(Stdio::piped());
     child.stderr(Stdio::piped());
 
-    // Unix: setpgid(0, 0) in child so we can killpg(-pid) to terminate the whole tree.
+    // Unix: setpgid(0, 0) in child before exec so we can kill the whole process group.
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
-        // SAFETY: pre_exec runs in the child before exec, setpgid is async-signal-safe
-        // and we're in a fresh process with no other threads.
-        child.pre_exec(|| unsafe {
-            if setpgid(0, 0) != 0 {
-                return Err(io::Error::last_os_error());
-            }
-            Ok(())
-        });
+        // SAFETY: pre_exec runs synchronously in the child before execve,
+        // setpgid is async-signal-safe, and no other threads exist in the child yet.
+        // SAFETY: pre_exec runs synchronously in the child before execve.
+        // setpgid is async-signal-safe and no other threads exist in the child yet.
+        unsafe {
+            child.pre_exec(|| {
+                let _ = setpgid(0, 0);
+                Ok(())
+            });
+        }
     }
 
     let mut proc = match child.spawn() {
@@ -120,7 +209,7 @@ pub fn spawn(
             return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
                 "failed to spawn '{}': {}",
                 cmd[0], e
-            )))
+            )));
         }
     };
 
@@ -131,25 +220,25 @@ pub fn spawn(
         *state.pgrp.lock().unwrap() = Some(-(pid as i32));
     }
 
-    // Write stdin then close it so sudo -S sees EOF on the password line.
+    // Write stdin then close it (sends sudo password via -S)
     if !stdin_data.is_empty() {
         if let Some(mut stdin) = proc.stdin.take() {
             let _ = stdin.write_all(stdin_data.as_bytes());
         }
     }
-    drop(proc.stdin.take()); // close stdin pipe
+    drop(proc.stdin.take());
 
-    // Extract pipes BEFORE moving proc into the wait thread
+    // Extract pipes before waiting
     let stdout_pipe = proc.stdout.take().expect("stdout captured");
     let stderr_pipe = proc.stderr.take().expect("stderr captured");
 
-    // Register immediately so interrupt() can find it
+    // Register immediately so interrupt() can find this process
     {
         let mut reg = PROCESS_REGISTRY.lock().unwrap();
         reg.insert(session_id.clone(), state.clone());
     }
 
-    // Background thread: wait for exit, record code
+    // Background: wait for exit, record code
     let state_wait = state.clone();
     #[cfg(unix)]
     thread::spawn(move || {
@@ -174,17 +263,19 @@ pub fn spawn(
         state_wait.done.store(true, Ordering::Relaxed);
     });
 
-    // Background threads: drain stdout and stderr separately
+    // Background: drain stdout
     let state_out = state.clone();
     thread::spawn(move || {
         _drain_reader(stdout_pipe, state_out, false);
     });
+
+    // Background: drain stderr
     let state_err = state.clone();
     thread::spawn(move || {
         _drain_reader(stderr_pipe, state_err, true);
     });
 
-    // Timeout kill thread
+    // Background: timeout kill
     if timeout_ms > 0 {
         let state_kill = state.clone();
         let deadline = Instant::now() + Duration::from_millis(timeout_ms);
@@ -220,7 +311,40 @@ pub fn spawn(
     Ok(handle)
 }
 
-/// Drain a pipe into state.output using BufReader (line-by-line, non-blocking).
+/// Interrupt a running subprocess by session ID (SIGKILL to process group).
+#[pyfunction]
+pub fn interrupt(session_id: &str) -> bool {
+    let reg = PROCESS_REGISTRY.lock().unwrap();
+    if let Some(state) = reg.get(session_id) {
+        state.interrupted.store(true, Ordering::Relaxed);
+        let _ = _kill_group(state);
+        true
+    } else {
+        false
+    }
+}
+
+/// Remove a session from the registry.
+#[pyfunction]
+pub fn cleanup_session(session_id: &str) {
+    let mut reg = PROCESS_REGISTRY.lock().unwrap();
+    reg.remove(session_id);
+}
+
+/// Called by Python wrapper to record an externally-obtained exit code.
+#[pyfunction]
+pub fn set_process_exited(session_id: &str, exit_code: i32) {
+    let reg = PROCESS_REGISTRY.lock().unwrap();
+    if let Some(state) = reg.get(session_id) {
+        *state.exit_code.lock().unwrap() = Some(exit_code);
+        state.done.store(true, Ordering::Relaxed);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Internal helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
 fn _drain_reader<R: Read + Send + 'static>(reader: R, state: Arc<SubprocessState>, is_stderr: bool) {
     let mut buf_reader = BufReader::new(reader);
     let mut line = String::new();
@@ -240,129 +364,27 @@ fn _drain_reader<R: Read + Send + 'static>(reader: R, state: Arc<SubprocessState
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// wait() — poll until done, interrupt, or deadline
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Blocking wait for subprocess completion.
-#[pyfunction]
-pub fn wait(py: Python<'_>, handle: &Bound<'_, SubprocessHandle>) -> PyResult<ExecuteResult> {
-    let poll_interval = Duration::from_millis(20);
-
-    loop {
-        // 1. Interrupt check
-        if handle.interrupted.load(Ordering::Relaxed) {
-            let out = handle.output.lock().unwrap().clone();
-            return Ok(ExecuteResult {
-                output: out,
-                returncode: 130,
-                interrupted: true,
-                timed_out: false,
-            });
-        }
-
-        // 2. Deadline check
-        if let Some(deadline) = handle.deadline {
-            if Instant::now() >= deadline {
-                let _ = _kill_group(&handle.state);
-                let out = handle.output.lock().unwrap().clone();
-                return Ok(ExecuteResult {
-                    output: out,
-                    returncode: 124,
-                    interrupted: false,
-                    timed_out: true,
-                });
-            }
-        }
-
-        // 3. Done check
-        if handle.state.done.load(Ordering::Relaxed) {
-            let out = handle.output.lock().unwrap().clone();
-            let code = *handle.state.exit_code.lock().unwrap();
-            return Ok(ExecuteResult {
-                output: out,
-                returncode: code.unwrap_or(-1),
-                interrupted: false,
-                timed_out: false,
-            });
-        }
-
-        thread::sleep(poll_interval);
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// interrupt / kill / cleanup
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Interrupt a running subprocess (SIGKILL to process group).
-#[pyfunction]
-pub fn interrupt(session_id: &str) -> PyResult<bool> {
-    let reg = PROCESS_REGISTRY.lock().unwrap();
-    if let Some(state) = reg.get(session_id) {
-        state.interrupted.store(true, Ordering::Relaxed);
-        let _ = _kill_group(state);
-        Ok(true)
-    } else {
-        Ok(false)
-    }
-}
-
-/// Read accumulated output so far without blocking.
-#[pyfunction]
-pub fn drain_partial(py: Python<'_>, handle: &Bound<'_, SubprocessHandle>) -> PyResult<String> {
-    Ok(handle.state.output.lock().unwrap().clone())
-}
-
-/// Remove a session from the registry.
-#[pyfunction]
-pub fn cleanup_session(session_id: &str) -> PyResult<()> {
-    let mut reg = PROCESS_REGISTRY.lock().unwrap();
-    reg.remove(session_id);
-    Ok(())
-}
-
-/// Called by Python wrapper to record an externally-obtained exit code.
-#[pyfunction]
-pub fn set_process_exited(session_id: &str, exit_code: i32) -> PyResult<()> {
-    let reg = PROCESS_REGISTRY.lock().unwrap();
-    if let Some(state) = reg.get(session_id) {
-        *state.exit_code.lock().unwrap() = Some(exit_code);
-        state.done.store(true, Ordering::Relaxed);
-    }
-    Ok(())
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Process group kill
-// ─────────────────────────────────────────────────────────────────────────────
-
 #[cfg(unix)]
-fn _kill_group(state: &Arc<SubprocessState>) -> io::Result<()> {
+fn _kill_group(state: &Arc<SubprocessState>) {
     let pgrp = *state.pgrp.lock().unwrap();
     if let Some(pg) = pgrp {
-        // SAFETY: pg is a process group we created via setpgid in the child
+        // SAFETY: pg is a process group we created via setpgid in the child;
+        // SIGKILL to a process group kills all members safely.
         unsafe { libc_kill(-pg, SIGKILL) };
     } else if let Some(pid) = *state.pid.lock().unwrap() {
         unsafe { libc_kill(pid as libc::pid_t, SIGKILL) };
     }
-    Ok(())
 }
 
 #[cfg(not(unix))]
-fn _kill_group(state: &Arc<SubprocessState>) -> io::Result<()> {
+fn _kill_group(state: &Arc<SubprocessState>) {
     use std::process::Command;
     if let Some(pid) = *state.pid.lock().unwrap() {
         let _ = Command::new("taskkill")
             .args(["/F", "/T", &format!("/PID {}", pid)])
             .spawn();
     }
-    Ok(())
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// UUID v4 substitute — time-based with counter, no external deps
-// ─────────────────────────────────────────────────────────────────────────────
 
 fn _uuid_v4() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -372,7 +394,7 @@ fn _uuid_v4() -> String {
         .as_nanos() as u64;
     let counter = UUID_COUNTER.fetch_add(1, Ordering::Relaxed);
     let pid = std::process::id() as u64;
-    // Mix bits for apparent randomness without thread_id
+    // Mix bits for apparent randomness
     let e = ts ^ (pid * 0x517cc1b727220a95) ^ (counter * 0x8d04d2a7);
     format!(
         "{:08x}-{:04x}-4{:03x}-{:04x}-{:012x}",
@@ -385,59 +407,16 @@ fn _uuid_v4() -> String {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Python SubprocessHandle
-// ─────────────────────────────────────────────────────────────────────────────
-
-#[pyclass]
-pub struct SubprocessHandle {
-    session_id: String,
-    state: Arc<SubprocessState>,
-    deadline: Option<Instant>,
-}
-
-#[pymethods]
-impl SubprocessHandle {
-    #[getter]
-    fn session_id(&self) -> &str {
-        &self.session_id
-    }
-
-    fn is_done(&self) -> bool {
-        self.state.done.load(Ordering::Relaxed)
-    }
-
-    fn get_output(&self) -> String {
-        self.state.output.lock().unwrap().clone()
-    }
-
-    fn get_exit_code(&self) -> Option<i32> {
-        *self.state.exit_code.lock().unwrap()
-    }
-
-    fn kill(&self) -> PyResult<()> {
-        let _ = _kill_group(&self.state);
-        Ok(())
-    }
-
-    fn interrupt(&self) -> PyResult<bool> {
-        self.state.interrupted.store(true, Ordering::Relaxed);
-        let _ = _kill_group(&self.state);
-        Ok(true)
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Module entry point
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[pymodule]
 pub fn subprocess_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(spawn, m)?)?;
-    m.add_function(wrap_pyfunction!(wait, m)?)?;
     m.add_function(wrap_pyfunction!(interrupt, m)?)?;
-    m.add_function(wrap_pyfunction!(drain_partial, m)?)?;
     m.add_function(wrap_pyfunction!(cleanup_session, m)?)?;
     m.add_function(wrap_pyfunction!(set_process_exited, m)?)?;
     m.add_class::<SubprocessHandle>()?;
+    m.add_class::<ExecuteResult>()?;
     Ok(())
 }

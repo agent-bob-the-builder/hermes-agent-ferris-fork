@@ -34,9 +34,15 @@ import difflib
 import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from pathlib import Path
 from hermes_constants import get_hermes_home
+
+# Rust accelerator — pure-Rust string utilities for hot-path file ops
+try:
+    import _file_ops_rust as _rust_fo
+except Exception:
+    _rust_fo = None
 
 
 # ---------------------------------------------------------------------------
@@ -383,21 +389,27 @@ class ShellFileOperations(FileOperations):
     def _is_likely_binary(self, path: str, content_sample: str = None) -> bool:
         """
         Check if a file is likely binary.
-        
+
         Uses extension check (fast) + content analysis (fallback).
         """
+        if _rust_fo is not None:
+            try:
+                return _rust_fo.is_likely_binary_py(path, content_sample or "")
+            except Exception:
+                pass
+
         ext = os.path.splitext(path)[1].lower()
         if ext in BINARY_EXTENSIONS:
             return True
-        
+
         # Content analysis: >30% non-printable chars = binary
         if content_sample:
             if not content_sample:
                 return False
-            non_printable = sum(1 for c in content_sample[:1000] 
+            non_printable = sum(1 for c in content_sample[:1000]
                                if ord(c) < 32 and c not in '\n\r\t')
             return non_printable / min(len(content_sample), 1000) > 0.30
-        
+
         return False
     
     def _is_image(self, path: str) -> bool:
@@ -407,6 +419,12 @@ class ShellFileOperations(FileOperations):
     
     def _add_line_numbers(self, content: str, start_line: int = 1) -> str:
         """Add line numbers to content in LINE_NUM|CONTENT format."""
+        if _rust_fo is not None:
+            try:
+                return _rust_fo.add_line_numbers_py(content, start_line)
+            except Exception:
+                pass
+
         lines = content.split('\n')
         numbered = []
         for i, line in enumerate(lines, start=start_line):
@@ -423,6 +441,12 @@ class ShellFileOperations(FileOperations):
         """
         if not path:
             return path
+
+        if _rust_fo is not None:
+            try:
+                return _rust_fo.native_expand_path_py(path)
+            except Exception:
+                pass
 
         if path.startswith('~'):
             # Validate before using expanduser (security: no command injection)
@@ -441,11 +465,22 @@ class ShellFileOperations(FileOperations):
     
     def _escape_shell_arg(self, arg: str) -> str:
         """Escape a string for safe use in shell commands."""
+        if _rust_fo is not None:
+            try:
+                return _rust_fo.escape_shell_arg_py(arg)
+            except Exception:
+                pass
         # Use single quotes and escape any single quotes in the string
         return "'" + arg.replace("'", "'\"'\"'") + "'"
     
     def _unified_diff(self, old_content: str, new_content: str, filename: str) -> str:
         """Generate unified diff between old and new content."""
+        if _rust_fo is not None:
+            try:
+                return _rust_fo.unified_diff_py(old_content, new_content, filename)
+            except Exception:
+                pass
+
         old_lines = old_content.splitlines(keepends=True)
         new_lines = new_content.splitlines(keepends=True)
         diff = difflib.unified_diff(

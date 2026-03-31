@@ -29,9 +29,16 @@ Usage:
 """
 
 import re
+import json
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple, Any
 from enum import Enum
+
+# Rust accelerator — pure-Rust V4A parser, no Python state machine
+try:
+    import _patch_parser_rs as _rust_parser
+except Exception:
+    _rust_parser = None
 
 
 class OperationType(Enum):
@@ -65,6 +72,36 @@ class PatchOperation:
     content: Optional[str] = None  # For add file operations
 
 
+def _rust_ops_to_python(rust_json: str) -> Tuple[List[PatchOperation], Optional[str]]:
+    """Convert Rust JSON output to Python PatchOperation list."""
+    try:
+        raw = json.loads(rust_json)
+    except Exception as e:
+        return [], f"Failed to parse Rust JSON: {e}"
+    
+    ops = []
+    for op in raw:
+        try:
+            op_type = OperationType(op["operation"])
+        except (KeyError, ValueError):
+            return [], f"Unknown operation type: {op.get('operation', '?')}"
+        
+        hunks = []
+        for h in op.get("hunks", []):
+            lines = [HunkLine(ln["prefix"], ln["content"]) for ln in h.get("lines", [])]
+            hunks.append(Hunk(context_hint=h.get("context_hint"), lines=lines))
+        
+        ops.append(PatchOperation(
+            operation=op_type,
+            file_path=op["file_path"],
+            new_path=op.get("new_path"),
+            hunks=hunks,
+            content=op.get("content"),
+        ))
+    
+    return ops, None
+
+
 def parse_v4a_patch(patch_content: str) -> Tuple[List[PatchOperation], Optional[str]]:
     """
     Parse a V4A format patch.
@@ -77,6 +114,17 @@ def parse_v4a_patch(patch_content: str) -> Tuple[List[PatchOperation], Optional[
         - If successful: (list_of_operations, None)
         - If failed: ([], error_description)
     """
+    # Try Rust first (pure-Rust parser, no Python state machine)
+    if _rust_parser is not None:
+        try:
+            rust_json = _rust_parser.parse_v4a_patch(patch_content)
+            ops, err = _rust_ops_to_python(rust_json)
+            if err is None:
+                return ops, None
+        except Exception:
+            pass
+    
+    # Fall back to Python implementation
     lines = patch_content.split('\n')
     operations: List[PatchOperation] = []
     

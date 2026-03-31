@@ -98,14 +98,15 @@ def fuzzy_find_and_replace(content: str, old_string: str, new_string: str,
     """
     if not old_string:
         return content, 0, "old_string cannot be empty"
-    
+
     if old_string == new_string:
         return content, 0, "old_string and new_string are identical"
-    
+
     # Try Rust first (pure-Rust 8-strategy chain, zero Python overhead per call)
-    if _rust_fuzzy is not None:
+    _rust = _ensure_rust_fuzzy()
+    if _rust:
         try:
-            result = _rust_fuzzy.fuzzy_find_and_replace(content, old_string, new_string, replace_all)
+            result = _rust.fuzzy_find_and_replace(content, old_string, new_string, replace_all)
             return result[0], int(result[1]), result[2]
         except Exception:
             # Fall through to Python on any error

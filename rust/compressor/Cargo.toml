@@ -17,7 +17,7 @@ tiktoken-rs.workspace = true
 once_cell.workspace = true
 
 [package.metadata.maturin]
-name = "compressor_rs"
+name = "rust_compressor"
 
 [profile.release]
 lto = true

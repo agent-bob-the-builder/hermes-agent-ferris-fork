@@ -218,16 +218,12 @@ fn matches_glob(filename: &str, pattern: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn walk_and_search<F>(
+fn walk_and_search(
     root: &Path,
     re: &Regex,
     file_glob: Option<&str>,
     limit: usize,
-    _cb: &F,
-) -> std::io::Result<Vec<(String, usize, String)>>
-where
-    F: Fn(&Path, usize, &str) -> (String, usize, String),
-{
+) -> std::io::Result<Vec<(String, usize, String)>> {
     let hidden: HashSet<&str> = HIDDEN_EXCLUDE.iter().copied().collect();
     let mut matches = Vec::new();
 
@@ -296,14 +292,7 @@ fn search_native(
     let re = Regex::new(pattern).ok()?;
     let limit_plus_offset = limit.saturating_add(offset);
 
-    let matches = walk_and_search(
-        path,
-        &re,
-        file_glob,
-        limit_plus_offset,
-        &|fp, lineno, line| (fp.to_string_lossy().into_owned(), lineno, line.to_string()),
-    )
-    .ok()?;
+    let matches = walk_and_search(path, &re, file_glob, limit_plus_offset).ok()?;
 
     let total = matches.len();
 
@@ -450,15 +439,21 @@ fn call_python_fuzzy_match(
         }
     };
 
-    let new_content = match result.get_item(0) {
-        Ok(item) => item.extract().unwrap_or_else(|| content.to_string()),
+    let new_content: String = match result.get_item(0) {
+        Ok(item) => match item.extract() {
+            Ok(v) => v,
+            Err(_) => content.to_string(),
+        },
         Err(_) => content.to_string(),
     };
-    let count = match result.get_item(1) {
-        Ok(item) => item.extract().unwrap_or(0),
+    let count: usize = match result.get_item(1) {
+        Ok(item) => match item.extract() {
+            Ok(v) => v,
+            Err(_) => 0,
+        },
         Err(_) => 0,
     };
-    let error = match result.get_item(2) {
+    let error: Option<String> = match result.get_item(2) {
         Ok(item) => item.extract().ok(),
         Err(_) => None,
     };
