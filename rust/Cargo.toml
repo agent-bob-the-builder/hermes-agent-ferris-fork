@@ -2,11 +2,14 @@
 resolver = "2"
 members = [
     "compressor",
+    "file_ops_rs",
     "fuzzy_match_rs",
     "hermes_state_rs",
     "model_tools_rs",
+    "patch_parser_rs",
     "prompt_builder_rs",
     "skin_engine_rs",
+    "subprocess_rs",
 ]
 
 [workspace.package]

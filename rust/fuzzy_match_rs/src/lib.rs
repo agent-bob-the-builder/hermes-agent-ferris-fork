@@ -1,11 +1,10 @@
 use pyo3::prelude::*;
-use pyo3::PyErr;
 use std::collections::HashMap;
 use lazy_static::lazy_static;
 use regex::Regex;
 
 lazy_static! {
-    static ref RE_FTS_QUOTED: Regex = Regex::new(r"['\"].*?['\"]").unwrap();
+    static ref RE_FTS_QUOTED: Regex = Regex::new(r#"['"].*?['"]"#).unwrap();
     static ref RE_FTS_SPECIAL: Regex = Regex::new(r"[^\w\s]").unwrap();
     static ref RE_FTS_STARS: Regex = Regex::new(r"\*+").unwrap();
 }
@@ -324,7 +323,7 @@ fn _strategy_escape_normalized(content: &str, pattern: &str) -> Vec<Match> {
 }
 
 fn _strategy_trimmed_boundary(content: &str, pattern: &str) -> Vec<Match> {
-    let mut pattern_lines: Vec<&str> = pattern.split('\n').collect();
+    let pattern_lines: Vec<&str> = pattern.split('\n').collect();
     if pattern_lines.is_empty() {
         return vec![];
     }
