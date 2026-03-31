@@ -271,7 +271,46 @@ install_rust_extensions() {
     build_rust_from_source
 }
 
+# ── Verify all Rust extensions from a wheel are present ───────────────────────
+# Returns 0 + prints "all N present" if complete; returns 1 if incomplete.
+verify_wheel_complete() {
+    local venv_python="$HERMES_DIR/venv/bin/python3"
+    local result
+    result=$($venv_python - << 'PYEOF'
+import sys
+expected = [
+    "compressor_rs", "_model_tools_rs", "_prompt_builder_rs", "_skin_engine_rs",
+    "_hermes_state_rs", "_fuzzy_match_rs", "_subprocess_rs", "_file_ops_rs",
+    "_patch_parser_rs", "_ansi_strip_rs", "redact_rs", "run_agent_loop_rs",
+    "_tool_dispatch_rs", "_retry_state_machine_rs", "_honcho_http_rs",
+    "_context_refs_rs", "approval_rs",
+]
+missing = []
+for m in expected:
+    try:
+        __import__(m)
+    except ImportError:
+        missing.append(m)
+if missing:
+    print(f"[verify] MISSING modules: {missing}", file=sys.stderr)
+    sys.exit(1)
+print(f"[verify] All {len(expected)} Rust extensions present")
+PYEOF
+)
+    local rc=$?
+    if [[ $rc -eq 0 ]]; then
+        ok "$result"
+        return 0
+    else
+        warn "pre-built wheel is incomplete — falling back to source build"
+        return 1
+    fi
+}
+
 # ── Install a wheel file into the venv ────────────────────────────────────────
+# NOTE: pre-built wheels on GitHub only contain compressor_rs.  The full bundle
+# (all 17 _rs extensions) is built from source.  We verify ALL expected modules
+# are present — if the wheel is incomplete we fall through to source build.
 install_wheel() {
     local wheel_path="$1"
     info "Installing wheel: $wheel_path"
@@ -279,7 +318,7 @@ install_wheel() {
         warn "pip install failed for $wheel_path"
         return 1
     fi
-    verify_rust_extensions
+    verify_wheel_complete
 }
 
 # ── Build all _rs crates from source and install the combined wheel ─────────────
@@ -421,7 +460,7 @@ verify_rust_extensions() {
     python3 - << 'PYEOF'
 import os, sys, subprocess
 
-hermes = os.environ.get("HERMES_DIR", "/root/.hermes/hermes-agent")
+hermes = os.environ.get("HERMES_DIR", "/root/.hermes/hermes-agent-ferris-fork")
 venv_python = os.path.join(hermes, "venv/bin/python3")
 
 result = subprocess.run([venv_python, "-c", """
@@ -442,32 +481,88 @@ PYEOF
     ok "_rs extensions verified"
 }
 
-# ── Main ──────────────────────────────────────────────────────────────────────
-# Resolve HERMES_DIR: prefer pwd (works for curl|bash from cloned dir),
-# fall back to the script's own location via BASH_SOURCE[0].
+# ── Resolve HERMES_DIR ─────────────────────────────────────────────────────────
+# Try: (1) pwd, (2) script location via BASH_SOURCE[0], (3) known install paths.
+# When running via `curl | bash` the script lives in /tmp so we need (3).
 _hermes_pwd=$(pwd)
 _hermes_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
-if [[ -f "$_hermes_pwd/pyproject.toml" || -f "$_hermes_pwd/setup.py" || -f "$_hermes_pwd/rust/Cargo.toml" ]]; then
+
+_resolve_hermes_dir() {
+    local dir="$1"
+    [[ -f "$dir/pyproject.toml" || -f "$dir/setup.py" || -f "$dir/rust/Cargo.toml" ]] && echo "$dir" && return 0
+    return 1
+}
+
+# Known install locations to try as fallbacks
+_known_hermes_dirs=(
+    "$HOME/.hermes/hermes-agent-ferris-fork"
+    "$HOME/.local/hermes"
+    "/opt/hermes-agent-ferris-fork"
+)
+
+if _resolve_hermes_dir "$_hermes_pwd" > /dev/null; then
     export HERMES_DIR="$_hermes_pwd"
-elif [[ -f "$_hermes_script_dir/pyproject.toml" || -f "$_hermes_script_dir/setup.py" || -f "$_hermes_script_dir/rust/Cargo.toml" ]]; then
+elif _resolve_hermes_dir "$_hermes_script_dir" > /dev/null; then
     export HERMES_DIR="$_hermes_script_dir"
 else
-    export HERMES_DIR="$_hermes_pwd"
+    # Search known paths — this handles `curl | bash` from any directory
+    local found=0
+    for d in "${_known_hermes_dirs[@]}"; do
+        if [[ -d "$d" ]] && _resolve_hermes_dir "$d" > /dev/null; then
+            export HERMES_DIR="$d"
+            found=1
+            break
+        fi
+    done
+    if [[ $found -eq 0 ]]; then
+        # Last resort: use pwd and let ensure_hermes_sources sort it out
+        export HERMES_DIR="$_hermes_pwd"
+    fi
 fi
 reload_path
 
 # ── Install hermes CLI wrapper ─────────────────────────────────────────────────
 install_hermes_cli() {
     mkdir -p "$HOME/.local/bin"
-    # Create a wrapper script that sets HERMES_DIR and calls the venv python
+
+    # Determine where the actual hermes script lives — we write the wrapper
+    # to this file (not to a separate location) so readlink-f works correctly.
+    # HERMES_DIR is already set by the time this runs; use it directly so the
+    # wrapper is always correct even when BASH_SOURCE[0] is relative/broken.
     local hermes_wrapper="$HOME/.local/bin/hermes"
-    cat > "$hermes_wrapper" << 'WRAPPER'
+
+    cat > "$hermes_wrapper" << WRAPPER
 #!/bin/bash
-# hermes CLI wrapper — auto-sets HERMES_DIR based on symlink location, then
-# delegates to the hermes-agent venv Python.
-HERMES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# hermes CLI wrapper — resolves HERMES_DIR via symlink, falls back to known
+# paths, then delegates to the hermes-agent venv Python.
+set -euo pipefail
+
+# (1) Resolve BASH_SOURCE[0] through symlinks to get the real script path.
+#     readlink -f resolves the full chain; if it fails (relative path / no such
+#     file), fall back to the path as-is so dirname still works.
+_real="\$(readlink -f "\${BASH_SOURCE[0]}" 2>/dev/null || echo "\${BASH_SOURCE[0]}")"
+_where="\$(cd "\$(dirname "\$_real")" && pwd)"
+
+# (2) If _where looks like a hermes dir, use it directly.
+#     Otherwise try known install locations.
+if [[ -f "\$_where/pyproject.toml" || -f "\$_where/setup.py" || -f "\$_where/rust/Cargo.toml" ]]; then
+    HERMES_DIR="\$_where"
+elif [[ -d "\$HOME/.hermes/hermes-agent-ferris-fork" && \\
+        -f "\$HOME/.hermes/hermes-agent-ferris-fork/pyproject.toml" ]]; then
+    HERMES_DIR="\$HOME/.hermes/hermes-agent-ferris-fork"
+elif [[ -d "\$HOME/.local/hermes" && \\
+        -f "\$HOME/.local/hermes/pyproject.toml" ]]; then
+    HERMES_DIR="\$HOME/.local/hermes"
+else
+    # Dead end — point at _where anyway so the exec fails with a clear error
+    HERMES_DIR="\$_where"
+fi
+
+# (3) Ensure ~/.local/bin is on PATH so subsequent hermes calls work without hash -r
+export PATH="\$HOME/.local/bin:\$PATH"
 export HERMES_DIR
-exec "$HERMES_DIR/venv/bin/python3" "$HERMES_DIR/cli.py" "$@"
+
+exec "\$HERMES_DIR/venv/bin/python3" "\$HERMES_DIR/cli.py" "\$@"
 WRAPPER
     chmod +x "$hermes_wrapper"
     # Detect shell rc files
@@ -523,8 +618,12 @@ echo ""
 echo -e "${BOLD}Install complete!${RESET}"
 echo ""
 echo "  Next steps:"
-echo "    1. Edit .env and fill in your API keys"
-echo "    2. Run: python3 cli.py"
+echo "    1. Edit $HERMES_DIR/.env and fill in your API keys"
+echo "    2. Run: hermes"
+echo ""
+echo "  If 'hermes' is not found immediately, run:"
+echo "    source ~/.bashrc   # or open a new terminal"
+echo "    hash -r && hermes  # clears bash's command cache"
 echo ""
 read -p "  → Run hermes now? [Y/n] " -r </dev/tty && echo ""
 if [[ ! "$REPLY" =~ ^[Nn]$ ]]; then
