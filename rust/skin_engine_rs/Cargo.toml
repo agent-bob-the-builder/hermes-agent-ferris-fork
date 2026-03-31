@@ -7,8 +7,8 @@ edition.workspace = true
 name = "_skin_engine_rs"
 crate-type = ["cdylib"]
 
-[profile.dev]
-opt-level = 0
+[package.metadata.maturin]
+name = "skin_engine_rs"
 
 [dependencies]
 pyo3 = { workspace = true, features = ["serde"] }

@@ -8,7 +8,7 @@ A performance oriented Rust fork of [Hermes Agent](https://github.com/NousResear
 
 ## What & Why
 
-16 PyO3 extension crates replace hot-path Python code — no visible behaviour change, but meaningfully faster on every agent turn. All wired crates use transparent Python fallbacks; unwired crates (`tool_dispatch_rs`, `context_refs_rs`) are built and available but not yet integrated.
+16 PyO3 extension crates replace hot-path Python code — no visible behaviour change, but meaningfully faster on every agent turn. All wired crates use transparent Python fallbacks; if a crate is missing or fails to load, the Python implementation runs instead with no visible difference.
 
 | Crate | Hot path | Status |
 |---|---|---|
@@ -24,41 +24,47 @@ A performance oriented Rust fork of [Hermes Agent](https://github.com/NousResear
 | `redact_rs` | Sensitive data redaction | Wired ✓ |
 | `subprocess_rs` | Subprocess orchestration | Wired ✓ |
 | `run_agent_loop_rs` | Core agent loop | Wired ✓ |
-| `tool_dispatch_rs` | Tool dispatch routing | Built, not wired |
-| `retry_state_machine_rs` | Retry with exponential back-off | Wired ✓ |
+| `tool_dispatch_rs` | Rayon-based parallel tool batch execution | Wired ✓ |
+| `retry_state_machine_rs` | Retry/fallback/compression state machine | Callable ✓ |
 | `honcho_http_rs` | Honcho HTTP client | Wired ✓ |
-| `context_refs_rs` | Context reference tracking | Built, not wired |
+| `context_refs_rs` | @-reference parsing + token stripping | Wired ✓ |
 
-Wired crates have **transparent Python fallbacks** — if a crate is missing or fails to load, the Python implementation runs instead with no visible difference. `tool_dispatch_rs` and `context_refs_rs` are built but not yet wired to any Python call site.
+Wired crates have **transparent Python fallbacks** — if a crate is missing or fails to load, the Python implementation runs instead with no visible difference.
 
 **Wiring map:**
 
 ```
 AIAgent (run_agent.py)
 ├── context_compressor.py
-│   └── compressor_rs.compress_async()             [Production ✓]
+│   └── compressor_rs.compress_async()             [Wired ✓]
 ├── model_tools.py + tools/registry_rs.py
-│   └── model_tools_rs.sanitize()                 [Production ✓]
+│   └── model_tools_rs.sanitize()                 [Wired ✓]
 ├── hermes_state.py
-│   └── hermes_state_rs session ops               [Production ✓]
+│   └── hermes_state_rs session ops               [Wired ✓]
 ├── hermes_cli/skin_engine.py
-│   ├── skin_engine_rs init_skin_from_config()    [Production ✓]
-│   └── prompt_builder_rs _build_system_prompt()  [Production ✓]
+│   ├── skin_engine_rs init_skin_from_config()    [Wired ✓]
+│   └── prompt_builder_rs _build_system_prompt()  [Wired ✓]
 ├── tools/
 │   ├── file_operations.py (ShellFileOperations)
-│   │   ├── _is_likely_binary() → file_ops_rs             [Production ✓]
-│   │   ├── _add_line_numbers() → file_ops_rs             [Production ✓]
-│   │   ├── _native_expand_path() → file_ops_rs           [Production ✓]
-│   │   ├── _escape_shell_arg() → file_ops_rs             [Production ✓]
-│   │   ├── _unified_diff() → file_ops_rs                 [Production ✓]
-│   │   ├── _suggest_similar_files() → file_ops_rs        [Production ✓]
-│   │   └── _search_native() → file_ops_rs                [Production ✓]
+│   │   ├── _is_likely_binary() → file_ops_rs             [Wired ✓]
+│   │   ├── _add_line_numbers() → file_ops_rs             [Wired ✓]
+│   │   ├── _native_expand_path() → file_ops_rs           [Wired ✓]
+│   │   ├── _escape_shell_arg() → file_ops_rs             [Wired ✓]
+│   │   ├── _unified_diff() → file_ops_rs                 [Wired ✓]
+│   │   ├── _suggest_similar_files() → file_ops_rs        [Wired ✓]
+│   │   └── _search_native() → file_ops_rs                [Wired ✓]
 │   ├── fuzzy_match.py
-│   │   └── fuzzy_find_and_replace() → fuzzy_match_rs     [Production ✓]
+│   │   └── fuzzy_find_and_replace() → fuzzy_match_rs     [Wired ✓]
 │   └── patch_parser.py
-│       └── parse_v4a_patch() → patch_parser_rs           [Production ✓]
-└── agent/
-    └── trajectory.py → retry_state_machine_rs           [Production ✓]
+│       └── parse_v4a_patch() → patch_parser_rs           [Wired ✓]
+├── run_agent.py
+│   ├── _should_parallelize_tool_batch()
+│   │   └── tool_dispatch_rs.rs_should_parallelize()      [Wired ✓]
+│   └── _execute_tool_calls_concurrent_rs()
+│       └── tool_dispatch_rs.rs_run_concurrent_tool_batch()[Wired ✓]
+└── agent/context_references.py
+    ├── parse_context_references() → context_refs_rs        [Wired ✓]
+    └── _remove_reference_tokens() → context_refs_rs         [Wired ✓]
 ```
 
 ```mermaid
@@ -73,6 +79,8 @@ graph TD
     FUZ["tools/fuzzy_match.py<br/>fuzzy_find_and_replace()"]
     PAT["tools/patch_parser.py<br/>parse_v4a_patch()"]
     HON["honcho_integration/session.py<br/>_honcho_http_rust"]
+    TDP["run_agent.py<br/>_execute_tool_calls_concurrent_rs()"]
+    CRE["agent/context_references.py<br/>parse_context_references()"]
 
     PB_RS["prompt_builder_rs"]
     CO_RS["compressor_rs"]
@@ -83,6 +91,8 @@ graph TD
     FM_RS["fuzzy_match_rs"]
     PP_RS["patch_parser_rs"]
     HH_RS["honcho_http_rs"]
+    TD_RS["tool_dispatch_rs"]
+    CR_RS["context_refs_rs"]
 
     RA -->|"prompt assembly"| PCP
     RA -->|"tool registry"| MTP
@@ -90,6 +100,8 @@ graph TD
     RA -->|"session / search"| SST
     RA -->|"skin loading"| SHE
     RA -->|"honcho session"| HON
+    RA -->|"parallel tool batch"| TDP
+    RA -->|"@ reference parsing"| CRE
 
     PCP -->|"wired ✓"| PB_RS
     PCP -.->|"fallback"| PCP
@@ -118,6 +130,12 @@ graph TD
     HON -->|"wired ✓"| HH_RS
     HON -.->|"fallback"| HON
 
+    TDP -->|"wired ✓"| TD_RS
+    TDP -.->|"fallback"| TDP
+
+    CRE -->|"wired ✓"| CR_RS
+    CRE -.->|"fallback"| CRE
+
     style PB_RS fill:#de5347,color:#fff
     style CO_RS fill:#de5347,color:#fff
     style MT_RS fill:#de5347,color:#fff
@@ -127,6 +145,8 @@ graph TD
     style FM_RS fill:#de5347,color:#fff
     style PP_RS fill:#de5347,color:#fff
     style HH_RS fill:#de5347,color:#fff
+    style TD_RS fill:#de5347,color:#fff
+    style CR_RS fill:#de5347,color:#fff
 ```
 
 ---

@@ -18,4 +18,4 @@ name = "bm_get_tool_definitions"
 harness = false
 
 [package.metadata.maturin]
-name = "_model_tools_rs"
+name = "model_tools_rs"
