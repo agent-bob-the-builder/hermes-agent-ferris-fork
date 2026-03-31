@@ -129,7 +129,7 @@ def _try_load_retry_rs():
             _sys.path.insert(0, venv_site)
         import importlib
         importlib.invalidate_caches()
-        mod = importlib.import_module("_retry_state_machine_rs")
+        mod = importlib.import_module("_retry_state_machine_rust")
         # Verify the module has the expected entry point
         if not hasattr(mod, "rs_evaluate"):
             raise ImportError(
@@ -143,6 +143,72 @@ def _try_load_retry_rs():
         _retry_rs_loader_failed = True
         logger.debug("Rust retry state machine unavailable (%s), using Python path", _e)
         return None
+
+
+# ---------------------------------------------------------------------------------
+# Rust tool dispatcher — lazy-loaded from venv on first use.
+# Provides rs_should_parallelize() and rs_run_concurrent_tool_batch() which
+# replace ThreadPoolExecutor-based concurrency with Rayon parallel execution.
+# Falls back to pure-Python path on any error.
+# ---------------------------------------------------------------------------------
+_tool_dispatch_rs_loader_failed = False
+_tool_dispatch_rs = None
+
+
+def _try_load_tool_dispatch_rs():
+    global _tool_dispatch_rs_loader_failed, _tool_dispatch_rs
+    if _tool_dispatch_rs is not None or _tool_dispatch_rs_loader_failed:
+        return _tool_dispatch_rs
+    try:
+        import sys as _sys
+        venv_site = _sys.prefix + "/lib/python3.11/site-packages"
+        if venv_site not in _sys.path:
+            _sys.path.insert(0, venv_site)
+        import importlib as _importlib
+
+        _importlib.invalidate_caches()
+        mod = _importlib.import_module("_tool_dispatch_rust")
+        # Verify the module has the expected entry points
+        if not hasattr(mod, "rs_should_parallelize"):
+            raise ImportError(
+                f"_tool_dispatch_rust loaded from {getattr(mod, '__file__', '?')} "
+                "but has no 'rs_should_parallelize' attribute"
+            )
+        if not hasattr(mod, "rs_run_concurrent_tool_batch"):
+            raise ImportError(
+                f"_tool_dispatch_rust loaded from {getattr(mod, '__file__', '?')} "
+                "but has no 'rs_run_concurrent_tool_batch' attribute"
+            )
+        _tool_dispatch_rs = mod
+        logger.debug("Rust tool dispatcher loaded successfully")
+        return _tool_dispatch_rs
+    except Exception as _e:
+        _tool_dispatch_rs_loader_failed = True
+        logger.debug("Rust tool dispatcher unavailable (%s), using Python path", _e)
+        return None
+
+
+def _rs_should_parallelize(tool_calls_json: str) -> bool:
+    """Python wrapper around tool_dispatch_rs.rs_should_parallelize()."""
+    mod = _try_load_tool_dispatch_rs()
+    if mod is None:
+        return False
+    try:
+        return mod.rs_should_parallelize(tool_calls_json)
+    except Exception:
+        return False
+
+
+def _rs_run_concurrent_tool_batch(
+    tool_calls_json: str,
+    invoke_py,
+    task_id: str | None,
+) -> str:
+    """Python wrapper around tool_dispatch_rs.rs_run_concurrent_tool_batch()."""
+    mod = _try_load_tool_dispatch_rs()
+    if mod is None:
+        raise RuntimeError("Rust tool dispatcher unavailable")
+    return mod.rs_run_concurrent_tool_batch(tool_calls_json, invoke_py, task_id)
 
 
 def _rs_evaluate_retry(
@@ -192,6 +258,82 @@ def _rs_evaluate_retry(
     except Exception as _e:
         logger.debug("Rust rs_evaluate failed (%s), using Python path", _e)
         return None
+
+
+# ---------------------------------------------------------------------------------
+# Rust tool dispatcher — lazy-loaded from venv on first use.
+# Replaces Python's _should_parallelize_tool_batch + concurrent execution with
+# a Rayon-based parallel executor via tool_dispatch_rs.
+# Falls back to pure-Python path on any error.
+# ---------------------------------------------------------------------------------
+_tool_dispatch_rs_loader_failed = False
+_tool_dispatch_rs = None
+
+
+def _try_load_tool_dispatch_rs():
+    global _tool_dispatch_rs_loader_failed, _tool_dispatch_rs
+    if _tool_dispatch_rs is not None or _tool_dispatch_rs_loader_failed:
+        return _tool_dispatch_rs
+    try:
+        import sys as _sys
+        venv_site = _sys.prefix + "/lib/python3.11/site-packages"
+        if venv_site not in _sys.path:
+            _sys.path.insert(0, venv_site)
+        import importlib
+        importlib.invalidate_caches()
+        mod = importlib.import_module("_tool_dispatch_rust")
+        if not hasattr(mod, "rs_should_parallelize") or not hasattr(mod, "rs_run_concurrent_tool_batch"):
+            raise ImportError(
+                f"_tool_dispatch_rust loaded from {getattr(mod, '__file__', '?')} "
+                "but is missing rs_should_parallelize or rs_run_concurrent_tool_batch"
+            )
+        _tool_dispatch_rs = mod
+        logger.debug("Rust tool dispatcher loaded successfully")
+        return _tool_dispatch_rs
+    except Exception as _e:
+        _tool_dispatch_rs_loader_failed = True
+        logger.debug("Rust tool dispatcher unavailable (%s), using Python path", _e)
+        return None
+
+
+def _rs_should_parallelize(tool_calls_json: str) -> bool:
+    """Rust path for _should_parallelize_tool_batch — returns True if batch is safe to parallelize."""
+    mod = _try_load_tool_dispatch_rs()
+    if mod is None:
+        return False
+    try:
+        return mod.rs_should_parallelize(tool_calls_json)
+    except Exception as _e:
+        logger.debug("Rust rs_should_parallelize failed (%s), falling back to Python", _e)
+        return False
+
+
+def _rs_run_concurrent_tool_batch(
+    tool_calls_json: str,
+    invoke_py_closure,
+    task_id: str,
+) -> list[dict]:
+    """Rust path for concurrent tool execution via Rayon.
+
+    Returns a list of dicts with keys:
+        index, content, tool_call_id, duration_secs, is_error
+
+    Falls back to [] (empty) on any error — callers handle graceful degradation.
+    """
+    mod = _try_load_tool_dispatch_rs()
+    if mod is None:
+        return []
+    try:
+        result_json = mod.rs_run_concurrent_tool_batch(
+            tool_calls_json,
+            invoke_py_closure,
+            task_id,
+        )
+        import json as _json
+        return _json.loads(result_json)
+    except Exception as _e:
+        logger.debug("Rust rs_run_concurrent_tool_batch failed (%s), falling back to Python", _e)
+        return []
 
 
 import os
@@ -449,10 +591,23 @@ def _is_destructive_command(cmd: str) -> bool:
 
 
 def _should_parallelize_tool_batch(tool_calls) -> bool:
-    """Return True when a tool-call batch is safe to run concurrently."""
+    """Return True when a tool-call batch is safe to run concurrently.
+
+    Tries the Rust path first (tool_dispatch_rs.rs_should_parallelize),
+    falls back to the pure-Python implementation on any error.
+    """
     if len(tool_calls) <= 1:
         return False
 
+    # ── Rust path ──────────────────────────────────────────────────────────────
+    tool_calls_json = json.dumps([
+        {"id": tc.id, "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+        for tc in tool_calls
+    ])
+    if _rs_should_parallelize(tool_calls_json):
+        return True
+
+    # ── Python fallback (mirrors Rust logic for debugging/logging) ────────────
     tool_names = [tc.function.name for tc in tool_calls]
     if any(name in _NEVER_PARALLEL_TOOLS for name in tool_names):
         return False
@@ -5668,6 +5823,9 @@ class AIAgent:
         Dispatches to concurrent execution only for batches that look
         independent: read-only tools may always share the parallel path, while
         file reads/writes may do so only when their target paths do not overlap.
+
+        Prefers Rust tool_dispatch_rs.rs_run_concurrent_tool_batch when available,
+        falling back to Python ThreadPoolExecutor on any error.
         """
         tool_calls = assistant_message.tool_calls
 
@@ -5679,11 +5837,208 @@ class AIAgent:
                     assistant_message, messages, effective_task_id, api_call_count
                 )
 
+            # Try Rust path first; fall back to Python ThreadPoolExecutor on any error
+            if _try_load_tool_dispatch_rs() is not None:
+                try:
+                    return self._execute_tool_calls_concurrent_rs(
+                        assistant_message, messages, effective_task_id, api_call_count
+                    )
+                except Exception as rs_err:
+                    logger.debug("Rust tool dispatch failed (%s), falling back to Python", rs_err)
+
             return self._execute_tool_calls_concurrent(
                 assistant_message, messages, effective_task_id, api_call_count
             )
         finally:
             self._executing_tools = False
+
+    def _execute_tool_calls_concurrent_rs(
+        self, assistant_message, messages: list, effective_task_id: str, api_call_count: int = 0
+    ) -> None:
+        """Execute tool calls concurrently using Rust tool_dispatch_rs.
+
+        This method mirrors _execute_tool_calls_concurrent but replaces the
+        ThreadPoolExecutor parallel execution with Rust's Rayon-based
+        rs_run_concurrent_tool_batch. All pre-flight (interrupt check, args
+        parsing, checkpoint, logging) and post-execution (display,
+        truncation, budget warning, message appending) remain in Python.
+        """
+        tool_calls = assistant_message.tool_calls
+        num_tools = len(tool_calls)
+
+        # ── Pre-flight: interrupt check ──────────────────────────────────
+        if self._interrupt_requested:
+            print(f"{self.log_prefix}⚡ Interrupt: skipping {num_tools} tool call(s)")
+            for tc in tool_calls:
+                messages.append({
+                    "role": "tool",
+                    "content": f"[Tool execution cancelled — {tc.function.name} was skipped due to user interrupt]",
+                    "tool_call_id": tc.id,
+                })
+            return
+
+        # ── Parse args + pre-execution bookkeeping ───────────────────────
+        parsed_calls = []  # list of (tool_call, function_name, function_args)
+        for tool_call in tool_calls:
+            function_name = tool_call.function.name
+
+            # Reset nudge counters
+            if function_name == "memory":
+                self._turns_since_memory = 0
+            elif function_name == "skill_manage":
+                self._iters_since_skill = 0
+
+            try:
+                function_args = json.loads(tool_call.function.arguments)
+            except json.JSONDecodeError:
+                function_args = {}
+            if not isinstance(function_args, dict):
+                function_args = {}
+
+            # Checkpoint for file-mutating tools
+            if function_name in ("write_file", "patch") and self._checkpoint_mgr.enabled:
+                try:
+                    file_path = function_args.get("path", "")
+                    if file_path:
+                        work_dir = self._checkpoint_mgr.get_working_dir_for_path(file_path)
+                        self._checkpoint_mgr.ensure_checkpoint(work_dir, f"before {function_name}")
+                except Exception:
+                    pass
+
+            # Checkpoint before destructive terminal commands
+            if function_name == "terminal" and self._checkpoint_mgr.enabled:
+                try:
+                    cmd = function_args.get("command", "")
+                    if _is_destructive_command(cmd):
+                        cwd = function_args.get("workdir") or os.getenv("TERMINAL_CWD", os.getcwd())
+                        self._checkpoint_mgr.ensure_checkpoint(
+                            cwd, f"before terminal: {cmd[:60]}"
+                        )
+                except Exception:
+                    pass
+
+            parsed_calls.append((tool_call, function_name, function_args))
+
+        # ── Logging / callbacks ──────────────────────────────────────────
+        tool_names_str = ", ".join(name for _, name, _ in parsed_calls)
+        if not self.quiet_mode:
+            print(f"  ⚡ Concurrent (Rust): {num_tools} tool calls — {tool_names_str}")
+            for i, (tc, name, args) in enumerate(parsed_calls, 1):
+                args_str = json.dumps(args, ensure_ascii=False)
+                if self.verbose_logging:
+                    print(f"  📞 Tool {i}: {name}({list(args.keys())})")
+                    print(f"     Args: {args_str}")
+                else:
+                    args_preview = args_str[:self.log_prefix_chars] + "..." if len(args_str) > self.log_prefix_chars else args_str
+                    print(f"  📞 Tool {i}: {name}({list(args.keys())}) - {args_preview}")
+
+        for _, name, args in parsed_calls:
+            if self.tool_progress_callback:
+                try:
+                    preview = _build_tool_preview(name, args)
+                    self.tool_progress_callback(name, preview, args)
+                except Exception as cb_err:
+                    logging.debug(f"Tool progress callback error: {cb_err}")
+
+        # ── Concurrent execution via Rust ───────────────────────────────
+        # Serialize tool calls for Rust
+        tool_calls_json = json.dumps([
+            {"id": tc.id, "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+            for tc in tool_calls
+        ])
+
+        # Start spinner for CLI mode
+        spinner = None
+        if self.quiet_mode and not self.tool_progress_callback:
+            face = random.choice(KawaiiSpinner.KAWAII_WAITING)
+            spinner = KawaiiSpinner(f"{face} ⚡ running {num_tools} tools concurrently", spinner_type='dots', print_fn=self._print_fn)
+            spinner.start()
+
+        # ── Call Rust parallel runner ────────────────────────────────────
+        # Pass handle_function_call as the invoke_py callback:
+        #   invoke_py(function_name, args_json, task_id) -> str
+        rs_result_json = _rs_run_concurrent_tool_batch(
+            tool_calls_json,
+            handle_function_call,
+            effective_task_id,
+        )
+        rs_results = json.loads(rs_result_json)
+
+        # Build a lookup from tool_call_id to result
+        results_by_id = {r["tool_call_id"]: r for r in rs_results}
+
+        # ── Post-execution: display per-tool results ─────────────────────
+        for i, (tc, name, args) in enumerate(parsed_calls):
+            r = results_by_id.get(tc.id)
+            if r is None:
+                function_result = f"Error executing tool '{name}': result not returned from Rust dispatcher"
+                tool_duration = 0.0
+                is_error = True
+            else:
+                function_result = r.get("content", "")
+                tool_duration = r.get("duration_secs", 0.0)
+                is_error = r.get("is_error", False)
+
+                if is_error:
+                    result_preview = function_result[:200] if len(function_result) > 200 else function_result
+                    logger.warning("Tool %s returned error (%.2fs): %s", name, tool_duration, result_preview)
+
+                if self.verbose_logging:
+                    logging.debug(f"Tool {name} completed in {tool_duration:.2f}s")
+                    logging.debug(f"Tool result ({len(function_result)} chars): {function_result}")
+
+            # Print cute message per tool
+            if self.quiet_mode:
+                cute_msg = _get_cute_tool_message_impl(name, args, tool_duration, result=function_result)
+                self._safe_print(f"  {cute_msg}")
+            elif not self.quiet_mode:
+                if self.verbose_logging:
+                    print(f"  ✅ Tool {i+1} completed in {tool_duration:.2f}s")
+                    print(f"     Result: {function_result}")
+                else:
+                    response_preview = function_result[:self.log_prefix_chars] + "..." if len(function_result) > self.log_prefix_chars else function_result
+                    print(f"  ✅ Tool {i+1} completed in {tool_duration:.2f}s - {response_preview}")
+
+            # Truncate oversized results
+            MAX_TOOL_RESULT_CHARS = 100_000
+            if len(function_result) > MAX_TOOL_RESULT_CHARS:
+                original_len = len(function_result)
+                function_result = (
+                    function_result[:MAX_TOOL_RESULT_CHARS]
+                    + f"\n\n[Truncated: tool response was {original_len:,} chars, "
+                    f"exceeding the {MAX_TOOL_RESULT_CHARS:,} char limit]"
+                )
+
+            # Append tool result message in order
+            tool_msg = {
+                "role": "tool",
+                "content": function_result,
+                "tool_call_id": tc.id,
+            }
+            messages.append(tool_msg)
+
+        if spinner:
+            total_dur = sum(r.get("duration_secs", 0.0) for r in rs_results if r)
+            completed = len([r for r in rs_results if r])
+            spinner.stop(f"⚡ {completed}/{num_tools} tools completed in {total_dur:.1f}s total")
+
+        # ── Budget pressure injection ────────────────────────────────────
+        budget_warning = self._get_budget_warning(api_call_count)
+        if budget_warning and messages and messages[-1].get("role") == "tool":
+            last_content = messages[-1]["content"]
+            try:
+                parsed = json.loads(last_content)
+                if isinstance(parsed, dict):
+                    parsed["_budget_warning"] = budget_warning
+                    messages[-1]["content"] = json.dumps(parsed, ensure_ascii=False)
+                else:
+                    messages[-1]["content"] = last_content + f"\n\n{budget_warning}"
+            except (json.JSONDecodeError, TypeError):
+                messages[-1]["content"] = last_content + f"\n\n{budget_warning}"
+            if not self.quiet_mode:
+                remaining = self.max_iterations - api_call_count
+                tier = "⚠️  WARNING" if remaining <= self.max_iterations * 0.1 else "💡 CAUTION"
+                print(f"{self.log_prefix}{tier}: {remaining} iterations remaining")
 
     def _invoke_tool(self, function_name: str, function_args: dict, effective_task_id: str) -> str:
         """Invoke a single tool and return the result string. No display logic.
@@ -5750,10 +6105,11 @@ class AIAgent:
             )
 
     def _execute_tool_calls_concurrent(self, assistant_message, messages: list, effective_task_id: str, api_call_count: int = 0) -> None:
-        """Execute multiple tool calls concurrently using a thread pool.
+        """Execute multiple tool calls concurrently.
 
-        Results are collected in the original tool-call order and appended to
-        messages so the API sees them in the expected sequence.
+        Tries the Rust Rayon path first (via tool_dispatch_rs.rs_run_concurrent_tool_batch).
+        Falls back to Python ThreadPoolExecutor on any error. Results are collected in
+        original tool-call order and appended to messages so the API sees them in sequence.
         """
         tool_calls = assistant_message.tool_calls
         num_tools = len(tool_calls)
@@ -5833,50 +6189,91 @@ class AIAgent:
                     logging.debug(f"Tool progress callback error: {cb_err}")
 
         # ── Concurrent execution ─────────────────────────────────────────
-        # Each slot holds (function_name, function_args, function_result, duration, error_flag)
-        results = [None] * num_tools
+        # Build the JSON payload for Rust (and as the canonical source for Python)
+        tool_calls_json = json.dumps([
+            {"id": tc.id, "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+            for tc in tool_calls
+        ])
 
-        def _run_tool(index, tool_call, function_name, function_args):
-            """Worker function executed in a thread."""
-            start = time.time()
+        # Build a closure that matches the invoke_py signature Rust expects:
+        #   invoke_py(function_name: str, args_json: str, task_id: str) -> str
+        # This is called from Rayon worker threads so each call is independent.
+        from model_tools_py import handle_function_call as _handle_function_call
+
+        def invoke_py_closure(function_name: str, args_json: str, task_id: str) -> str:
+            """Bridge: converts JSON args string to dict, calls _invoke_tool, returns str."""
             try:
-                result = self._invoke_tool(function_name, function_args, effective_task_id)
-            except Exception as tool_error:
-                result = f"Error executing tool '{function_name}': {tool_error}"
-                logger.error("_invoke_tool raised for %s: %s", function_name, tool_error, exc_info=True)
-            duration = time.time() - start
-            is_error, _ = _detect_tool_failure(function_name, result)
-            results[index] = (function_name, function_args, result, duration, is_error)
+                fa = json.loads(args_json)
+            except (json.JSONDecodeError, TypeError):
+                fa = {}
+            if not isinstance(fa, dict):
+                fa = {}
+            return self._invoke_tool(function_name, fa, task_id)
 
-        # Start spinner for CLI mode (skip when TUI handles tool progress)
-        spinner = None
-        if self.quiet_mode and not self.tool_progress_callback:
-            face = random.choice(KawaiiSpinner.KAWAII_WAITING)
-            spinner = KawaiiSpinner(f"{face} ⚡ running {num_tools} tools concurrently", spinner_type='dots', print_fn=self._print_fn)
-            spinner.start()
+        # ── Rust path via Rayon ────────────────────────────────────────────
+        rust_results = _rs_run_concurrent_tool_batch(
+            tool_calls_json=tool_calls_json,
+            invoke_py_closure=invoke_py_closure,
+            task_id=effective_task_id,
+        )
 
-        try:
-            max_workers = min(num_tools, _MAX_TOOL_WORKERS)
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = []
-                for i, (tc, name, args) in enumerate(parsed_calls):
-                    f = executor.submit(_run_tool, i, tc, name, args)
-                    futures.append(f)
+        if rust_results:
+            # Build a results dict keyed by tool_call_id for O(1) lookup
+            rust_results_by_id = {r["tool_call_id"]: r for r in rust_results}
 
-                # Wait for all to complete (exceptions are captured inside _run_tool)
-                concurrent.futures.wait(futures)
-        finally:
-            if spinner:
-                # Build a summary message for the spinner stop
-                completed = sum(1 for r in results if r is not None)
-                total_dur = sum(r[3] for r in results if r is not None)
-                spinner.stop(f"⚡ {completed}/{num_tools} tools completed in {total_dur:.1f}s total")
+            # Re-assemble into the same 5-tuple structure the post-execution block expects
+            results = [None] * num_tools
+            for i, (tc, name, args) in enumerate(parsed_calls):
+                r = rust_results_by_id.get(tc.id)
+                if r is None:
+                    results[i] = (name, args, f"Error: tool '{name}' result not returned from Rust", 0.0, True)
+                else:
+                    content = r["content"]
+                    is_err = r.get("is_error", False)
+                    if is_err:
+                        logger.warning("Tool %s returned error (%.2fs): %s", name, r.get("duration_secs", 0), content[:200])
+                    results[i] = (name, args, content, r.get("duration_secs", 0.0), is_err)
+        else:
+            # ── Python ThreadPoolExecutor fallback ──────────────────────────
+            results = [None] * num_tools
+
+            def _run_tool(index, tool_call, function_name, function_args):
+                """Worker function executed in a thread."""
+                start = time.time()
+                try:
+                    result = self._invoke_tool(function_name, function_args, effective_task_id)
+                except Exception as tool_error:
+                    result = f"Error executing tool '{function_name}': {tool_error}"
+                    logger.error("_invoke_tool raised for %s: %s", function_name, tool_error, exc_info=True)
+                duration = time.time() - start
+                is_error, _ = _detect_tool_failure(function_name, result)
+                results[index] = (function_name, function_args, result, duration, is_error)
+
+            # Start spinner for CLI mode (skip when TUI handles tool progress)
+            spinner = None
+            if self.quiet_mode and not self.tool_progress_callback:
+                face = random.choice(KawaiiSpinner.KAWAII_WAITING)
+                spinner = KawaiiSpinner(f"{face} ⚡ running {num_tools} tools concurrently", spinner_type='dots', print_fn=self._print_fn)
+                spinner.start()
+
+            try:
+                max_workers = min(num_tools, _MAX_TOOL_WORKERS)
+                with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    futures = []
+                    for i, (tc, name, args) in enumerate(parsed_calls):
+                        f = executor.submit(_run_tool, i, tc, name, args)
+                        futures.append(f)
+                    concurrent.futures.wait(futures)
+            finally:
+                if spinner:
+                    completed = sum(1 for r in results if r is not None)
+                    total_dur = sum(r[3] for r in results if r is not None)
+                    spinner.stop(f"⚡ {completed}/{num_tools} tools completed in {total_dur:.1f}s total")
 
         # ── Post-execution: display per-tool results ─────────────────────
         for i, (tc, name, args) in enumerate(parsed_calls):
             r = results[i]
             if r is None:
-                # Shouldn't happen, but safety fallback
                 function_result = f"Error executing tool '{name}': thread did not return a result"
                 tool_duration = 0.0
             else:

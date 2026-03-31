@@ -3,6 +3,18 @@
 version = 4
 
 [[package]]
+name = "_honcho_http_rs"
+version = "0.1.0"
+dependencies = [
+ "once_cell",
+ "pyo3",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "_prompt_builder_rs"
 version = "0.1.0"
 dependencies = [
@@ -396,18 +408,6 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "honcho_http_rs"
-version = "0.1.0"
-dependencies = [
- "once_cell",
- "pyo3",
- "reqwest",
- "serde",
- "serde_json",
- "tokio",
 ]
 
 [[package]]

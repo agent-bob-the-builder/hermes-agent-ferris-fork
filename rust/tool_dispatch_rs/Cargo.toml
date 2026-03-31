@@ -4,8 +4,11 @@ version.workspace = true
 edition.workspace = true
 
 [lib]
-name = "_tool_dispatch_rust"
+name = "_tool_dispatch_rs"
 crate-type = ["cdylib"]
+
+[package.metadata.maturin]
+name = "_tool_dispatch_rs"
 
 [dependencies]
 pyo3.workspace = true

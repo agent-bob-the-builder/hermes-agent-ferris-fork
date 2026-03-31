@@ -250,7 +250,7 @@ fn rs_run_concurrent_tool_batch(
 }
 
 #[pymodule]
-fn _tool_dispatch_rust(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _tool_dispatch_rs(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(rs_should_parallelize, module)?)?;
     module.add_function(wrap_pyfunction!(rs_run_concurrent_tool_batch, module)?)?;
     module.add(

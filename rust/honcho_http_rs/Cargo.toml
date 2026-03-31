@@ -1,10 +1,13 @@
 [package]
-name = "honcho_http_rs"
+name = "_honcho_http_rs"
 version.workspace = true
 edition.workspace = true
 
+[package.metadata.maturin]
+name = "_honcho_http_rs"
+
 [lib]
-name = "honcho_http_rs"
+name = "_honcho_http_rs"
 crate-type = ["cdylib"]
 
 [dependencies]

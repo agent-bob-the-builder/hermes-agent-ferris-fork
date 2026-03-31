@@ -1110,7 +1110,7 @@ fn is_leap_year(year: i64) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// Main `build` function — called from Python as `_prompt_builder_rust.build()`
+// Main `build` function — called from Python as `prompt_builder_rs.build()`
 // ---------------------------------------------------------------------------
 
 #[pyfunction(

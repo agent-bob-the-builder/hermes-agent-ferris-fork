@@ -612,11 +612,16 @@ fn rs_dispatch(
     } else {
         kwargs.set_item("user_task", py.None())?;
     }
-    // Parse JSON args — Python dispatch() deserializes before calling handlers
-    let json_mod = PyModule::import(py, "json")?;
-    let args_dict: Bound<'_, PyAny> = json_mod.call_method1("loads", (function_args.bind(py),))?;
-    let result = handler.call(py, (args_dict,), Some(&kwargs))?;
-    // into_bound converts Py<PyAny> -> Bound<PyAny>, then str() -> extract
+
+    // Deserialize JSON string args into a Python dict — handlers expect dicts, not raw JSON.
+    // Try json.loads; if it fails (not a string), use the args as-is.
+    let json_module: Bound<'_, PyModule> = PyModule::import(py, "json")?;
+    let args_py: Bound<'_, PyAny> = match json_module.getattr("loads")?.call1((function_args.bind(py),)) {
+        Ok(v) => v,
+        Err(_) => function_args.bind(py).clone().into_any(),
+    };
+    // Call the Python handler directly — no registry.dispatch() re-entry
+    let result = handler.call(py, (args_py,), Some(&kwargs))?;
     let result_str: String = result.into_bound(py).str()?.extract()?;
     Ok(Some(result_str))
 }

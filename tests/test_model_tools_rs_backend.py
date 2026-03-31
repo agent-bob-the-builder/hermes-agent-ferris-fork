@@ -4,7 +4,7 @@ import importlib.util
 def test_prefers_rust_backend_when_extension_installed():
     import model_tools
 
-    if importlib.util.find_spec("_model_tools_rust") is None:
+    if importlib.util.find_spec("_model_tools_rs") is None:
         assert model_tools._USING_RUST_BACKEND is False
         return
 

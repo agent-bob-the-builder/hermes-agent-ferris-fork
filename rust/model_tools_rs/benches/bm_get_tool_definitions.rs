@@ -15,8 +15,8 @@ fn main() {
 
     unsafe {
         pyo3::with_embedded_python_interpreter(|py| {
-            let module = py.import("_model_tools_rust").expect(
-                "Failed to import _model_tools_rust — is the extension built? Run: maturin develop -r",
+            let module = py.import("_model_tools_rs").expect(
+                "Failed to import _model_tools_rs — is the extension built? Run: maturin develop -r",
             );
 
             // --- Cold-run: initialize (imports all tools, builds registry cache) ---

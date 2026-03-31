@@ -13,7 +13,7 @@ members = [
     "patch_parser_rs",
     "prompt_builder_rs",
     "redact_rs",
-    "retry_state_machine_rs",
+    "_retry_state_machine_rs",
     "skin_engine_rs",
     "subprocess_rs",
     "tool_dispatch_rs",
