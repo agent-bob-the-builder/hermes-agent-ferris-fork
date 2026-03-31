@@ -479,20 +479,21 @@ def get_tool_definitions(
             )
 
     # Python fallback
-    tools_to_include: set = set()
+    # Build tools_to_include in one pass using list + extend (faster than repeated update)
+    tools_to_include_list: List[str] = []
 
     if enabled_toolsets:
         for toolset_name in enabled_toolsets:
-            if validate_toolset(toolset_name):
+            if _is_valid_toolset_name(toolset_name) and validate_toolset(toolset_name):
                 resolved = _cached_resolve_toolset(toolset_name)
-                tools_to_include.update(resolved)
+                tools_to_include_list.extend(resolved)
                 if not quiet_mode:
                     print(
                         f"✅ Enabled toolset '{toolset_name}': {', '.join(resolved) if resolved else 'no tools'}"
                     )
             elif toolset_name in _LEGACY_TOOLSET_MAP:
                 legacy_tools = _LEGACY_TOOLSET_MAP[toolset_name]
-                tools_to_include.update(legacy_tools)
+                tools_to_include_list.extend(legacy_tools)
                 if not quiet_mode:
                     print(
                         f"✅ Enabled legacy toolset '{toolset_name}': {', '.join(legacy_tools)}"
@@ -500,15 +501,17 @@ def get_tool_definitions(
             else:
                 if not quiet_mode:
                     print(f"⚠️  Unknown toolset: {toolset_name}")
+        tools_to_include = set(tools_to_include_list)
 
     elif disabled_toolsets:
         from toolsets import get_all_toolsets
 
         for ts_name in get_all_toolsets():
-            tools_to_include.update(_cached_resolve_toolset(ts_name))
+            tools_to_include_list.extend(_cached_resolve_toolset(ts_name))
+        tools_to_include = set(tools_to_include_list)
 
         for toolset_name in disabled_toolsets:
-            if validate_toolset(toolset_name):
+            if _is_valid_toolset_name(toolset_name) and validate_toolset(toolset_name):
                 resolved = _cached_resolve_toolset(toolset_name)
                 tools_to_include.difference_update(resolved)
                 if not quiet_mode:
@@ -529,11 +532,17 @@ def get_tool_definitions(
         from toolsets import get_all_toolsets
 
         for ts_name in get_all_toolsets():
-            tools_to_include.update(_cached_resolve_toolset(ts_name))
+            tools_to_include_list.extend(_cached_resolve_toolset(ts_name))
+        tools_to_include = set(tools_to_include_list)
 
     filtered_tools = registry.get_definitions(tools_to_include, quiet=quiet_mode)
 
+    # Pre-compute tool name set once
     available_tool_names = {t["function"]["name"] for t in filtered_tools}
+    # Build index dict for O(1) lookup instead of O(n) list iteration
+    tool_index: Dict[str, int] = {
+        td["function"]["name"]: i for i, td in enumerate(filtered_tools)
+    }
 
     if "execute_code" in available_tool_names:
         from tools.code_execution_tool import (
@@ -543,26 +552,25 @@ def get_tool_definitions(
 
         sandbox_enabled = SANDBOX_ALLOWED_TOOLS & available_tool_names
         dynamic_schema = build_execute_code_schema(sandbox_enabled)
-        for i, td in enumerate(filtered_tools):
-            if td.get("function", {}).get("name") == "execute_code":
-                filtered_tools[i] = {"type": "function", "function": dynamic_schema}
-                break
+        idx = tool_index.get("execute_code")
+        if idx is not None:
+            filtered_tools[idx] = {"type": "function", "function": dynamic_schema}
 
     if "browser_navigate" in available_tool_names:
         web_tools_available = {"web_search", "web_extract"} & available_tool_names
         if not web_tools_available:
-            for i, td in enumerate(filtered_tools):
-                if td.get("function", {}).get("name") == "browser_navigate":
-                    desc = td["function"].get("description", "")
-                    desc = desc.replace(
-                        " For simple information retrieval, prefer web_search or web_extract (faster, cheaper).",
-                        "",
-                    )
-                    filtered_tools[i] = {
-                        "type": "function",
-                        "function": {**td["function"], "description": desc},
-                    }
-                    break
+            idx = tool_index.get("browser_navigate")
+            if idx is not None:
+                td = filtered_tools[idx]
+                desc = td["function"].get("description", "")
+                desc = desc.replace(
+                    " For simple information retrieval, prefer web_search or web_extract (faster, cheaper).",
+                    "",
+                )
+                filtered_tools[idx] = {
+                    "type": "function",
+                    "function": {**td["function"], "description": desc},
+                }
 
     global _last_resolved_tool_names
     if not quiet_mode:
