@@ -198,8 +198,15 @@ fn make_builtin_skins() -> HashMap<&'static str, SkinData> {
         sp.insert("thinking_verbs", vi(vec!["charting currents", "sounding the depth", "reading foam lines", "steering the trident", "tracking undertow", "plotting sea lanes", "calling the swell", "measuring pressure"]));
         sp.insert("wings", vv(vec![vec!["⟪≈", "≈⟫"], vec!["⟪Ψ", "Ψ⟫"], vec!["⟪∿", "∿⟫"], vec!["⟪◌", "◌⟫"]]));
         let logo = "[bold #B8E8FF]██████╗  ██████╗ ███████╗███████╗██╗██████╗  ██████╗ ███╗   ██╗       █████╗  ██████╗ ███████╗███╗   ██╗████████╗[/]\n[bold #97D6FF]██╔══██╗██╔═══██╗██╔════╝██╔════╝██║██╔══██╗██╔═══██╗████╗  ██║      ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝[/]\n[#75C1F6]██████╔╝██║   ██║███████╗█████╗  ██║██║  ██║██║   ██║██╔██╗ ██║█████╗███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║[/]\n[#4FA2E0]██╔═══╝ ██║   ██║╚════██║██╔══╝  ██║██║  ██║██║   ██║██║╚██╗██║╚════╝██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║[/]\n[#2E7CC7]██║     ╚██████╔╝███████║███████╗██║██████╔╝╚██████╔╝██║ ╚████║      ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║[/]\n[#1B4F95]╚═╝      ╚═════╝ ╚══════╝╚══════╝╚═╝╚═════╝  ╚═════╝ ╚═╝  ╚═══╝      ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝[/]";
+        let mut b = HashMap::new();
+        b.insert("agent_name", "Poseidon Agent");
+        b.insert("welcome", "Welcome to Poseidon Agent! Type your message or /help for commands.");
+        b.insert("goodbye", "Fair winds! Ψ");
+        b.insert("response_label", " Ψ Poseidon ");
+        b.insert("prompt_symbol", "Ψ ❯ ");
+        b.insert("help_header", "(Ψ) Available Commands");
         let hero = "[#2A6FB9]≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈[/]\n[#5DB8F5]≋≋≋≋≋≋≋≋≋≋≋≋≋≋≋[/]\n[#5DB8F5]≋≋≋≋≋≋Ψ≋≋≋≋≋≋≋[/]\n[#A9DFFF]≋≋≋≋≋≋≋≋≋≋≋≋≋≋≋[/]\n[#A9DFFF]≋≋≋≋≋≋≋≋≋≋≋≋≋≋≋[/]\n[#5DB8F5]≋≋≋≋≋≋≋≋≋≋≋≋≋≋≋[/]\n[#2A6FB9]≋≋≋≋≋≋≋≋≋≋≋≋≋≋≋[/]\n[#2A6FB9]≋≋≋≋≋≋≋≋≋≋≋≋≋≋≋[/]\n[#153C73]≋≋≋≋≋≋≋≋≋≋≋≋≋≋≋[/]\n[#153C73]≋≋≋≋≋≋≋≋≋≋≋≋≋≋≋[/]\n[#5DB8F5]≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈[/]\n[#A9DFFF]≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈[/]\n[dim #153C73]deep waters hold[/]";
-        skins.insert("poseidon", skin_data!("poseidon", "Ocean-god theme — deep blue and seafoam", c, sp, vd(), "│", logo, hero));
+        skins.insert("poseidon", skin_data!("poseidon", "Ocean-god theme — deep blue and seafoam", c, sp, b, "│", logo, hero));
     }
 
     // --- sisyphus ---
@@ -219,8 +226,15 @@ fn make_builtin_skins() -> HashMap<&'static str, SkinData> {
         sp.insert("thinking_verbs", vi(vec!["finding traction", "measuring the grade", "resetting the boulder", "counting the ascent", "testing leverage", "setting the shoulder", "pushing uphill", "enduring the loop"]));
         sp.insert("wings", vv(vec![vec!["⟪◉", "◉⟫"], vec!["⟪◬", "◬⟫"], vec!["⟪◌", "◌⟫"], vec!["⟪⬤", "⬤⟫"]]));
         let logo = "[bold #F5F5F5]███████╗██╗███████╗██╗   ██╗██████╗ ██╗  ██╗██╗   ██╗███████╗       █████╗  ██████╗ ███████╗███╗   ██╗████████╗[/]\n[bold #E7E7E7]██╔════╝██║██╔════╝╚██╗ ██╔╝██╔══██╗██║  ██║██║   ██║██╔════╝      ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝[/]\n[#D7D7D7]███████╗██║███████╗ ╚████╔╝ ██████╔╝███████║██║   ██║███████╗█████╗███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║[/]\n[#BFBFBF]╚════██║██║╚════██║  ╚██╔╝  ██╔═══╝ ██╔══██║██║   ██║╚════██║╚════╝██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║[/]\n[#8F8F8F]███████║██║███████║   ██║   ██║     ██║  ██║╚██████╔╝███████║      ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║[/]\n[#626262]╚══════╝╚═╝╚══════╝   ╚═╝   ╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚══════╝      ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝[/]";
+        let mut b = HashMap::new();
+        b.insert("agent_name", "Sisyphus Agent");
+        b.insert("welcome", "Welcome to Sisyphus Agent! Type your message or /help for commands.");
+        b.insert("goodbye", "The boulder waits. ◉");
+        b.insert("response_label", " ◉ Sisyphus ");
+        b.insert("prompt_symbol", "◉ ❯ ");
+        b.insert("help_header", "(◉) Available Commands");
         let hero = "[#B7B7B7]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#D3D3D3]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#E7E7E7]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#F5F5F5]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#E7E7E7]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#D3D3D3]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#B7B7B7]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#919191]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#656565]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#656565]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#4A4A4A]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#4A4A4A]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#656565]━━━━━━━━━━━━━━━━━━━━━━[/]\n[dim #4A4A4A]the boulder[/]";
-        skins.insert("sisyphus", skin_data!("sisyphus", "Sisyphean theme — austere grayscale with persistence", c, sp, vd(), "│", logo, hero));
+        skins.insert("sisyphus", skin_data!("sisyphus", "Sisyphean theme — austere grayscale with persistence", c, sp, b, "│", logo, hero));
     }
 
     // --- charizard ---
@@ -240,8 +254,15 @@ fn make_builtin_skins() -> HashMap<&'static str, SkinData> {
         sp.insert("thinking_verbs", vi(vec!["banking into the draft", "measuring burn", "reading the updraft", "tracking ember fall", "setting wing angle", "holding the flame core", "plotting a hot landing", "coiling for lift"]));
         sp.insert("wings", vv(vec![vec!["⟪✦", "✦⟫"], vec!["⟪▲", "▲⟫"], vec!["⟪◌", "◌⟫"], vec!["⟪◇", "◇⟫"]]));
         let logo = "[bold #FFF0D4] ██████╗██╗  ██╗ █████╗ ██████╗ ██╗███████╗ █████╗ ██████╗ ██████╗        █████╗  ██████╗ ███████╗███╗   ██╗████████╗[/]\n[bold #FFD39A]██╔════╝██║  ██║██╔══██╗██╔══██╗██║╚══███╔╝██╔══██╗██╔══██╗██╔══██╗      ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝[/]\n[#F29C38]██║     ███████║███████║██████╔╝██║  ███╔╝ ███████║██████╔╝██║  ██║█████╗███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║[/]\n[#E2832B]██║     ██╔══██║██╔══██║██╔══██╗██║ ███╔╝  ██╔══██║██╔══██╗██║  ██║╚════╝██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║[/]\n[#C75B1D]╚██████╗██║  ██║██║  ██║██║  ██║██║███████╗██║  ██║██║  ██║██████╔╝      ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║[/]\n[#7A3511] ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝       ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝[/]";
+        let mut b = HashMap::new();
+        b.insert("agent_name", "Charizard Agent");
+        b.insert("welcome", "Welcome to Charizard Agent! Type your message or /help for commands.");
+        b.insert("goodbye", "Flame out! ✦");
+        b.insert("response_label", " ✦ Charizard ");
+        b.insert("prompt_symbol", "✦ ❯ ");
+        b.insert("help_header", "(✦) Available Commands");
         let hero = "[#FFD39A]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#F29C38]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#F29C38]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#E2832B]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#E2832B]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#C75B1D]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#C75B1D]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#7A3511]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#7A3511]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#C75B1D]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#F29C38]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#F29C38]━━━━━━━━━━━━━━━━━━━━━━[/]\n[dim #7A3511]tail flame lit[/]";
-        skins.insert("charizard", skin_data!("charizard", "Volcanic theme — burnt orange and ember", c, sp, vd(), "│", logo, hero));
+        skins.insert("charizard", skin_data!("charizard", "Volcanic theme — burnt orange and ember", c, sp, b, "│", logo, hero));
     }
 
     skins
