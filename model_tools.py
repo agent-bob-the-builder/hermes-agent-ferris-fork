@@ -213,6 +213,13 @@ def _ensure_tools_for_toolset(toolset_name: str):
         tools = resolve_toolset(toolset_name)
     except Exception:
         _ensure_all_tools_discovered()
+        # Refresh Rust cache so newly-loaded tools are available via rs_dispatch
+        rust = _ensure_rust_backend()
+        if rust:
+            try:
+                rust.refresh_toolset_cache()
+            except Exception:
+                pass
         return
 
     needed = {_TOOL_MODULE_MAP[t] for t in tools if t in _TOOL_MODULE_MAP}
@@ -226,6 +233,13 @@ def _ensure_tool_for_dispatch(tool_name: str):
         _ensure_tool_module_loaded(mod_name)
     else:
         _ensure_all_tools_discovered()
+    # Refresh Rust cache so newly-loaded tools are available via rs_dispatch
+    rust = _ensure_rust_backend()
+    if rust:
+        try:
+            rust.refresh_toolset_cache()
+        except Exception:
+            pass
 
 
 def _ensure_mcp_discovered():
