@@ -4,10 +4,18 @@
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::json;
+use std::sync::OnceLock;
 
 const SUMMARY_RATIO: f64 = 0.20;
 const MIN_SUMMARY_TOKENS: usize = 250;
 const SUMMARY_TOKENS_CEILING: usize = 6000;
+
+/// Shared reqwest Client — connection pool is reused across all LLM calls.
+static HTTP_CLIENT: OnceLock<Client> = OnceLock::new();
+
+fn get_client() -> &'static Client {
+    HTTP_CLIENT.get_or_init(|| Client::new())
+}
 
 /// Serialized conversation turn for the summarizer.
 #[derive(Debug, Clone)]
@@ -270,7 +278,7 @@ Write only the summary body. Do not include any preamble or prefix."#
         "max_tokens": summary_budget * 2
     });
 
-    let client = Client::new();
+    let client = get_client();
     let url = if base_url.is_empty() {
         "https://api.anthropic.com/v1/messages"
     } else {

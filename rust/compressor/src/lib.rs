@@ -12,7 +12,6 @@ use pyo3::types::PyDict;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::thread;
 use once_cell::sync::Lazy;
 use tokio::runtime::Runtime;
 
@@ -28,7 +27,8 @@ static RUNTIME: Lazy<Runtime> = Lazy::new(|| Runtime::new().unwrap());
 enum JobState {
     Running,
     Completed(Vec<Value>, Option<String>),
-    Failed(String),
+    #[allow(dead_code)]
+    Failed(String), // reserved for future error propagation
     Cancelled,
 }
 
@@ -499,36 +499,9 @@ impl PyContextCompressor {
     }
 }
 
-// ---------------------------------------------------------------------------
+// --------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
-
-/// Extract content string from a message dict without JSON serialization.
-/// Returns the string content of the "content" field, or "" if missing.
-#[allow(dead_code)]
-fn extract_content(msg: &Bound<'_, PyDict>) -> String {
-    msg.get_item("content")
-        .ok()
-        .flatten()
-        .and_then(|v| v.extract::<String>().ok())
-        .unwrap_or_default()
-}
-
-/// Estimate token count for a single message dict using direct PyDict access.
-/// Matches Python's `len(str(msg)) // 4` but avoids the Python str() call.
-#[allow(dead_code)]
-fn estimate_msg_tokens_fast(msg: &Bound<'_, PyDict>) -> usize {
-    let content_len = extract_content(msg).len();
-    // Rough: content chars / 4  +  10 tokens overhead for role/metadata framing
-    content_len / 4 + 10
-}
-
-/// Estimate token count for a list of message dicts using direct PyDict access.
-/// This is the hot path for should_compress_preflight.
-#[allow(dead_code)]
-fn estimate_msgs_tokens_fast(messages: &[Bound<'_, PyDict>]) -> usize {
-    messages.iter().map(estimate_msg_tokens_fast).sum()
-}
+// --------------------------------------------------------------------------
 
 /// Safely get Python token from an optional message dict, or assume attached.
 /// SAFETY: GIL is held by Python when calling into a #[pyfunction] or #[pymethod].
@@ -610,10 +583,9 @@ fn compress_start(
         store.as_mut().unwrap().insert(job_id, JobState::Running);
     }
 
-    // Spawn background thread — json_msgs is owned by this thread
-    thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let result = rt.block_on(compressor::compress(
+    // Reuse the static RUNTIME via spawn_blocking — no per-call runtime allocation.
+    RUNTIME.spawn_blocking(move || {
+        let result = RUNTIME.block_on(compressor::compress(
             &json_msgs,
             &model,
             context_length,

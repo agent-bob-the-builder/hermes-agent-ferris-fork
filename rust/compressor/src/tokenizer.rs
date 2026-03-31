@@ -39,11 +39,6 @@ fn count_tokens_fallible(text: &str) -> usize {
 
 // ─── Public API ────────────────────────────────────────────────────────────────
 
-/// Token count for a string using tiktoken (content only).
-pub fn estimate_message_tokens(content: &str, _tool_calls: Option<&[Value]>) -> usize {
-    count_tokens_fallible(content)
-}
-
 /// Token count for a single message dict.
 pub fn estimate_message_dict_tokens(msg: &Value) -> usize {
     let content = msg.get("content").and_then(|v| v.as_str()).unwrap_or("");
