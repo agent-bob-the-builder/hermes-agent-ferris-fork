@@ -1,0 +1,19 @@
+[package]
+name = "checkpoint_manager_rs"
+version.workspace = true
+edition = "2021"
+
+[package.metadata.maturin]
+name = "checkpoint_manager_rs"
+
+[lib]
+name = "checkpoint_manager_rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { workspace = true, features = ["serde"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+git2 = "0.20"
+rayon = { workspace = true }
+dirs = "5"

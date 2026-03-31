@@ -31,6 +31,9 @@ logger = logging.getLogger(__name__)
 _rust_url_safety = None
 _using_rust = False
 
+# Secondary fallback: url_safety_python_rs (Rust port of Python fallback)
+_rust_python_fallback = None
+
 _rs_lib_path: str | None = None
 
 
@@ -86,8 +89,56 @@ def _load_rs_module():
         logger.debug("url_safety: Rust backend unavailable, using pure Python (%s)", _e)
 
 
+def _resolve_rs_python_lib() -> str | None:
+    """Locate liburl_safety_python_rs.so for the Python fallback path."""
+    if env_path := os.getenv("HERMES_RS_LIBS"):
+        p = Path(env_path) / "liburl_safety_python_rs.so"
+        if p.is_file():
+            return str(p)
+
+    home_rs = Path.home() / ".hermes" / "rs" / "liburl_safety_python_rs.so"
+    if home_rs.is_file():
+        return str(home_rs)
+
+    # Repo source tree
+    here = Path(__file__).parent.resolve()
+    repo_rs = here.parent / "rust" / "target" / "release" / "liburl_safety_python_rs.so"
+    if repo_rs.is_file():
+        return str(repo_rs)
+
+    return None
+
+
+def _load_rs_python_fallback():
+    """Load the Rust port of the Python fallback (url_safety_python_rs)."""
+    global _rust_python_fallback
+    if _rust_python_fallback is not None:
+        return
+
+    lib_path = _resolve_rs_python_lib()
+    if lib_path is None:
+        _rust_python_fallback = False
+        return
+
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("url_safety_python_rs", lib_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Could not create module spec for {lib_path}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        # Verify it works
+        module.is_safe_url_python("")
+        _rust_python_fallback = module
+        logger.debug("url_safety: Rust Python fallback initialized OK (lib: %s)", lib_path)
+    except Exception as _e:
+        _rust_python_fallback = False
+        logger.debug("url_safety: Rust Python fallback unavailable (%s)", _e)
+
+
 # Load Rust at import time
 _load_rs_module()
+_load_rs_python_fallback()
 
 # -----------------------------------------------------------------------
 # Pure-Python implementation (fallback) — identical logic to the Rust version
@@ -145,8 +196,17 @@ def is_safe_url(url: str) -> bool:
                 # Fall through to Python on any error from the Rust side
                 pass
 
-    # Python fallback
+    # Python fallback — try Rust port first, then pure Python
     try:
+        # Try Rust Python fallback first
+        if _rust_python_fallback is not False:
+            if _rust_python_fallback:
+                try:
+                    return bool(_rust_python_fallback.is_safe_url_python(url))
+                except Exception:
+                    pass
+
+        # Pure Python fallback (original implementation)
         parsed = urlparse(url)
         hostname = (parsed.hostname or "").strip().lower()
         if not hostname:

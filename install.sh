@@ -284,6 +284,8 @@ expected = [
     "_patch_parser_rs", "_ansi_strip_rs", "redact_rs", "run_agent_loop_rs",
     "_tool_dispatch_rs", "_retry_state_machine_rs", "_honcho_http_rs",
     "_context_refs_rs", "approval_rs",
+    "url_safety_python_rs", "hermes_time_rs", "checkpoint_manager_rs",
+    "title_generator_rs", "model_metadata_rs",
 ]
 missing = []
 for m in expected:
@@ -361,6 +363,11 @@ build_rust_from_source() {
         "rust/honcho_http_rs/Cargo.toml"
         "rust/context_refs_rs/Cargo.toml"
         "rust/approval_rs/Cargo.toml"
+        "rust/url_safety_python_rs/Cargo.toml"
+        "rust/hermes_time_rs/Cargo.toml"
+        "rust/checkpoint_manager_rs/Cargo.toml"
+        "rust/title_generator_rs/Cargo.toml"
+        "rust/model_metadata_rs/Cargo.toml"
     )
 
     for manifest in "${crates[@]}"; do
@@ -468,7 +475,9 @@ import compressor_rs, _model_tools_rs, _prompt_builder_rs, _skin_engine_rs,
        _hermes_state_rs, _fuzzy_match_rs, _subprocess_rs, _file_ops_rs,
        _patch_parser_rs, _ansi_strip_rs, redact_rs, run_agent_loop_rs,
        _tool_dispatch_rs, _retry_state_machine_rs, _honcho_http_rs,
-       _context_refs_rs, approval_rs
+       _context_refs_rs, approval_rs,
+       url_safety_python_rs, hermes_time_rs, checkpoint_manager_rs,
+       title_generator_rs, model_metadata_rs
 print('All Rust extensions loaded OK')
 """], capture_output=True, text=True)
 

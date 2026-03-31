@@ -6821,7 +6821,7 @@ class AIAgent:
         # ── Rust path via Rayon ────────────────────────────────────────────
         rust_results = _rs_run_concurrent_tool_batch(
             tool_calls_json=tool_calls_json,
-            invoke_py_closure=invoke_py_closure,
+            invoke_py=invoke_py_closure,
             task_id=effective_task_id,
         )
 

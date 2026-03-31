@@ -137,6 +137,9 @@ fn _find_normalized_matches(
     let content_len = content.len();
 
     for i in 0..content_normalized_lines.len().saturating_sub(num_pattern_lines) + 1 {
+        if i + num_pattern_lines > content_normalized_lines.len() {
+            break;
+        }
         let block: String = content_normalized_lines[i..i + num_pattern_lines].join("\n");
         if block == pattern_normalized {
             let (start_pos, end_pos) =
@@ -344,6 +347,9 @@ fn _strategy_trimmed_boundary(content: &str, pattern: &str) -> Vec<Match> {
     let mut matches = Vec::new();
 
     for i in 0..content_lines.len().saturating_sub(pattern_line_count) + 1 {
+        if i + pattern_line_count > content_lines.len() {
+            break;
+        }
         let mut check_lines: Vec<String> = content_lines[i..i + pattern_line_count]
             .iter()
             .map(|s| (*s).to_string())
@@ -383,6 +389,9 @@ fn _strategy_block_anchor(content: &str, pattern: &str) -> Vec<Match> {
 
     let mut potential_matches: Vec<usize> = Vec::new();
     for i in 0..norm_content_lines.len().saturating_sub(pattern_line_count) + 1 {
+        if i + pattern_line_count > norm_content_lines.len() {
+            break;
+        }
         if norm_content_lines[i].trim() == first_line
             && norm_content_lines[i + pattern_line_count - 1].trim() == last_line
         {
@@ -403,9 +412,18 @@ fn _strategy_block_anchor(content: &str, pattern: &str) -> Vec<Match> {
             if pattern_line_count <= 2 {
                 similarity = 1.0;
             } else {
-                let content_middle: String = norm_content_lines[i + 1..i + pattern_line_count - 1]
-                    .join("\n");
-                let pattern_middle: String = pattern_lines[1..pattern_line_count - 1].join("\n");
+                let end_idx = (i + pattern_line_count).min(norm_content_lines.len());
+                let content_middle: String = if i + 1 < end_idx {
+                    norm_content_lines[i + 1..end_idx].join("\n")
+                } else {
+                    String::new()
+                };
+                let pattern_end = pattern_lines.len().saturating_sub(1);
+                let pattern_middle: String = if 1 < pattern_end {
+                    pattern_lines[1..pattern_end].join("\n")
+                } else {
+                    String::new()
+                };
                 similarity = lcs_similarity(&content_middle, &pattern_middle);
             }
 
@@ -438,6 +456,10 @@ fn _strategy_context_aware(content: &str, pattern: &str) -> Vec<Match> {
     let matches: Vec<(usize, usize)> = (0..content_lines.len().saturating_sub(pattern_line_count) + 1)
         .into_par_iter()
         .filter_map(|i| {
+            // Bounds check: skip if pattern doesn't fit at this position
+            if i + pattern_line_count > content_lines.len() {
+                return None;
+            }
             let block_lines: Vec<&str> = content_lines[i..i + pattern_line_count].to_vec();
 
             let high_similarity_count = pattern_lines

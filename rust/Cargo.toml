@@ -2,10 +2,12 @@
 resolver = "2"
 members = [
     "ansi_strip_rs",
+    "checkpoint_manager_rs",
     "compressor",
     "file_ops_rs",
     "fuzzy_match_rs",
     "hermes_state_rs",
+    "hermes_time_rs",
     "honcho_http_rs",
     "model_tools_rs",
     "patch_parser_rs",
@@ -18,6 +20,9 @@ members = [
     "context_refs_rs",
     "approval_rs",
     "url_safety_rs",
+    "url_safety_python_rs",
+    "title_generator_rs",
+    "model_metadata_rs",
 ]
 
 [workspace.package]

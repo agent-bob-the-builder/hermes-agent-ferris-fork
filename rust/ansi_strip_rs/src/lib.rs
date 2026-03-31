@@ -146,7 +146,7 @@ mod tests {
     fn test_8b_osc() {
         // 8-bit C1 OSC: ESC 0x9D params BEL
         let inp = b"\x1b\x9d0;title\x07";
-        assert_eq!(strip_ansi(inp), "");
+        assert_eq!(strip_ansi(std::str::from_utf8(inp).unwrap()), "");
     }
 
     #[test]

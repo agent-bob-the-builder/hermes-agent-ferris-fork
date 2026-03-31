@@ -76,3 +76,6 @@ USER.md
 discord-exports/
 .benchmarks/
 /skills
+SOUL.md
+bench*.json
+model_tools_py.py
