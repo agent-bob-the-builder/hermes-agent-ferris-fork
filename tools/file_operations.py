@@ -40,7 +40,7 @@ from hermes_constants import get_hermes_home
 
 # Rust accelerator — pure-Rust string utilities for hot-path file ops
 try:
-    import _file_ops_rust as _rust_fo
+    import file_ops_rs as _rust_fo
 except Exception:
     _rust_fo = None
 
