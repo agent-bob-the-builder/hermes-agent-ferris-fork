@@ -10,7 +10,7 @@ colon-separated params, intermediate bytes), OSC (BEL and ST terminators),
 DCS/SOS/PM/APC string sequences, nF multi-byte escapes, Fp/Fe/Fs
 single-byte escapes, and 8-bit C1 control characters.
 
-Uses the Rust `rust_ansi_strip` accelerator when available, falling back
+Uses the Rust `ansi_strip_rs` accelerator when available, falling back
 to the pure-Python implementation for compatibility.
 """
 
@@ -25,16 +25,16 @@ logger = logging.getLogger(__name__)
 _rust_strip = None
 _using_rust = False
 try:
-    import rust_ansi_strip
+    import ansi_strip_rs
 
     # Verify it actually works (PyInit must run successfully)
-    rust_ansi_strip.strip_ansi_text("")
-    _rust_strip = rust_ansi_strip
+    ansi_strip_rs.strip_ansi_text("")
+    _rust_strip = ansi_strip_rs
     _using_rust = True
 except Exception as _e:
     _rust_strip = None
     _using_rust = False
-    logger.debug("rust_ansi_strip unavailable, using pure-Python ansi_strip: %s", _e)
+    logger.debug("ansi_strip_rs unavailable, using pure-Python ansi_strip: %s", _e)
 
 # -----------------------------------------------------------------------
 # Pure-Python implementation (fallback)
@@ -66,7 +66,7 @@ def strip_ansi(text: str) -> str:
     present.  Safe to call on any string — clean text passes through
     with negligible overhead.
 
-    Uses the Rust `rust_ansi_strip` accelerator when available for ~5x throughput.
+    Uses the Rust `ansi_strip_rs` accelerator when available for ~5x throughput.
     """
     if _rust_strip is not None:
         return _rust_strip.strip_ansi_text(text)

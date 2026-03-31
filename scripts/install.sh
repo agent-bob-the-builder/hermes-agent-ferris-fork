@@ -1128,7 +1128,7 @@ build_rust_extensions() {
     fi
 
     local all_ok=true
-    for ext in rust_compressor _model_tools_rust _prompt_builder_rust; do
+    for ext in compressor_rs model_tools_rs prompt_builder_rs; do
         if $py -c "import $ext" 2>/dev/null; then
             log_success "  $ext loaded OK"
         else

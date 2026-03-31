@@ -6,7 +6,7 @@ before they reach log files, verbose output, or gateway logs.
 Short tokens (< 18 chars) are fully masked. Longer tokens preserve
 the first 6 and last 4 characters for debuggability.
 
-Uses the Rust `rust_redact` accelerator when available, falling back
+Uses the Rust `redact_rs` accelerator when available, falling back
 to the pure-Python implementation for compatibility.
 """
 
@@ -22,16 +22,16 @@ logger = logging.getLogger(__name__)
 _rust_redact = None
 _using_rust = False
 try:
-    import rust_redact
+    import redact_rs
 
     # Verify it actually works (PyInit must run successfully)
-    rust_redact.redact_text(None)
-    _rust_redact = rust_redact
+    redact_rs.redact_text(None)
+    _rust_redact = redact_rs
     _using_rust = True
 except Exception as _e:
     _rust_redact = None
     _using_rust = False
-    logger.debug("rust_redact unavailable, using pure-Python redaction: %s", _e)
+    logger.debug("redact_rs unavailable, using pure-Python redaction: %s", _e)
 
 # -----------------------------------------------------------------------
 # Pure-Python implementation (fallback / source of truth for patterns)
@@ -183,7 +183,7 @@ def redact_sensitive_text(text: str) -> str:
     Safe to call on any string -- non-matching text passes through unchanged.
     Disabled when security.redact_secrets is false in config.yaml.
 
-    Uses the Rust `rust_redact` accelerator when available for ~10x throughput.
+    Uses the Rust `redact_rs` accelerator when available for ~10x throughput.
     """
     if _rust_redact is not None:
         result = _rust_redact.redact_text(text)

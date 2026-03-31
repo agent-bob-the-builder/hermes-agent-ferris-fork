@@ -17,7 +17,7 @@ from agent.context_compressor import ContextCompressor
 from agent.model_metadata import estimate_messages_tokens_rough
 
 # Rust compressor
-import rust_compressor
+import compressor_rs
 
 # Shared test data
 MESSAGES = [{"role": "system", "content": "You are Hermes."}]
@@ -29,7 +29,7 @@ print(f"Test data: {len(MESSAGES)} messages")
 print(f"Python rough estimate: {estimate_messages_tokens_rough(MESSAGES):,} tokens")
 
 def rust_estimate():
-    rust_compressor.estimate_messages_tokens(MESSAGES)
+    compressor_rs.estimate_messages_tokens(MESSAGES)
 
 def python_estimate():
     estimate_messages_tokens_rough(MESSAGES)
