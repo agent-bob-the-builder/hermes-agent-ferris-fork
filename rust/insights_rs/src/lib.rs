@@ -57,6 +57,7 @@ pub struct ToolUsageEntry {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Default)]
 pub struct MessageStats {
     #[serde(default)]
     pub total_messages: i64,
@@ -498,7 +499,7 @@ pub fn format_terminal(
     let padding = 58usize.saturating_sub(period_label.len());
     let left_pad = padding / 2;
     let right_pad = padding - left_pad;
-    lines.push(format!("  ║{}{} {}{}║", " ".repeat(left_pad), period_label, " ".repeat(right_pad)));
+    lines.push(format!("  ║{}{} {}{}║", " ".repeat(left_pad), " ".repeat(right_pad), period_label, ""));
     lines.push("  ╚══════════════════════════════════════════════════════════╝".to_string());
     lines.push("".to_string());
 
