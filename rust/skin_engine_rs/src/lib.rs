@@ -47,7 +47,6 @@ impl SkinConfig {
     fn banner_logo(&self) -> String { self.banner_logo.clone() }
     #[getter]
     fn banner_hero(&self) -> String { self.banner_hero.clone() }
-
     fn get_color(&self, key: &str, fallback: &str) -> String {
         self.colors.get(key).cloned().unwrap_or_else(|| fallback.to_string())
     }
@@ -309,7 +308,7 @@ fn do_load_skin(name: &str) -> SkinConfig {
 }
 
 #[pymodule]
-fn skin_engine_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _skin_engine_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(list_skins, m)?)?;
     m.add_function(wrap_pyfunction!(load_skin, m)?)?;
     m.add_function(wrap_pyfunction!(get_active_skin, m)?)?;
@@ -366,15 +365,15 @@ fn list_skins() -> Vec<HashMap<String, String>> {
 
 #[pyfunction]
 fn init_skin_from_config(_py: Python<'_>, config: &Bound<'_, PyDict>) -> PyResult<()> {
-    let skin_name = config.get_item("display")
-        .ok().flatten()
-        .and_then(|d| d.cast::<PyDict>().ok())
-        .and_then(|py_dict| {
-            py_dict.get_item("skin")
-                .ok().flatten()
-                .and_then(|v| v.extract::<String>().ok())
-        })
-        .unwrap_or_else(|| "default".to_string());
+    let skin_name: String = if let Some(display) = config.get_item("display")? {
+        if let Ok(d) = display.cast::<PyDict>() {
+            if let Some(skin) = d.get_item("skin")? {
+                if let Ok(s) = skin.extract::<String>() {
+                    s
+                } else { "default".to_string() }
+            } else { "default".to_string() }
+        } else { "default".to_string() }
+    } else { "default".to_string() };
     let name = skin_name.trim().to_string();
     if !name.is_empty() { set_active_skin(name); } else { set_active_skin("default".to_string()); }
     Ok(())
