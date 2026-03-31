@@ -17,6 +17,7 @@ members = [
     "tool_dispatch_rs",
     "context_refs_rs",
     "approval_rs",
+    "url_safety_rs",
 ]
 
 [workspace.package]

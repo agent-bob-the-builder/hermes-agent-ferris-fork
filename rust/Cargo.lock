@@ -32,6 +32,7 @@ version = "0.1.0"
 dependencies = [
  "lazy_static",
  "pyo3",
+ "rayon",
  "regex",
 ]
 
@@ -129,6 +130,7 @@ version = "0.1.0"
 dependencies = [
  "once_cell",
  "pyo3",
+ "rayon",
  "regex",
 ]
 
@@ -237,6 +239,7 @@ version = "0.1.0"
 dependencies = [
  "once_cell",
  "pyo3",
+ "rayon",
  "reqwest",
  "serde",
  "serde_json",
@@ -1668,6 +1671,13 @@ dependencies = [
  "idna",
  "percent-encoding",
  "serde",
+]
+
+[[package]]
+name = "url_safety_rs"
+version = "0.1.0"
+dependencies = [
+ "pyo3",
 ]
 
 [[package]]

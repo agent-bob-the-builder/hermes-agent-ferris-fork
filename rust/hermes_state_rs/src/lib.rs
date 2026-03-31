@@ -227,6 +227,13 @@ fn run_migrations(conn: &rusqlite::Connection, mut current_version: i32) -> Resu
         }
         let _ = conn.execute("UPDATE schema_version SET version = 6", []);
     }
+    if current_version < 7 {
+        let _ = conn.execute(
+            "ALTER TABLE sessions ADD COLUMN user_context TEXT",
+            [],
+        );
+        let _ = conn.execute("UPDATE schema_version SET version = 7", []);
+    }
     let _ = conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_title_unique ON sessions(title) WHERE title IS NOT NULL",
         [],
@@ -448,6 +455,21 @@ fn update_system_prompt(session_id: String, system_prompt: String) -> PyResult<(
     })
 }
 
+#[pyfunction]
+fn update_user_context(session_id: String, user_context: String) -> PyResult<()> {
+    with_state(|state| {
+        execute_write(state, move |conn| {
+            conn.execute(
+                "UPDATE sessions SET user_context = ?1 WHERE id = ?2",
+                rusqlite::params![user_context, session_id],
+            )
+            .map_err(|e| e.to_string())?;
+            Ok(())
+        })
+        .map_err(PyException::new_err)
+    })
+}
+
 #[derive(serde::Deserialize)]
 struct TokenCounts {
     input_tokens: i64,
@@ -469,15 +491,15 @@ struct TokenCounts {
 
 #[pyfunction]
 fn update_token_counts(_py: Python<'_>, session_id: String, counts_json: String) -> PyResult<()> {
-    let counts: TokenCounts = serde_json::from_str(&counts_json)
+    let counts: TokenCounts=serde_json::from_str(&counts_json)
         .map_err(|e| PyException::new_err(format!("bad counts JSON: {}", e)))?;
 
     with_state(|state| {
         execute_write(state, move |conn| {
             let sql = if counts.absolute {
-                "UPDATE sessions SET input_tokens=?1, output_tokens=?2, cache_read_tokens=?3, cache_write_tokens=?4, reasoning_tokens=?5, estimated_cost_usd=COALESCE(?6,0), actual_cost_usd=CASE WHEN ?7 IS NULL THEN actual_cost_usd ELSE ?7 END, cost_status=COALESCE(?8,cost_status), cost_source=COALESCE(?9,cost_source), pricing_version=COALESCE(?10,pricing_version), billing_provider=COALESCE(?11,billing_provider), billing_base_url=COALESCE(?12,billing_base_url), billing_mode=COALESCE(?13,billing_mode), model=COALESCE(?14,model) WHERE id=?15"
+                "UPDATE sessions SET input_tokens=?1 output_tokens=?2 cache_read_tokens=?3 cache_write_tokens=?4 reasoning_tokens=?5 estimated_cost_usd=COALESCE(?6,0), actual_cost_usd=CASE WHEN ?7 IS NULL THEN actual_cost_usd ELSE ?7 END, cost_status=COALESCE(?8,cost_status), cost_source=COALESCE(?9,cost_source), pricing_version=COALESCE(?10,pricing_version), billing_provider=COALESCE(?11,billing_provider), billing_base_url=COALESCE(?12,billing_base_url), billing_mode=COALESCE(?13,billing_mode), model=COALESCE(?14,model) WHERE id=?15"
             } else {
-                "UPDATE sessions SET input_tokens=input_tokens+?1, output_tokens=output_tokens+?2, cache_read_tokens=cache_read_tokens+?3, cache_write_tokens=cache_write_tokens+?4, reasoning_tokens=reasoning_tokens+?5, estimated_cost_usd=COALESCE(estimated_cost_usd,0)+COALESCE(?6,0), actual_cost_usd=CASE WHEN ?7 IS NULL THEN actual_cost_usd ELSE COALESCE(actual_cost_usd,0)+?7 END, cost_status=COALESCE(?8,cost_status), cost_source=COALESCE(?9,cost_source), pricing_version=COALESCE(?10,pricing_version), billing_provider=COALESCE(?11,billing_provider), billing_base_url=COALESCE(?12,billing_base_url), billing_mode=COALESCE(?13,billing_mode), model=COALESCE(?14,model) WHERE id=?15"
+                "UPDATE sessions SET input_tokens=input_tokens+?1 output_tokens=output_tokens+?2 cache_read_tokens=cache_read_tokens+?3 cache_write_tokens=cache_write_tokens+?4 reasoning_tokens=reasoning_tokens+?5 estimated_cost_usd=COALESCE(estimated_cost_usd,0)+COALESCE(?6,0), actual_cost_usd=CASE WHEN ?7 IS NULL THEN actual_cost_usd ELSE COALESCE(actual_cost_usd,0)+?7 END, cost_status=COALESCE(?8,cost_status), cost_source=COALESCE(?9,cost_source), pricing_version=COALESCE(?10,pricing_version), billing_provider=COALESCE(?11,billing_provider), billing_base_url=COALESCE(?12,billing_base_url), billing_mode=COALESCE(?13,billing_mode), model=COALESCE(?14,model) WHERE id=?15"
             };
 
             conn.execute(
@@ -505,6 +527,40 @@ fn update_token_counts(_py: Python<'_>, session_id: String, counts_json: String)
         })
         .map_err(PyException::new_err)
     })
+}
+
+// ── Module definition ────────────────────────────────────────────────────────
+
+#[pymodule]
+fn _hermes_state_rs(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_function(wrap_pyfunction!(init, module)?)?;
+    module.add_function(wrap_pyfunction!(is_initialized, module)?)?;
+    module.add_function(wrap_pyfunction!(create_session, module)?)?;
+    module.add_function(wrap_pyfunction!(end_session, module)?)?;
+    module.add_function(wrap_pyfunction!(update_system_prompt, module)?)?;
+    module.add_function(wrap_pyfunction!(update_user_context, module)?)?;
+    module.add_function(wrap_pyfunction!(update_token_counts, module)?)?;
+    module.add_function(wrap_pyfunction!(ensure_session, module)?)?;
+    module.add_function(wrap_pyfunction!(append_message, module)?)?;
+    module.add_function(wrap_pyfunction!(get_messages, module)?)?;
+    module.add_function(wrap_pyfunction!(get_messages_as_conversation, module)?)?;
+    module.add_function(wrap_pyfunction!(search_messages, module)?)?;
+    module.add_function(wrap_pyfunction!(get_session, module)?)?;
+    module.add_function(wrap_pyfunction!(list_sessions_rich, module)?)?;
+    module.add_function(wrap_pyfunction!(resolve_session_id, module)?)?;
+    module.add_function(wrap_pyfunction!(set_session_title, module)?)?;
+    module.add_function(wrap_pyfunction!(get_session_title, module)?)?;
+    module.add_function(wrap_pyfunction!(get_session_by_title, module)?)?;
+    module.add_function(wrap_pyfunction!(get_next_title_in_lineage, module)?)?;
+    module.add_function(wrap_pyfunction!(session_count, module)?)?;
+    module.add_function(wrap_pyfunction!(message_count, module)?)?;
+    module.add_function(wrap_pyfunction!(delete_session, module)?)?;
+    module.add_function(wrap_pyfunction!(prune_sessions, module)?)?;
+    module.add(
+        "__doc__",
+        "Rust-native SessionDB for Hermes — rusqlite backend with FTS5.",
+    )?;
+    Ok(())
 }
 
 #[pyfunction]
@@ -1261,35 +1317,4 @@ fn prune_sessions(older_than_days: i64, source: Option<String>) -> PyResult<i64>
     })
 }
 
-// ── Module definition ────────────────────────────────────────────────────────
 
-#[pymodule]
-fn _hermes_state_rs(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
-    module.add_function(wrap_pyfunction!(init, module)?)?;
-    module.add_function(wrap_pyfunction!(is_initialized, module)?)?;
-    module.add_function(wrap_pyfunction!(create_session, module)?)?;
-    module.add_function(wrap_pyfunction!(end_session, module)?)?;
-    module.add_function(wrap_pyfunction!(update_system_prompt, module)?)?;
-    module.add_function(wrap_pyfunction!(update_token_counts, module)?)?;
-    module.add_function(wrap_pyfunction!(ensure_session, module)?)?;
-    module.add_function(wrap_pyfunction!(append_message, module)?)?;
-    module.add_function(wrap_pyfunction!(get_messages, module)?)?;
-    module.add_function(wrap_pyfunction!(get_messages_as_conversation, module)?)?;
-    module.add_function(wrap_pyfunction!(search_messages, module)?)?;
-    module.add_function(wrap_pyfunction!(get_session, module)?)?;
-    module.add_function(wrap_pyfunction!(list_sessions_rich, module)?)?;
-    module.add_function(wrap_pyfunction!(resolve_session_id, module)?)?;
-    module.add_function(wrap_pyfunction!(set_session_title, module)?)?;
-    module.add_function(wrap_pyfunction!(get_session_title, module)?)?;
-    module.add_function(wrap_pyfunction!(get_session_by_title, module)?)?;
-    module.add_function(wrap_pyfunction!(get_next_title_in_lineage, module)?)?;
-    module.add_function(wrap_pyfunction!(session_count, module)?)?;
-    module.add_function(wrap_pyfunction!(message_count, module)?)?;
-    module.add_function(wrap_pyfunction!(delete_session, module)?)?;
-    module.add_function(wrap_pyfunction!(prune_sessions, module)?)?;
-    module.add(
-        "__doc__",
-        "Rust-native SessionDB for Hermes — rusqlite backend with FTS5.",
-    )?;
-    Ok(())
-}
