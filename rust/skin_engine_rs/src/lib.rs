@@ -362,7 +362,7 @@ fn list_skins() -> Vec<HashMap<String, String>> {
     if skins_path.is_dir() {
         if let Ok(entries) = std::fs::read_dir(&skins_path) {
             let mut user_skins: Vec<_> = entries.filter_map(|e| e.ok())
-                .filter(|e| e.path().extension().map_or(false, |ext| ext == "yaml")).collect();
+                .filter(|e| e.path().extension().is_some_and(|ext| ext == "yaml")).collect();
             user_skins.sort_by_key(|e| e.path());
             for entry in user_skins {
                 if let Some(data) = load_skin_data_from_yaml(&entry.path()) {

@@ -84,7 +84,7 @@ pub fn parse_v4a_patch_impl(patch_content: &str) -> Vec<PatchOperation> {
         if let Some(caps) = RE_UPDATE_FILE.captures(line) {
             if let Some(ref mut op) = current_op {
                 finalize_hunk(op, &mut current_hunk);
-                if !op.hunks.is_empty() || !op.content.as_ref().map_or(false, |c| c.is_empty()) {
+                if !op.hunks.is_empty() || !op.content.as_ref().is_some_and(|c| c.is_empty()) {
                     operations.push(current_op.take().unwrap());
                 }
             }
@@ -101,7 +101,7 @@ pub fn parse_v4a_patch_impl(patch_content: &str) -> Vec<PatchOperation> {
         } else if let Some(caps) = RE_ADD_FILE.captures(line) {
             if let Some(ref mut op) = current_op {
                 finalize_hunk(op, &mut current_hunk);
-                if !op.hunks.is_empty() || !op.content.as_ref().map_or(false, |c| c.is_empty()) {
+                if !op.hunks.is_empty() || !op.content.as_ref().is_some_and(|c| c.is_empty()) {
                     operations.push(current_op.take().unwrap());
                 }
             }
@@ -121,7 +121,7 @@ pub fn parse_v4a_patch_impl(patch_content: &str) -> Vec<PatchOperation> {
         } else if let Some(caps) = RE_DELETE_FILE.captures(line) {
             if let Some(ref mut op) = current_op {
                 finalize_hunk(op, &mut current_hunk);
-                if !op.hunks.is_empty() || !op.content.as_ref().map_or(false, |c| c.is_empty()) {
+                if !op.hunks.is_empty() || !op.content.as_ref().is_some_and(|c| c.is_empty()) {
                     operations.push(current_op.take().unwrap());
                 }
             }
@@ -140,7 +140,7 @@ pub fn parse_v4a_patch_impl(patch_content: &str) -> Vec<PatchOperation> {
         } else if let Some(caps) = RE_MOVE_FILE.captures(line) {
             if let Some(ref mut op) = current_op {
                 finalize_hunk(op, &mut current_hunk);
-                if !op.hunks.is_empty() || !op.content.as_ref().map_or(false, |c| c.is_empty()) {
+                if !op.hunks.is_empty() || !op.content.as_ref().is_some_and(|c| c.is_empty()) {
                     operations.push(current_op.take().unwrap());
                 }
             }
@@ -170,8 +170,8 @@ pub fn parse_v4a_patch_impl(patch_content: &str) -> Vec<PatchOperation> {
                 });
             }
 
-        } else if current_op.is_some() {
-            if !line.is_empty() {
+        } else if current_op.is_some()
+            && !line.is_empty() {
                 if current_hunk.is_none() {
                     current_hunk = Some(Hunk {
                         context_hint: None,
@@ -206,7 +206,6 @@ pub fn parse_v4a_patch_impl(patch_content: &str) -> Vec<PatchOperation> {
                     }
                 }
             }
-        }
 
         i += 1;
     }
@@ -214,7 +213,7 @@ pub fn parse_v4a_patch_impl(patch_content: &str) -> Vec<PatchOperation> {
     // Don't forget the last operation
     if let Some(ref mut op) = current_op {
         finalize_hunk(op, &mut current_hunk);
-        if !op.hunks.is_empty() || !op.content.as_ref().map_or(false, |c| c.is_empty()) {
+        if !op.hunks.is_empty() || !op.content.as_ref().is_some_and(|c| c.is_empty()) {
             operations.push(current_op.take().unwrap());
         }
     }

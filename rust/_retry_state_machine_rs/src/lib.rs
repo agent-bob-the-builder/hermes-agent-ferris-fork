@@ -243,7 +243,7 @@ fn classify_error(
     }
 
     if let Some(s) = status {
-        if s >= 400 && s < 500 && s != 429 && s != 413 {
+        if (400..500).contains(&s) && s != 429 && s != 413 {
             return Some(ErrorReason {
                 code: "client_error".to_string(),
                 detail: format!("HTTP {} client error", s),

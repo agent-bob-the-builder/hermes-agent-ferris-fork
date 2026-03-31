@@ -434,7 +434,7 @@ fn _strategy_context_aware(content: &str, pattern: &str) -> Vec<Match> {
 
         let mut high_similarity_count = 0;
         for (p_line, c_line) in pattern_lines.iter().zip(block_lines.iter()) {
-            let sim = lcs_similarity(&p_line.trim(), &c_line.trim());
+            let sim = lcs_similarity(p_line.trim(), c_line.trim());
             if sim >= 0.80 {
                 high_similarity_count += 1;
             }

@@ -65,7 +65,7 @@ fn add_line_numbers(content: &str, start_line: usize) -> String {
             line.to_string()
         };
         use std::fmt::Write;
-        let _ = write!(&mut result, "{:6}|{}\n", line_num, display);
+        let _ = writeln!(&mut result, "{:6}|{}", line_num, display);
     }
     result
 }

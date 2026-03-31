@@ -785,7 +785,7 @@ fn rs_run_loop(
         interrupt_check_fn,
         on_status_fn,
     )
-    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e))
+    .map_err(pyo3::exceptions::PyRuntimeError::new_err)
 }
 
 #[pyfunction]

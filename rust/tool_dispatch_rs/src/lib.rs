@@ -138,7 +138,7 @@ fn invoke_single(
 ) -> String {
     let py_fn = invoke_py.bind(py);
     let tid_str = task_id.unwrap_or("");
-    let args_tuple = pyo3::types::PyTuple::new(py, &[function_name, args_json, tid_str])
+    let args_tuple = pyo3::types::PyTuple::new(py, [function_name, args_json, tid_str])
         .expect("hardcoded args, PyTuple::new should not fail");
     match py_fn.call1(args_tuple) {
         Ok(result) => result.extract::<String>().unwrap_or_else(|_| {
@@ -246,11 +246,11 @@ fn rs_run_concurrent_tool_batch(
     task_id: Option<String>,
 ) -> PyResult<String> {
     run_concurrent_tool_batch(tool_calls_json, invoke_py, task_id.as_deref())
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))
+        .map_err(pyo3::exceptions::PyValueError::new_err)
 }
 
 #[pymodule]
-fn _tool_dispatch_rs(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _tool_dispatch_rs(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(rs_should_parallelize, module)?)?;
     module.add_function(wrap_pyfunction!(rs_run_concurrent_tool_batch, module)?)?;
     module.add(

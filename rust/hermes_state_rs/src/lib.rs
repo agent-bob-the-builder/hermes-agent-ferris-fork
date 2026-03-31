@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyString};
 use rand::Rng;
 use regex::Regex;
-use rusqlite::{types::FromSql, Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags};
 use serde_json::Value as JsonValue;
 use std::sync::Mutex;
 
@@ -342,7 +342,7 @@ fn init(db_path: String) -> PyResult<()> {
     if guard.is_some() {
         return Ok(());
     }
-    let mut state = RustState::new(&db_path)
+    let state = RustState::new(&db_path)
         .map_err(|e| PyException::new_err(format!("open DB: {}", e)))?;
     init_schema(&state.conn)
         .map_err(|e| PyException::new_err(format!("schema: {}", e)))?;
@@ -397,7 +397,7 @@ fn create_session(
             .map_err(|e| e.to_string())?;
             Ok(())
         })
-        .map_err(|e| PyException::new_err(e))?;
+        .map_err(PyException::new_err)?;
         Ok(session_id)
     })
 }
@@ -413,7 +413,7 @@ fn end_session(session_id: String, end_reason: String) -> PyResult<()> {
             .map_err(|e| e.to_string())?;
             Ok(())
         })
-        .map_err(|e| PyException::new_err(e))
+        .map_err(PyException::new_err)
     })
 }
 
@@ -428,7 +428,7 @@ fn update_system_prompt(session_id: String, system_prompt: String) -> PyResult<(
             .map_err(|e| e.to_string())?;
             Ok(())
         })
-        .map_err(|e| PyException::new_err(e))
+        .map_err(PyException::new_err)
     })
 }
 
@@ -487,7 +487,7 @@ fn update_token_counts(_py: Python<'_>, session_id: String, counts_json: String)
             .map_err(|e| e.to_string())?;
             Ok(())
         })
-        .map_err(|e| PyException::new_err(e))
+        .map_err(PyException::new_err)
     })
 }
 
@@ -502,7 +502,7 @@ fn ensure_session(session_id: String, source: String, model: Option<String>) -> 
             .map_err(|e| e.to_string())?;
             Ok(())
         })
-        .map_err(|e| PyException::new_err(e))
+        .map_err(PyException::new_err)
     })
 }
 
@@ -542,7 +542,7 @@ fn append_message(
             .map_err(|e| e.to_string())?;
             Ok(conn.last_insert_rowid())
         })
-        .map_err(|e| PyException::new_err(e))?;
+        .map_err(PyException::new_err)?;
 
         if num_tool_calls > 0 {
             let _ = state.conn.execute(
@@ -1030,7 +1030,7 @@ fn set_session_title(session_id: String, title: String) -> PyResult<bool> {
                 .map_err(|e| e.to_string())?;
             Ok(rows > 0)
         })
-        .map_err(|e| PyException::new_err(e))
+        .map_err(PyException::new_err)
     })
 }
 
@@ -1200,7 +1200,7 @@ fn delete_session(session_id: String) -> PyResult<bool> {
             .map_err(|e| e.to_string())?;
             Ok(true)
         })
-        .map_err(|e| PyException::new_err(e))
+        .map_err(PyException::new_err)
     })
 }
 
@@ -1240,7 +1240,7 @@ fn prune_sessions(older_than_days: i64, source: Option<String>) -> PyResult<i64>
             }
             Ok(sids.len() as i64)
         })
-        .map_err(|e| PyException::new_err(e))
+        .map_err(PyException::new_err)
     })
 }
 

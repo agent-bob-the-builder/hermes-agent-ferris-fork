@@ -111,7 +111,7 @@ pub fn py_to_val(py: Python<'_>, v: &Bound<'_, PyAny>) -> Value {
         return Value::Array(arr.iter().map(|x| py_to_val(py, x)).collect());
     }
     if let Ok(dict) = v.cast::<PyDict>() {
-        return dict_to_json(&dict);
+        return dict_to_json(dict);
     }
     Value::Null
 }
@@ -400,9 +400,9 @@ impl PyContextCompressor {
                 _ => 0,
             }
         }
-        self.last_prompt_tokens = get_field(&dict, "prompt_tokens");
-        self.last_completion_tokens = get_field(&dict, "completion_tokens");
-        self.last_total_tokens = get_field(&dict, "total_tokens");
+        self.last_prompt_tokens = get_field(dict, "prompt_tokens");
+        self.last_completion_tokens = get_field(dict, "completion_tokens");
+        self.last_total_tokens = get_field(dict, "total_tokens");
         Ok(())
     }
 

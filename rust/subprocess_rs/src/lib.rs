@@ -103,7 +103,7 @@ impl SubprocessHandle {
 
             if let Some(deadline) = self.deadline {
                 if Instant::now() >= deadline {
-                    let _ = _kill_group(&self.state);
+                    _kill_group(&self.state);
                     return ExecuteResult {
                         output: self.state.output.lock().unwrap().clone(),
                         returncode: 124,
@@ -138,13 +138,13 @@ impl SubprocessHandle {
 
     /// Kill the process and all its children.
     fn kill(&self) {
-        let _ = _kill_group(&self.state);
+        _kill_group(&self.state);
     }
 
     /// Interrupt the process (sets interrupted flag + kills).
     fn interrupt(&self) {
         self.state.interrupted.store(true, Ordering::Relaxed);
-        let _ = _kill_group(&self.state);
+        _kill_group(&self.state);
     }
 }
 
@@ -285,7 +285,7 @@ pub fn spawn(
                     return;
                 }
                 if Instant::now() >= deadline {
-                    let _ = _kill_group(&state_kill);
+                    _kill_group(&state_kill);
                     return;
                 }
                 thread::sleep(Duration::from_millis(20));
@@ -317,7 +317,7 @@ pub fn interrupt(session_id: &str) -> bool {
     let reg = PROCESS_REGISTRY.lock().unwrap();
     if let Some(state) = reg.get(session_id) {
         state.interrupted.store(true, Ordering::Relaxed);
-        let _ = _kill_group(state);
+        _kill_group(state);
         true
     } else {
         false
@@ -391,7 +391,7 @@ fn _uuid_v4() -> String {
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_nanos() as u128;
+        .as_nanos();
     let counter = UUID_COUNTER.fetch_add(1, Ordering::Relaxed) as u128;
     let pid = std::process::id() as u128;
     // Use u128 to avoid overflow in the mixing step

@@ -416,9 +416,9 @@ pub fn normalize_summary_prefix(text: &str) -> String {
     let text = text.strip_prefix(SUMMARY_PREFIX).unwrap_or(text);
     let text = text.trim();
     if text.is_empty() {
-        return SUMMARY_PREFIX.to_string();
+        SUMMARY_PREFIX.to_string()
     } else {
-        return format!("{}\n{}", SUMMARY_PREFIX, text);
+        format!("{}\n{}", SUMMARY_PREFIX, text)
     }
 }
 

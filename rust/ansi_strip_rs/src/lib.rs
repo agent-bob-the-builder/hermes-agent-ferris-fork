@@ -26,10 +26,10 @@ pub fn strip_ansi(text: &str) -> String {
                 let mut intermediates = 0usize;
                 while j < bytes.len() {
                     let p = bytes[j];
-                    if p >= 0x20 && p <= 0x2f {
+                    if (0x20..=0x2f).contains(&p) {
                         intermediates += 1;
                         j += 1;
-                    } else if p >= 0x30 && p <= 0x3f {
+                    } else if (0x30..=0x3f).contains(&p) {
                         j += 1;
                     } else {
                         break;
@@ -79,7 +79,7 @@ pub fn strip_ansi(text: &str) -> String {
                     i += 1;
                 }
                 continue;
-            } else if (next >= 0x40 && next <= 0x5f) && next != 0x5b && next != 0x5d {
+            } else if (0x40..=0x5f).contains(&next) && next != 0x5b && next != 0x5d {
                 // ── Fe-type: ESC c (single-byte Fe) ────────────────────
                 // Fe types: ESC D (index), EM (reverse index), EM, FS, GS, RS, US
                 i += 2;
@@ -90,7 +90,7 @@ pub fn strip_ansi(text: &str) -> String {
         // 8-bit C1 controls (UTF-8 encoded: C2 80 through C2 9F)
         if b == 0xc2 && i + 1 < bytes.len() {
             let next = bytes[i + 1];
-            if next >= 0x80 && next <= 0x9f {
+            if (0x80..=0x9f).contains(&next) {
                 // 8-bit C1 control — skip it
                 i += 2;
                 continue;

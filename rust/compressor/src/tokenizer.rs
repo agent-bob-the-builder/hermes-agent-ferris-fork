@@ -16,9 +16,7 @@ static ENCODER: OnceLock<TiktokenEncoder> = OnceLock::new();
 
 /// Initialize cl100k_base from embedded BPE data.  Falls back to None on failure.
 fn init_encoder() -> Option<&'static TiktokenEncoder> {
-    tiktoken_rs::cl100k_base().ok().and_then(|enc| {
-        Some(ENCODER.get_or_init(|| enc))
-    })
+    tiktoken_rs::cl100k_base().ok().map(|enc| ENCODER.get_or_init(|| enc))
 }
 
 /// Get (or initialize) the cl100k_base encoder.

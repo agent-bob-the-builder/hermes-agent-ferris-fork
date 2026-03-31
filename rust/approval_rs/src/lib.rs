@@ -6,7 +6,6 @@
 use once_cell::sync::Lazy;
 use regex::Regex;
 use regex::RegexSet;
-use std::env;
 
 // ============================================================================
 // ANSI + Unicode normalization
@@ -32,7 +31,7 @@ fn normalize_command(command: &str) -> String {
     // NFKC normalization then lowercase — handles fullwidth ASCII homoglyphs
     let normalized: String = s
         .chars()
-        .flat_map(|c| unicode_normalize_fold(c))
+        .flat_map(unicode_normalize_fold)
         .collect();
 
     normalized.to_lowercase()
@@ -41,12 +40,12 @@ fn normalize_command(command: &str) -> String {
 /// Simple NFKC-inspired character folding: fullwidth ASCII -> base ASCII.
 fn unicode_normalize_fold(c: char) -> Vec<char> {
     // Fullwidth Latin capital/small letters (U+FF21-U+FF5A) -> Latin (U+0041-U+007A)
-    if c >= '\u{FF21}' && c <= '\u{FF5A}' {
+    if ('\u{FF21}'..='\u{FF5A}').contains(&c) {
         let base = (c as u32) - (0xFF21 - 0x0041) as u32;
         return char::from_u32(base).map(|ch| ch.to_lowercase().collect()).unwrap_or_else(|| vec![c]);
     }
     // Halfwidth Katakana -> fullwidth Katakana -> basic Katakana (rough approximation)
-    if c >= '\u{FF65}' && c <= '\u{FF9F}' {
+    if ('\u{FF65}'..='\u{FF9F}').contains(&c) {
         let base = (c as u32) - 0xFF65 + 0x30A0;
         return char::from_u32(base).map(|ch| vec![ch]).unwrap_or_else(|| vec![c]);
     }
@@ -210,11 +209,10 @@ pub fn detect_dangerous_command(command: &str) -> (bool, String, String) {
 
     for idx in matches {
         // Special case: SQL DELETE without WHERE — skip if WHERE is present
-        if idx == DELETE_WITHOUT_WHERE_IDX {
-            if DELETE_WHERE_RE.is_match(&normalized) {
+        if idx == DELETE_WITHOUT_WHERE_IDX
+            && DELETE_WHERE_RE.is_match(&normalized) {
                 continue; // has WHERE, skip this match
             }
-        }
         return (true, descriptions[idx].to_string(), descriptions[idx].to_string());
     }
 

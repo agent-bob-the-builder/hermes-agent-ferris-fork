@@ -14,7 +14,7 @@ const SUMMARY_TOKENS_CEILING: usize = 6000;
 static HTTP_CLIENT: OnceLock<Client> = OnceLock::new();
 
 fn get_client() -> &'static Client {
-    HTTP_CLIENT.get_or_init(|| Client::new())
+    HTTP_CLIENT.get_or_init(Client::new)
 }
 
 /// Serialized conversation turn for the summarizer.

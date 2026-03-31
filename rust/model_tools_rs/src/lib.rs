@@ -772,7 +772,7 @@ fn get_available_toolsets(py: Python<'_>) -> PyResult<Py<PyAny>> {
     for (ts_name, tools) in resolved_map.iter() {
         let inner = PyDict::new(py);
         inner.set_item("available", true)?;
-        inner.set_item("tools", PyList::new(py, &tools.clone())?)?;
+        inner.set_item("tools", PyList::new(py, tools.clone())?)?;
         inner.set_item("description", "")?;
         inner.set_item("requirements", PyList::new(py, &[] as &[String]).unwrap())?;
         dict.set_item(ts_name, inner)?;

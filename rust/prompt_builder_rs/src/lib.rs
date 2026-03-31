@@ -185,7 +185,7 @@ fn find_hermes_md(cwd: &Path) -> Option<PathBuf> {
                 return Some(candidate);
             }
         }
-        if stop_at.as_ref().map_or(false, |s| s == current) {
+        if stop_at.as_ref().is_some_and(|s| s == current) {
             break;
         }
         match current.parent() {
@@ -1254,7 +1254,7 @@ fn build(
         }
     }
     if provider.as_deref() == Some("alibaba") {
-        let ms = model.as_ref().and_then(|m| m.split('/').last()).unwrap_or("");
+        let ms = model.as_ref().and_then(|m| m.split('/').next_back()).unwrap_or("");
         parts.push(format!(
             "You are powered by the model named {}. The exact model ID is {}. When asked what model you are, always answer based on this information, not on any model name returned by the API.",
             ms,
