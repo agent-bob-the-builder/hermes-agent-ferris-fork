@@ -8,34 +8,46 @@ A performance oriented Rust fork of [Hermes Agent](https://github.com/NousResear
 
 ## What & Why
 
-Eight PyO3 extension crates replace hot-path Python code — no visible behaviour change, but meaningfully faster on every agent turn. The first five are wired into the agent loop; the remaining three handle supporting infrastructure.
+Eight PyO3 extension crates replace hot-path Python code — no visible behaviour change, but meaningfully faster on every agent turn. All eight are wired into the agent loop with transparent Python fallbacks.
 
 | Crate | Hot path | Status |
 |---|---|---|
-| `compressor_rs` | `ContextCompressor.compress()` | Production ✓ |
+| `rust_compressor` | `ContextCompressor.compress()` | Production ✓ |
 | `model_tools_rs` | Tool registry + message sanitization | Production ✓ |
 | `prompt_builder_rs` | System prompt assembly | Production ✓ |
 | `skin_engine_rs` | Skin/theme loading and config | Production ✓ |
 | `hermes_state_rs` | SQLite SessionDB + FTS5 search | Production ✓ |
-| `file_ops_rs` | Binary detection, line numbering, path expansion, fuzzy search | Built ✓ |
-| `fuzzy_match_rs` | FTS query fuzzy matching with Unicode normalization | Built ✓ |
-| `patch_parser_rs` | Patch file parsing (`diff -u` format) | Built ✓ |
+| `file_ops_rs` | Binary detection, line numbering, path expansion, shell escaping, unified diff, fuzzy file search | Production ✓ |
+| `fuzzy_match_rs` | 8-strategy fuzzy find-and-replace | Production ✓ |
+| `patch_parser_rs` | V4A patch format parsing | Production ✓ |
 
-All wired crates are **transparent fallbacks**: if a crate is missing or fails to load, the Python implementation runs instead with no visible difference. Built-only crates (`file_ops_rs`, `fuzzy_match_rs`, `patch_parser_rs`) are compiled and available — wiring them into the Python layer is the remaining work.
+All crates are **transparent fallbacks**: if a crate is missing or fails to load, the Python implementation runs instead with no visible difference.
 
 **Wiring map:**
 
 ```
 AIAgent (run_agent.py)
 ├── context_compressor.py
-│   └── compressor_rs.compress_async()      [Production ✓]
+│   └── rust_compressor.compress_async()          [Production ✓]
 ├── model_tools.py + tools/registry_rs.py
-│   └── _model_tools_rust.sanitize()          [Production ✓]
+│   └── _model_tools_rust.sanitize()             [Production ✓]
 ├── hermes_state.py
-│   └── _hermes_state_rust session ops        [Production ✓]
-└── hermes_cli/skin_engine.py
-    └── _skin_engine_rust init_skin_from_config() [Production ✓]
-    └── _prompt_builder_rust.build()           [Production ✓]
+│   └── _hermes_state_rust session ops            [Production ✓]
+├── hermes_cli/skin_engine.py
+│   └── _skin_engine_rust + _prompt_builder_rust  [Production ✓]
+└── tools/
+    ├── file_operations.py (ShellFileOperations)
+    │   ├── _is_likely_binary() → _file_ops_rust         [Production ✓]
+    │   ├── _add_line_numbers() → _file_ops_rust         [Production ✓]
+    │   ├── _native_expand_path() → _file_ops_rust       [Production ✓]
+    │   ├── _escape_shell_arg() → _file_ops_rust          [Production ✓]
+    │   ├── _unified_diff() → _file_ops_rust              [Production ✓]
+    │   ├── _suggest_similar_files() → _file_ops_rust     [Production ✓]
+    │   └── _search_native() → _file_ops_rust             [Production ✓]
+    ├── fuzzy_match.py
+    │   └── fuzzy_find_and_replace() → _fuzzy_match_rs   [Production ✓]
+    └── patch_parser.py
+        └── parse_v4a_patch() → _patch_parser_rs          [Production ✓]
 ```
 
 ```mermaid
@@ -46,15 +58,18 @@ graph TD
     MTP["model_tools.py<br/>sanitize_api_messages()"]
     SST["hermes_state.py<br/>SessionDB"]
     SHE["hermes_cli/skin_engine.py<br/>init_skin_from_config()"]
+    FOP["tools/file_operations.py<br/>ShellFileOperations"]
+    FUZ["tools/fuzzy_match.py<br/>fuzzy_find_and_replace()"]
+    PAT["tools/patch_parser.py<br/>parse_v4a_patch()"]
 
-    PB_RS["prompt_builder_rs<br/>_prompt_builder_rust.build()"]
-    CO_RS["compressor_rs<br/>compressor_rs.so<br/>token_count() + compress()"]
-    MT_RS["model_tools_rs<br/>_model_tools_rust.so<br/>sanitize()"]
-    HS_RS["hermes_state_rs<br/>_hermes_state_rust.so<br/>SQLite + FTS5"]
-    SK_RS["skin_engine_rs<br/>_skin_engine_rust.so<br/>load + parse"]
-    FO_RS["file_ops_rs<br/>_file_ops_rust.so<br/>detection / paths / fuzzy"]
-    FM_RS["fuzzy_match_rs<br/>_fuzzy_match_rust.so<br/>FTS fuzzy match"]
-    PP_RS["patch_parser_rs<br/>_patch_parser_rust.so<br/>diff -u parse"]
+    PB_RS["prompt_builder_rs"]
+    CO_RS["rust_compressor"]
+    MT_RS["model_tools_rs"]
+    HS_RS["hermes_state_rs"]
+    SK_RS["skin_engine_rs"]
+    FO_RS["file_ops_rs"]
+    FM_RS["fuzzy_match_rs"]
+    PP_RS["patch_parser_rs"]
 
     RA -->|"prompt assembly"| PCP
     RA -->|"tool registry"| MTP
@@ -77,14 +92,23 @@ graph TD
     SHE -->|"production ✓"| SK_RS
     SHE -.->|"fallback"| SHE
 
+    FOP -->|"production ✓"| FO_RS
+    FOP -.->|"fallback"| FOP
+
+    FUZ -->|"production ✓"| FM_RS
+    FUZ -.->|"fallback"| FUZ
+
+    PAT -->|"production ✓"| PP_RS
+    PAT -.->|"fallback"| PAT
+
     style PB_RS fill:#de5347,color:#fff
     style CO_RS fill:#de5347,color:#fff
     style MT_RS fill:#de5347,color:#fff
     style HS_RS fill:#de5347,color:#fff
     style SK_RS fill:#de5347,color:#fff
-    style FO_RS fill:#5a3a9a,color:#fff
-    style FM_RS fill:#5a3a9a,color:#fff
-    style PP_RS fill:#5a3a9a,color:#fff
+    style FO_RS fill:#de5347,color:#fff
+    style FM_RS fill:#de5347,color:#fff
+    style PP_RS fill:#de5347,color:#fff
 ```
 
 ---
