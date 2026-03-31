@@ -3569,21 +3569,12 @@ class GatewayRunner:
             except Exception:
                 current_provider = "openrouter"
 
-<<<<<<< HEAD
         # Detect custom endpoint
         if (
             current_provider == "openrouter"
             and os.getenv("OPENAI_BASE_URL", "").strip()
         ):
             current_provider = "custom"
-=======
-        # Detect custom endpoint from config base_url
-        if current_provider == "openrouter":
-            _cfg_base = model_cfg.get("base_url", "") if isinstance(model_cfg, dict) else ""
-            if _cfg_base and "openrouter.ai" not in _cfg_base:
-                current_provider = "custom"
->>>>>>> upstream/main
-
         current_label = _PROVIDER_LABELS.get(current_provider, current_provider)
 
         lines = [

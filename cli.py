@@ -3518,15 +3518,10 @@ class HermesCLI:
                         print(f"      {mid}{current_marker}")
                 elif p["id"] == "custom":
                     from hermes_cli.models import _get_custom_base_url
-<<<<<<< HEAD
 
                     custom_url = _get_custom_base_url() or os.getenv(
                         "OPENAI_BASE_URL", ""
-                    )
-=======
-                    custom_url = _get_custom_base_url()
->>>>>>> upstream/main
-                    if custom_url:
+                    )                    if custom_url:
                         print(f"      endpoint: {custom_url}")
                     if is_active:
                         print(f"      model: {self.model} ← current")

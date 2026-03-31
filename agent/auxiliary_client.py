@@ -520,26 +520,7 @@ def _read_nous_auth() -> Optional[dict]:
     Returns the provider state dict if Nous is active with tokens,
     otherwise None.
     """
-<<<<<<< HEAD
     from openai import OpenAI
-=======
-    pool_present, entry = _select_pool_entry("nous")
-    if pool_present:
-        if entry is None:
-            return None
-        return {
-            "access_token": getattr(entry, "access_token", ""),
-            "refresh_token": getattr(entry, "refresh_token", None),
-            "agent_key": getattr(entry, "agent_key", None),
-            "inference_base_url": _pool_runtime_base_url(entry, _NOUS_DEFAULT_BASE_URL),
-            "portal_base_url": getattr(entry, "portal_base_url", None),
-            "client_id": getattr(entry, "client_id", None),
-            "scope": getattr(entry, "scope", None),
-            "token_type": getattr(entry, "token_type", "Bearer"),
-            "source": "pool",
-        }
->>>>>>> upstream/main
-
     try:
         if not _AUTH_JSON_PATH.is_file():
             return None
@@ -696,24 +677,9 @@ def _get_auxiliary_env_override(task: str, suffix: str) -> Optional[str]:
     return None
 
 
-<<<<<<< HEAD
 def _try_openrouter() -> "Tuple[Optional[OpenAI], Optional[str]]":
     # Fast path: check env vars before importing openai (~700ms cost).
-    # If no openrouter key is set, skip the import entirely.
-=======
-def _try_openrouter() -> Tuple[Optional[OpenAI], Optional[str]]:
-    pool_present, entry = _select_pool_entry("openrouter")
-    if pool_present:
-        or_key = _pool_runtime_api_key(entry)
-        if not or_key:
-            return None, None
-        base_url = _pool_runtime_base_url(entry, OPENROUTER_BASE_URL) or OPENROUTER_BASE_URL
-        logger.debug("Auxiliary client: OpenRouter via pool")
-        return OpenAI(api_key=or_key, base_url=base_url,
-                       default_headers=_OR_HEADERS), _OPENROUTER_MODEL
-
->>>>>>> upstream/main
-    or_key = os.getenv("OPENROUTER_API_KEY")
+    # If no openrouter key is set, skip the import entirely.    or_key = os.getenv("OPENROUTER_API_KEY")
     if not or_key:
         return None, None
     from openai import OpenAI
@@ -748,111 +714,11 @@ def _read_main_model() -> str:
     config.yaml model.default is the single source of truth for the active
     model. Environment variables are no longer consulted.
     """
-<<<<<<< HEAD
     from_env = (
         os.getenv("OPENAI_MODEL") or os.getenv("HERMES_MODEL") or os.getenv("LLM_MODEL")
     )
     if from_env:
-        return from_env.strip()
-=======
->>>>>>> upstream/main
-    try:
-        from hermes_cli.config import load_config
-
-        cfg = load_config()
-        model_cfg = cfg.get("model", {})
-        if isinstance(model_cfg, str) and model_cfg.strip():
-            return model_cfg.strip()
-        if isinstance(model_cfg, dict):
-            default = model_cfg.get("default", "")
-            if isinstance(default, str) and default.strip():
-                return default.strip()
-    except Exception:
-        pass
-    return ""
-
-
-def _resolve_custom_runtime() -> Tuple[Optional[str], Optional[str]]:
-    """Resolve the active custom/main endpoint the same way the main CLI does.
-
-    This covers both env-driven OPENAI_BASE_URL setups and config-saved custom
-    endpoints where the base URL lives in config.yaml instead of the live
-    environment.
-    """
-    try:
-        from hermes_cli.runtime_provider import resolve_runtime_provider
-
-        runtime = resolve_runtime_provider(requested="custom")
-    except Exception as exc:
-        logger.debug("Auxiliary client: custom runtime resolution failed: %s", exc)
-        return None, None
-
-    custom_base = runtime.get("base_url")
-    custom_key = runtime.get("api_key")
-    if not isinstance(custom_base, str) or not custom_base.strip():
-        return None, None
-
-    custom_base = custom_base.strip().rstrip("/")
-    if "openrouter.ai" in custom_base.lower():
-        # requested='custom' falls back to OpenRouter when no custom endpoint is
-        # configured. Treat that as "no custom endpoint" for auxiliary routing.
-        return None, None
-
-    # Local servers (Ollama, llama.cpp, vLLM, LM Studio) don't require auth.
-    # Use a placeholder key — the OpenAI SDK requires a non-empty string but
-    # local servers ignore the Authorization header.  Same fix as cli.py
-    # _ensure_runtime_credentials() (PR #2556).
-    if not isinstance(custom_key, str) or not custom_key.strip():
-        custom_key = "no-key-required"
-
-    return custom_base, custom_key.strip()
-
-
-def _current_custom_base_url() -> str:
-    custom_base, _ = _resolve_custom_runtime()
-    return custom_base or ""
-
-
-def _try_custom_endpoint() -> "Tuple[Optional[OpenAI], Optional[str]]":
-    from openai import OpenAI
-
-    custom_base, custom_key = _resolve_custom_runtime()
-    if not custom_base or not custom_key:
-        return None, None
-    model = _read_main_model() or "gpt-4o-mini"
-    logger.debug("Auxiliary client: custom endpoint (%s)", model)
-    return OpenAI(api_key=custom_key, base_url=custom_base), model
-
-
-def _try_codex() -> Tuple[Optional[Any], Optional[str]]:
-<<<<<<< HEAD
-    from openai import OpenAI
-
-    codex_token = _read_codex_access_token()
-    if not codex_token:
-        return None, None
-    logger.debug(
-        "Auxiliary client: Codex OAuth (%s via Responses API)", _CODEX_AUX_MODEL
-    )
-    from openai import OpenAI
-
-    real_client = OpenAI(api_key=codex_token, base_url=_CODEX_AUX_BASE_URL)
-=======
-    pool_present, entry = _select_pool_entry("openai-codex")
-    if pool_present:
-        codex_token = _pool_runtime_api_key(entry)
-        if not codex_token:
-            return None, None
-        base_url = _pool_runtime_base_url(entry, _CODEX_AUX_BASE_URL) or _CODEX_AUX_BASE_URL
-    else:
-        codex_token = _read_codex_access_token()
-        if not codex_token:
-            return None, None
-        base_url = _CODEX_AUX_BASE_URL
-    logger.debug("Auxiliary client: Codex OAuth (%s via Responses API)", _CODEX_AUX_MODEL)
-    real_client = OpenAI(api_key=codex_token, base_url=base_url)
->>>>>>> upstream/main
-    return CodexAuxiliaryClient(real_client, _CODEX_AUX_MODEL), _CODEX_AUX_MODEL
+        return from_env.strip()    return CodexAuxiliaryClient(real_client, _CODEX_AUX_MODEL), _CODEX_AUX_MODEL
 
 
 def _try_anthropic() -> Tuple[Optional[Any], Optional[str]]:

@@ -8950,16 +8950,9 @@ class AIAgent:
                             prompt = usage_dict["prompt_tokens"]
                             hit_pct = (cached / prompt * 100) if prompt > 0 else 0
                             if not self.quiet_mode:
-<<<<<<< HEAD
                                 self._vprint(
                                     f"{self.log_prefix}   💾 Cache: {cached:,}/{prompt:,} tokens ({hit_pct:.0f}% hit, {written:,} written)"
                                 )
-
-=======
-                                self._vprint(f"{self.log_prefix}   💾 Cache: {cached:,}/{prompt:,} tokens ({hit_pct:.0f}% hit, {written:,} written)")
-                    
-                    has_retried_429 = False  # Reset on success
->>>>>>> upstream/main
                     break  # Success, exit retry loop
 
                 except InterruptedError:
