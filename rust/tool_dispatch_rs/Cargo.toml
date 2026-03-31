@@ -1,5 +1,5 @@
 [package]
-name = "tool_dispatch_rs"
+name = "_tool_dispatch_rs"
 version.workspace = true
 edition.workspace = true
 

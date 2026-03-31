@@ -1,5 +1,5 @@
 [package]
-name = "run_agent_loop_rs"
+name = "run_agent_loop_rs_pkg"
 version.workspace = true
 edition.workspace = true
 

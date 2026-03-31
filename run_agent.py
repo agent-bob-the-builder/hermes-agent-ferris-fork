@@ -167,7 +167,7 @@ def _try_load_tool_dispatch_rs():
         import importlib as _importlib
 
         _importlib.invalidate_caches()
-        mod = _importlib.import_module("_tool_dispatch_rs")
+        mod = _importlib.import_module("tool_dispatch_rs")
         # Verify the module has the expected entry points
         if not hasattr(mod, "rs_should_parallelize"):
             raise ImportError(
