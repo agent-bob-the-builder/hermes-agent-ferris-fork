@@ -623,19 +623,12 @@ install_hermes_cli
 echo ""
 echo -e "${BOLD}Install complete!${RESET}"
 echo ""
+echo "  ✅ hermes installed to $HOME/.local/bin/hermes"
+echo "  ✅ PATH updated in ~/.bashrc (and ~/.zshrc, ~/.profile if present)"
+echo ""
 echo "  Next steps:"
 echo "    1. Edit $HERMES_DIR/.env and fill in your API keys"
 echo "    2. Run: hermes"
 echo ""
-echo "  If 'hermes' is not found immediately, run:"
-echo "    source ~/.bashrc   # or open a new terminal"
-echo "    hash -r && hermes  # clears bash's command cache"
-echo ""
-read -p "  → Run hermes now? [Y/n] " -r </dev/tty && echo ""
-if [[ ! "$REPLY" =~ ^[Nn]$ ]]; then
-    echo "  Launching hermes... (Ctrl+C to exit)"
-    sleep 1
-    # Give hermes a real TTY so prompt_toolkit doesn't complain about fd=0
-    # Using 'script -qec' (quiet, exec, close) — closes the PTY after hermes exits
-    cd "$HERMES_DIR" && exec script -qec "$HERMES_DIR/venv/bin/python3 $HERMES_DIR/cli.py" /dev/null
-fi
+echo "  NOTE: if 'hermes' is not found, bash may have cached the old"
+echo "        command table. Run 'hash -r' to clear it, then try again."
