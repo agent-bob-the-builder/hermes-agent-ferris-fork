@@ -27,13 +27,15 @@ A performance oriented Rust fork of [Hermes Agent](https://github.com/NousResear
 | `retry_state_machine_rs` | Retry/fallback/compression state machine | Wired ✓ |
 | `honcho_http_rs` | Honcho HTTP client | Wired ✓ |
 | `context_refs_rs` | @-reference parsing + token stripping | Wired ✓ |
-| `approval_rs` | Dangerous command detection / approval | Callable ✓ |
+| `approval_rs` | Dangerous command detection / approval | Wired ✓ |
 | `url_safety_rs` | URL safety checks for web tools | Wired ✓ |
 | `url_safety_python_rs` | Pure-Python URL safety fallback in Rust | Wired ✓ |
 | `hermes_time_rs` | Timezone-aware clock (datetime ops) | Wired ✓ |
 | `checkpoint_manager_rs` | Git-based transparent filesystem snapshots via git2 | Wired ✓ |
 | `title_generator_rs` | Session title prompt formatting + parsing | Wired ✓ |
 | `model_metadata_rs` | Model metadata parsing, context length extraction, token estimation | Wired ✓ |
+| `skill_utils_rs` | SKILL.md/YAML frontmatter parsing, path resolution, category inference | Wired ✓ |
+| `usage_pricing_rs` | Usage pricing structs, cost calculation, Decimal handling | Wired ✓ |
 
 Wired crates have **transparent Python fallbacks** — if a crate is missing or fails to load, the Python implementation runs instead with no visible difference.
 

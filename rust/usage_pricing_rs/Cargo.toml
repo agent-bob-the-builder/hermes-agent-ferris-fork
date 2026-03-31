@@ -1,0 +1,15 @@
+[package]
+name = "usage_pricing_rs"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+pyo3 = { workspace = true }
+rust_decimal = { version = "1.37", features = ["serde", "serde-str"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+once_cell = { workspace = true }
+
+[lib]
+name = "usage_pricing_rs"
+crate-type = ["cdylib"]

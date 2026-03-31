@@ -281,11 +281,12 @@ import sys
 expected = [
     "compressor_rs", "_model_tools_rs", "_prompt_builder_rs", "_skin_engine_rs",
     "_hermes_state_rs", "_fuzzy_match_rs", "_subprocess_rs", "_file_ops_rs",
-    "_patch_parser_rs", "_ansi_strip_rs", "redact_rs", "run_agent_loop_rs",
+    "_patch_parser_rs", "_ansi_strip_rs", "redact_rs",
     "_tool_dispatch_rs", "_retry_state_machine_rs", "_honcho_http_rs",
     "_context_refs_rs", "approval_rs",
     "url_safety_python_rs", "hermes_time_rs", "checkpoint_manager_rs",
     "title_generator_rs", "model_metadata_rs",
+    "skill_utils_rs", "usage_pricing_rs",
 ]
 missing = []
 for m in expected:
@@ -357,7 +358,6 @@ build_rust_from_source() {
         "rust/patch_parser_rs/Cargo.toml"
         "rust/ansi_strip_rs/Cargo.toml"
         "rust/redact_rs/Cargo.toml"
-        "rust/run_agent_loop_rs/Cargo.toml"
         "rust/tool_dispatch_rs/Cargo.toml"
         "rust/_retry_state_machine_rs/Cargo.toml"
         "rust/honcho_http_rs/Cargo.toml"
@@ -368,6 +368,8 @@ build_rust_from_source() {
         "rust/checkpoint_manager_rs/Cargo.toml"
         "rust/title_generator_rs/Cargo.toml"
         "rust/model_metadata_rs/Cargo.toml"
+        "rust/skill_utils_rs/Cargo.toml"
+        "rust/usage_pricing_rs/Cargo.toml"
     )
 
     for manifest in "${crates[@]}"; do
@@ -400,9 +402,10 @@ if not tmp_wheel_dir:
 crates = [
     "compressor_rs", "_model_tools_rs", "_prompt_builder_rs", "_skin_engine_rs",
     "_hermes_state_rs", "_fuzzy_match_rs", "_subprocess_rs", "_file_ops_rs",
-    "_patch_parser_rs", "_ansi_strip_rs", "redact_rs", "run_agent_loop_rs",
+    "_patch_parser_rs", "_ansi_strip_rs", "redact_rs",
     "_tool_dispatch_rs", "_retry_state_machine_rs", "_honcho_http_rs", "_context_refs_rs",
     "approval_rs",
+    "skill_utils_rs", "usage_pricing_rs",
 ]
 
 dest_pkg_dir = os.path.join(hermes_dir, "target", "wheels-all", "compressor")
@@ -473,11 +476,12 @@ venv_python = os.path.join(hermes, "venv/bin/python3")
 result = subprocess.run([venv_python, "-c", """
 import compressor_rs, _model_tools_rs, _prompt_builder_rs, _skin_engine_rs,
        _hermes_state_rs, _fuzzy_match_rs, _subprocess_rs, _file_ops_rs,
-       _patch_parser_rs, _ansi_strip_rs, redact_rs, run_agent_loop_rs,
+       _patch_parser_rs, _ansi_strip_rs, redact_rs,
        _tool_dispatch_rs, _retry_state_machine_rs, _honcho_http_rs,
        _context_refs_rs, approval_rs,
        url_safety_python_rs, hermes_time_rs, checkpoint_manager_rs,
-       title_generator_rs, model_metadata_rs
+       title_generator_rs, model_metadata_rs,
+       skill_utils_rs, usage_pricing_rs
 print('All Rust extensions loaded OK')
 """], capture_output=True, text=True)
 
