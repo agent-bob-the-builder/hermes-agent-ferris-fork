@@ -20,6 +20,7 @@ Public API (signatures preserved from the original 2,400-line version):
     check_tool_availability(quiet) -> tuple
 """
 
+import os
 import json
 import asyncio
 import logging
