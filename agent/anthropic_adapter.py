@@ -152,14 +152,33 @@ def _is_oauth_token(key: str) -> bool:
 
     Regular API keys start with 'sk-ant-api'. Everything else (setup-tokens
     starting with 'sk-ant-oat', managed keys, JWTs, etc.) needs Bearer auth.
+    Azure AI Foundry keys (non sk-ant- prefixed) should use x-api-key, not Bearer.
     """
     if not key:
         return False
     # Regular Console API keys use x-api-key header
     if key.startswith("sk-ant-api"):
         return False
-    # Everything else (setup-tokens, managed keys, JWTs) uses Bearer auth
+    # Azure AI Foundry keys don't start with sk-ant- at all — treat as regular API key
+    if not key.startswith("sk-ant-"):
+        return False
+    # Everything else (setup-tokens sk-ant-oat, managed keys, JWTs) uses Bearer auth
     return True
+
+
+def _requires_bearer_auth(base_url: str | None) -> bool:
+    """Return True for Anthropic-compatible providers that require Bearer auth.
+
+    Some third-party /anthropic endpoints implement Anthropic's Messages API but
+    require Authorization: Bearer instead of Anthropic's native x-api-key header.
+    MiniMax's global and China Anthropic-compatible endpoints follow this pattern.
+    """
+    if not base_url:
+        return False
+    normalized = base_url.rstrip("/").lower()
+    return normalized.startswith("https://api.minimax.io/anthropic") or normalized.startswith(
+        "https://api.minimaxi.com/anthropic"
+    )
 
 
 def build_anthropic_client(api_key: str, base_url: str = None):
@@ -180,7 +199,17 @@ def build_anthropic_client(api_key: str, base_url: str = None):
     if base_url:
         kwargs["base_url"] = base_url
 
-    if _is_oauth_token(api_key):
+    if _requires_bearer_auth(base_url):
+        # Some Anthropic-compatible providers (e.g. MiniMax) expect the API key in
+        # Authorization: Bearer even for regular API keys. Route those endpoints
+        # through auth_token so the SDK sends Bearer auth instead of x-api-key.
+        # Check this before OAuth token shape detection because MiniMax secrets do
+        # not use Anthropic's sk-ant-api prefix and would otherwise be misread as
+        # Anthropic OAuth/setup tokens.
+        kwargs["auth_token"] = api_key
+        if _COMMON_BETAS:
+            kwargs["default_headers"] = {"anthropic-beta": ",".join(_COMMON_BETAS)}
+    elif _is_oauth_token(api_key):
         # OAuth access token / setup-token → Bearer auth + Claude Code identity.
         # Anthropic routes OAuth requests based on user-agent and headers;
         # without Claude Code's fingerprint, requests get intermittent 500s.

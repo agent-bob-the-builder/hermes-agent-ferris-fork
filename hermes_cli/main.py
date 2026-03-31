@@ -50,6 +50,23 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+def _require_tty(command_name: str) -> None:
+    """Exit with a clear error if stdin is not a terminal.
+
+    Interactive TUI commands (hermes tools, hermes setup, hermes model) use
+    curses or input() prompts that spin at 100% CPU when stdin is a pipe.
+    This guard prevents accidental non-interactive invocation.
+    """
+    if not sys.stdin.isatty():
+        print(
+            f"Error: 'hermes {command_name}' requires an interactive terminal.\n"
+            f"It cannot be run through a pipe or non-interactive subprocess.\n"
+            f"Run it directly in your terminal instead.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -617,6 +634,7 @@ def cmd_gateway(args):
 
 def cmd_whatsapp(args):
     """Set up WhatsApp: choose mode, configure, install bridge, pair via QR."""
+    _require_tty("whatsapp")
     import subprocess
     from pathlib import Path
     from hermes_cli.config import get_env_value, save_env_value
@@ -803,12 +821,14 @@ def cmd_whatsapp(args):
 
 def cmd_setup(args):
     """Interactive setup wizard."""
+    _require_tty("setup")
     from hermes_cli.setup import run_setup_wizard
     run_setup_wizard(args)
 
 
 def cmd_model(args):
     """Select default model — starts with provider selection, then model picker."""
+    _require_tty("model")
     from hermes_cli.auth import (
         resolve_provider, AuthError, format_auth_error,
     )
@@ -2447,10 +2467,14 @@ def cmd_version(args):
     # Show update status (synchronous — acceptable since user asked for version info)
     try:
         from hermes_cli.banner import check_for_updates
+        from hermes_cli.config import recommended_update_command
         behind = check_for_updates()
         if behind and behind > 0:
             commits_word = "commit" if behind == 1 else "commits"
-            print(f"Update available: {behind} {commits_word} behind — run 'hermes update'")
+            print(
+                f"Update available: {behind} {commits_word} behind — "
+                f"run '{recommended_update_command()}'"
+            )
         elif behind == 0:
             print("Up to date")
     except Exception:
@@ -2459,6 +2483,7 @@ def cmd_version(args):
 
 def cmd_uninstall(args):
     """Uninstall Hermes Agent."""
+    _require_tty("uninstall")
     from hermes_cli.uninstall import run_uninstall
     run_uninstall(args)
 
@@ -2800,6 +2825,11 @@ def _invalidate_update_cache():
 def cmd_update(args):
     """Update Hermes Agent to the latest version."""
     import shutil
+    from hermes_cli.config import is_managed, managed_error
+
+    if is_managed():
+        managed_error("update Hermes Agent")
+        return
     
     print("⚕ Updating Hermes Agent...")
     print()
@@ -4131,6 +4161,7 @@ For more help on a command:
     def cmd_skills(args):
         # Route 'config' action to skills_config module
         if getattr(args, 'skills_action', None) == 'config':
+            _require_tty("skills config")
             from hermes_cli.skills_config import skills_command as skills_config_command
             skills_config_command(args)
         else:
@@ -4341,6 +4372,7 @@ For more help on a command:
             from hermes_cli.tools_config import tools_disable_enable_command
             tools_disable_enable_command(args)
         else:
+            _require_tty("tools")
             from hermes_cli.tools_config import tools_command
             tools_command(args)
 
@@ -4675,6 +4707,28 @@ For more help on a command:
         help="How to handle skill name conflicts (default: skip)"
     )
     claw_migrate.add_argument(
+        "--yes", "-y",
+        action="store_true",
+        help="Skip confirmation prompts"
+    )
+
+    # claw cleanup
+    claw_cleanup = claw_subparsers.add_parser(
+        "cleanup",
+        aliases=["clean"],
+        help="Archive leftover OpenClaw directories after migration",
+        description="Scan for and archive leftover OpenClaw directories to prevent state fragmentation"
+    )
+    claw_cleanup.add_argument(
+        "--source",
+        help="Path to a specific OpenClaw directory to clean up"
+    )
+    claw_cleanup.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview what would be archived without making changes"
+    )
+    claw_cleanup.add_argument(
         "--yes", "-y",
         action="store_true",
         help="Skip confirmation prompts"

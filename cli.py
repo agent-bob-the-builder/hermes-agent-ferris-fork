@@ -2794,22 +2794,12 @@ class HermesCLI:
             print(f"  MCP tool:          /tools {subcommand} github:create_issue")
             return
 
-        # Confirm session reset before applying
-        verb = "Disable" if subcommand == "disable" else "Enable"
+        # Apply the change directly — the user typing the command is implicit
+        # consent.  Do NOT use input() here; it hangs inside prompt_toolkit's
+        # TUI event loop (known pitfall).
+        verb = "Disabling" if subcommand == "disable" else "Enabling"
         label = ", ".join(names)
-        _cprint(f"{_GOLD}{verb} {label}?{_RST}")
-        _cprint(f"{_DIM}This will save to config and reset your session so the "
-                f"change takes effect cleanly.{_RST}")
-        try:
-            answer = input("  Continue? [y/N] ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            _cprint(f"{_DIM}Cancelled.{_RST}")
-            return
-
-        if answer not in ("y", "yes"):
-            _cprint(f"{_DIM}Cancelled.{_RST}")
-            return
+        _cprint(f"{_GOLD}{verb} {label}...{_RST}")
 
         tools_disable_enable_command(
             Namespace(tools_action=subcommand, names=names, platform="cli"))
@@ -2852,6 +2842,28 @@ class HermesCLI:
         print("  Example: python cli.py --toolsets web,terminal")
         print()
     
+    def _handle_profile_command(self):
+        """Display active profile name and home directory."""
+        from hermes_constants import get_hermes_home, display_hermes_home
+
+        home = get_hermes_home()
+        display = display_hermes_home()
+
+        profiles_parent = Path.home() / ".hermes" / "profiles"
+        try:
+            rel = home.relative_to(profiles_parent)
+            profile_name = str(rel).split("/")[0]
+        except ValueError:
+            profile_name = None
+
+        print()
+        if profile_name:
+            print(f"  Profile: {profile_name}")
+        else:
+            print("  Profile: default")
+        print(f"  Home:    {display}")
+        print()
+
     def show_config(self):
         """Display current configuration with kawaii ASCII art."""
         # Get terminal config from environment (which was set from cli-config.yaml)
@@ -3694,6 +3706,8 @@ class HermesCLI:
             return False
         elif canonical == "help":
             self.show_help()
+        elif canonical == "profile":
+            self._handle_profile_command()
         elif canonical == "tools":
             self._handle_tools_command(cmd_original)
         elif canonical == "toolsets":
@@ -3851,6 +3865,8 @@ class HermesCLI:
             self.console.print(f"  Status bar {state}")
         elif canonical == "verbose":
             self._toggle_verbose()
+        elif canonical == "yolo":
+            self._toggle_yolo()
         elif canonical == "reasoning":
             self._handle_reasoning_command(cmd_original)
         elif canonical == "compress":
@@ -4450,6 +4466,17 @@ class HermesCLI:
             "verbose": f"{_Colors.BOLD}{_Colors.GREEN}Tool progress: VERBOSE{_Colors.RESET} — full args, results, think blocks, and debug logs.",
         }
         _cprint(labels.get(self.tool_progress_mode, ""))
+
+    def _toggle_yolo(self):
+        """Toggle YOLO mode — skip all dangerous command approval prompts."""
+        import os
+        current = bool(os.environ.get("HERMES_YOLO_MODE"))
+        if current:
+            os.environ.pop("HERMES_YOLO_MODE", None)
+            self.console.print("  ⚠ YOLO mode [bold red]OFF[/] — dangerous commands will require approval.")
+        else:
+            os.environ["HERMES_YOLO_MODE"] = "1"
+            self.console.print("  ⚡ YOLO mode [bold green]ON[/] — all commands auto-approved. Use with caution.")
 
     def _handle_reasoning_command(self, cmd: str):
         """Handle /reasoning — manage effort level and display toggle.
@@ -5577,6 +5604,8 @@ class HermesCLI:
             self.agent = None
 
         # Initialize agent if needed
+        if self.agent is None:
+            _cprint(f"{_DIM}Initializing agent...{_RST}")
         if not self._init_agent(
             model_override=turn_route["model"],
             runtime_override=turn_route["runtime"],
@@ -6217,6 +6246,11 @@ class HermesCLI:
         self._interrupt_queue = queue.Queue()   # For messages typed while agent is running
         self._should_exit = False
         self._last_ctrl_c_time = 0  # Track double Ctrl+C for force exit
+
+        # Give plugin manager a CLI reference so plugins can inject messages
+        from hermes_cli.plugins import get_plugin_manager
+        get_plugin_manager()._cli_ref = self
+
         # Config file watcher — detect mcp_servers changes and auto-reload
         from hermes_cli.config import get_config_path as _get_config_path
         _cfg_path = _get_config_path()

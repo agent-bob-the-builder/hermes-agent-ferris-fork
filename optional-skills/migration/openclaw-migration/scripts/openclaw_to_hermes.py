@@ -1297,7 +1297,11 @@ class Migrator:
 
         if self.execute:
             backup_path = self.maybe_backup(destination)
-            hermes_config["model"] = model_str
+            existing_model = hermes_config.get("model")
+            if isinstance(existing_model, dict):
+                existing_model["default"] = model_str
+            else:
+                hermes_config["model"] = {"default": model_str}
             dump_yaml_file(destination, hermes_config)
             self.record("model-config", source_path, destination, "migrated", backup=str(backup_path) if backup_path else "", model=model_str)
         else:
@@ -2451,9 +2455,24 @@ class Migrator:
             notes.append("")
 
         notes.extend([
+            "## IMPORTANT: Archive the OpenClaw Directory",
+            "",
+            "After migration, your OpenClaw directory still exists on disk with workspace",
+            "state files (todo.json, sessions, logs). If the Hermes agent discovers these",
+            "directories, it may read/write to them instead of the Hermes state, causing",
+            "confusion (e.g., cron jobs reading a different todo list than interactive sessions).",
+            "",
+            "**Strongly recommended:** Run `hermes claw cleanup` to rename the OpenClaw",
+            "directory to `.openclaw.pre-migration`. This prevents the agent from finding it.",
+            "The directory is renamed, not deleted — you can undo this at any time.",
+            "",
+            "If you skip this step and notice the agent getting confused about workspaces",
+            "or todo lists, run `hermes claw cleanup` to fix it.",
+            "",
             "## Hermes-Specific Setup",
             "",
             "After migration, you may want to:",
+            "- Run `hermes claw cleanup` to archive the OpenClaw directory (prevents state confusion)",
             "- Run `hermes setup` to configure any remaining settings",
             "- Run `hermes mcp list` to verify MCP servers were imported correctly",
             "- Run `hermes cron` to recreate scheduled tasks (see archive/cron-config.json)",

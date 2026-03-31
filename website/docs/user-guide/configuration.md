@@ -92,6 +92,7 @@ You need at least one way to connect to an LLM. Use `hermes model` to switch pro
 | **Kilo Code** | `KILOCODE_API_KEY` in `~/.hermes/.env` (provider: `kilocode`) |
 | **OpenCode Zen** | `OPENCODE_ZEN_API_KEY` in `~/.hermes/.env` (provider: `opencode-zen`) |
 | **OpenCode Go** | `OPENCODE_GO_API_KEY` in `~/.hermes/.env` (provider: `opencode-go`) |
+| **DeepSeek** | `DEEPSEEK_API_KEY` in `~/.hermes/.env` (provider: `deepseek`) |
 | **Hugging Face** | `HF_TOKEN` in `~/.hermes/.env` (provider: `huggingface`, aliases: `hf`) |
 | **Custom Endpoint** | `hermes model` (saved in `config.yaml`) or `OPENAI_BASE_URL` + `OPENAI_API_KEY` in `~/.hermes/.env` |
 
@@ -699,65 +700,175 @@ Use this when you want lower latency or cost without fully changing your default
 
 ## Terminal Backend Configuration
 
-Configure which environment the agent uses for terminal commands:
+Hermes supports six terminal backends. Each determines where the agent's shell commands actually execute — your local machine, a Docker container, a remote server via SSH, a Modal cloud sandbox, a Daytona workspace, or a Singularity/Apptainer container.
 
 ```yaml
 terminal:
-  backend: local    # or: docker, ssh, singularity, modal, daytona
-  cwd: "."          # Working directory ("." = current dir)
-  timeout: 180      # Command timeout in seconds
-
-  # Docker-specific settings
-  docker_image: "nikolaik/python-nodejs:python3.11-nodejs20"
-  docker_mount_cwd_to_workspace: false  # SECURITY: off by default. Opt in to mount the launch cwd into /workspace.
-  docker_forward_env:              # Optional explicit allowlist for env passthrough
-    - "GITHUB_TOKEN"
-  docker_volumes:                    # Additional explicit host mounts
-    - "/home/user/projects:/workspace/projects"
-    - "/home/user/data:/data:ro"     # :ro for read-only
-
-  # Container resource limits (docker, singularity, modal, daytona)
-  container_cpu: 1                   # CPU cores
-  container_memory: 5120             # MB (default 5GB)
-  container_disk: 51200              # MB (default 50GB)
-  container_persistent: true         # Persist filesystem across sessions
-
-  # Persistent shell — keep a long-lived bash process across commands
-  persistent_shell: true             # Enabled by default for SSH backend
+  backend: local    # local | docker | ssh | modal | daytona | singularity
+  cwd: "."          # Working directory ("." = current dir for local, "/root" for containers)
+  timeout: 180      # Per-command timeout in seconds
+  env_passthrough: []  # Env var names to forward to sandboxed execution (terminal + execute_code)
+  singularity_image: "docker://nikolaik/python-nodejs:python3.11-nodejs20"  # Container image for Singularity backend
+  modal_image: "nikolaik/python-nodejs:python3.11-nodejs20"                 # Container image for Modal backend
+  daytona_image: "nikolaik/python-nodejs:python3.11-nodejs20"               # Container image for Daytona backend
 ```
+
+### Backend Overview
+
+| Backend | Where commands run | Isolation | Best for |
+|---------|-------------------|-----------|----------|
+| **local** | Your machine directly | None | Development, personal use |
+| **docker** | Docker container | Full (namespaces, cap-drop) | Safe sandboxing, CI/CD |
+| **ssh** | Remote server via SSH | Network boundary | Remote dev, powerful hardware |
+| **modal** | Modal cloud sandbox | Full (cloud VM) | Ephemeral cloud compute, evals |
+| **daytona** | Daytona workspace | Full (cloud container) | Managed cloud dev environments |
+| **singularity** | Singularity/Apptainer container | Namespaces (--containall) | HPC clusters, shared machines |
+
+### Local Backend
+
+The default. Commands run directly on your machine with no isolation. No special setup required.
+
+```yaml
+terminal:
+  backend: local
+```
+
+:::warning
+The agent has the same filesystem access as your user account. Use `hermes tools` to disable tools you don't want, or switch to Docker for sandboxing.
+:::
+
+### Docker Backend
+
+Runs commands inside a Docker container with security hardening (all capabilities dropped, no privilege escalation, PID limits).
+
+```yaml
+terminal:
+  backend: docker
+  docker_image: "nikolaik/python-nodejs:python3.11-nodejs20"
+  docker_mount_cwd_to_workspace: false  # Mount launch dir into /workspace
+  docker_forward_env:              # Env vars to forward into container
+    - "GITHUB_TOKEN"
+  docker_volumes:                  # Host directory mounts
+    - "/home/user/projects:/workspace/projects"
+    - "/home/user/data:/data:ro"   # :ro for read-only
+
+  # Resource limits
+  container_cpu: 1                 # CPU cores (0 = unlimited)
+  container_memory: 5120           # MB (0 = unlimited)
+  container_disk: 51200            # MB (requires overlay2 on XFS+pquota)
+  container_persistent: true       # Persist /workspace and /root across sessions
+```
+
+**Requirements:** Docker Desktop or Docker Engine installed and running. Hermes probes `$PATH` plus common macOS install locations (`/usr/local/bin/docker`, `/opt/homebrew/bin/docker`, Docker Desktop app bundle).
+
+**Container lifecycle:** Each session starts a long-lived container (`docker run -d ... sleep 2h`). Commands run via `docker exec` with a login shell. On cleanup, the container is stopped and removed.
+
+**Security hardening:**
+- `--cap-drop ALL` with only `DAC_OVERRIDE`, `CHOWN`, `FOWNER` added back
+- `--security-opt no-new-privileges`
+- `--pids-limit 256`
+- Size-limited tmpfs for `/tmp` (512MB), `/var/tmp` (256MB), `/run` (64MB)
+
+**Credential forwarding:** Env vars listed in `docker_forward_env` are resolved from your shell environment first, then `~/.hermes/.env`. Skills can also declare `required_environment_variables` which are merged automatically.
+
+### SSH Backend
+
+Runs commands on a remote server over SSH. Uses ControlMaster for connection reuse (5-minute idle keepalive). Persistent shell is enabled by default — state (cwd, env vars) survives across commands.
+
+```yaml
+terminal:
+  backend: ssh
+  persistent_shell: true           # Keep a long-lived bash session (default: true)
+```
+
+**Required environment variables:**
+
+```bash
+TERMINAL_SSH_HOST=my-server.example.com
+TERMINAL_SSH_USER=ubuntu
+```
+
+**Optional:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TERMINAL_SSH_PORT` | `22` | SSH port |
+| `TERMINAL_SSH_KEY` | (system default) | Path to SSH private key |
+| `TERMINAL_SSH_PERSISTENT` | `true` | Enable persistent shell |
+
+**How it works:** Connects at init time with `BatchMode=yes` and `StrictHostKeyChecking=accept-new`. Persistent shell keeps a single `bash -l` process alive on the remote host, communicating via temporary files. Commands that need `stdin_data` or `sudo` automatically fall back to one-shot mode.
+
+### Modal Backend
+
+Runs commands in a [Modal](https://modal.com) cloud sandbox. Each task gets an isolated VM with configurable CPU, memory, and disk. Filesystem can be snapshot/restored across sessions.
+
+```yaml
+terminal:
+  backend: modal
+  container_cpu: 1                 # CPU cores
+  container_memory: 5120           # MB (5GB)
+  container_disk: 51200            # MB (50GB)
+  container_persistent: true       # Snapshot/restore filesystem
+```
+
+**Required:** Either `MODAL_TOKEN_ID` + `MODAL_TOKEN_SECRET` environment variables, or a `~/.modal.toml` config file.
+
+**Persistence:** When enabled, the sandbox filesystem is snapshotted on cleanup and restored on next session. Snapshots are tracked in `~/.hermes/modal_snapshots.json`.
+
+**Credential files:** Automatically mounted from `~/.hermes/` (OAuth tokens, etc.) and synced before each command.
+
+### Daytona Backend
+
+Runs commands in a [Daytona](https://daytona.io) managed workspace. Supports stop/resume for persistence.
+
+```yaml
+terminal:
+  backend: daytona
+  container_cpu: 1                 # CPU cores
+  container_memory: 5120           # MB → converted to GiB
+  container_disk: 10240            # MB → converted to GiB (max 10 GiB)
+  container_persistent: true       # Stop/resume instead of delete
+```
+
+**Required:** `DAYTONA_API_KEY` environment variable.
+
+**Persistence:** When enabled, sandboxes are stopped (not deleted) on cleanup and resumed on next session. Sandbox names follow the pattern `hermes-{task_id}`.
+
+**Disk limit:** Daytona enforces a 10 GiB maximum. Requests above this are capped with a warning.
+
+### Singularity/Apptainer Backend
+
+Runs commands in a [Singularity/Apptainer](https://apptainer.org) container. Designed for HPC clusters and shared machines where Docker isn't available.
+
+```yaml
+terminal:
+  backend: singularity
+  singularity_image: "docker://nikolaik/python-nodejs:python3.11-nodejs20"
+  container_cpu: 1                 # CPU cores
+  container_memory: 5120           # MB
+  container_persistent: true       # Writable overlay persists across sessions
+```
+
+**Requirements:** `apptainer` or `singularity` binary in `$PATH`.
+
+**Image handling:** Docker URLs (`docker://...`) are automatically converted to SIF files and cached. Existing `.sif` files are used directly.
+
+**Scratch directory:** Resolved in order: `TERMINAL_SCRATCH_DIR` → `TERMINAL_SANDBOX_DIR/singularity` → `/scratch/$USER/hermes-agent` (HPC convention) → `~/.hermes/sandboxes/singularity`.
+
+**Isolation:** Uses `--containall --no-home` for full namespace isolation without mounting the host home directory.
 
 ### Common Terminal Backend Issues
 
-If terminal commands fail immediately or the terminal tool is reported as disabled, check the following:
+If terminal commands fail immediately or the terminal tool is reported as disabled:
 
-- **Local backend**
-  - No special requirements. This is the safest default when you are just getting started.
+- **Local** — No special requirements. The safest default when getting started.
+- **Docker** — Run `docker version` to verify Docker is working. If it fails, fix Docker or `hermes config set terminal.backend local`.
+- **SSH** — Both `TERMINAL_SSH_HOST` and `TERMINAL_SSH_USER` must be set. Hermes logs a clear error if either is missing.
+- **Modal** — Needs `MODAL_TOKEN_ID` env var or `~/.modal.toml`. Run `hermes doctor` to check.
+- **Daytona** — Needs `DAYTONA_API_KEY`. The Daytona SDK handles server URL configuration.
+- **Singularity** — Needs `apptainer` or `singularity` in `$PATH`. Common on HPC clusters.
 
-- **Docker backend**
-  - Ensure Docker Desktop (or the Docker daemon) is installed and running.
-  - Hermes needs to be able to find the `docker` CLI. It checks your `$PATH` first and also probes common Docker Desktop install locations on macOS. Run:
-    ```bash
-    docker version
-    ```
-    If this fails, fix your Docker installation or switch back to the local backend:
-    ```bash
-    hermes config set terminal.backend local
-    ```
-
-- **SSH backend**
-  - Both `TERMINAL_SSH_HOST` and `TERMINAL_SSH_USER` must be set, for example:
-    ```bash
-    export TERMINAL_ENV=ssh
-    export TERMINAL_SSH_HOST=my-server.example.com
-    export TERMINAL_SSH_USER=ubuntu
-    ```
-  - If either value is missing, Hermes will log a clear error and refuse to use the SSH backend.
-
-- **Modal backend**
-  - You need either a `MODAL_TOKEN_ID` environment variable or a `~/.modal.toml` config file.
-  - If neither is present, the backend check fails and Hermes will report that the Modal backend is not available.
-
-When in doubt, set `terminal.backend` back to `local` and verify that commands run there first.
+When in doubt, set `terminal.backend` back to `local` and verify commands run there first.
 
 ### Docker Volume Mounts
 
@@ -906,6 +1017,8 @@ All compression settings live in `config.yaml` (no environment variables).
 compression:
   enabled: true                                     # Toggle compression on/off
   threshold: 0.50                                   # Compress at this % of context limit
+  target_ratio: 0.20                                # Fraction of threshold to preserve as recent tail
+  protect_last_n: 20                                # Min recent messages to keep uncompressed
   summary_model: "google/gemini-3-flash-preview"    # Model for summarization
   summary_provider: "auto"                          # Provider: "auto", "openrouter", "nous", "codex", "main", etc.
   summary_base_url: null                            # Custom OpenAI-compatible endpoint (overrides provider)
@@ -1018,7 +1131,8 @@ auxiliary:
     model: ""                  # e.g. "openai/gpt-4o", "google/gemini-2.5-flash"
     base_url: ""               # Custom OpenAI-compatible endpoint (overrides provider)
     api_key: ""                # API key for base_url (falls back to OPENAI_API_KEY)
-    timeout: 30                # seconds — increase for slow local vision models
+    timeout: 30                # seconds — LLM API call; increase for slow local vision models
+    download_timeout: 30       # seconds — image HTTP download; increase for slow connections
 
   # Web page summarization + browser page text extraction
   web_extract:
@@ -1039,10 +1153,42 @@ auxiliary:
   # Context compression timeout (separate from compression.* config)
   compression:
     timeout: 120               # seconds — compression summarizes long conversations, needs more time
+
+  # Session search — summarizes past session matches
+  session_search:
+    provider: "auto"
+    model: ""
+    base_url: ""
+    api_key: ""
+    timeout: 30
+
+  # Skills hub — skill matching and search
+  skills_hub:
+    provider: "auto"
+    model: ""
+    base_url: ""
+    api_key: ""
+    timeout: 30
+
+  # MCP tool dispatch
+  mcp:
+    provider: "auto"
+    model: ""
+    base_url: ""
+    api_key: ""
+    timeout: 30
+
+  # Memory flush — summarizes conversation for persistent memory
+  flush_memories:
+    provider: "auto"
+    model: ""
+    base_url: ""
+    api_key: ""
+    timeout: 30
 ```
 
 :::tip
-Each auxiliary task has a configurable `timeout` (in seconds). Defaults: vision 30s, web_extract 30s, approval 30s, compression 120s. Increase these if you use slow local models for auxiliary tasks.
+Each auxiliary task has a configurable `timeout` (in seconds). Defaults: vision 30s, web_extract 30s, approval 30s, compression 120s. Increase these if you use slow local models for auxiliary tasks. Vision also has a separate `download_timeout` (default 30s) for the HTTP image download — increase this for slow connections or self-hosted image servers.
 :::
 
 :::info
@@ -1233,6 +1379,7 @@ display:
   streaming: false        # Stream tokens to terminal as they arrive (real-time output)
   background_process_notifications: all  # all | result | error | off (gateway only)
   show_cost: false        # Show estimated $ cost in the CLI status bar
+  tool_preview_length: 0  # Max chars for tool call previews (0 = no limit, show full paths/commands)
 ```
 
 ### Theme mode
@@ -1447,11 +1594,11 @@ code_execution:
 
 ## Web Search Backends
 
-The `web_search`, `web_extract`, and `web_crawl` tools support three backend providers. Configure the backend in `config.yaml` or via `hermes tools`:
+The `web_search`, `web_extract`, and `web_crawl` tools support four backend providers. Configure the backend in `config.yaml` or via `hermes tools`:
 
 ```yaml
 web:
-  backend: firecrawl    # firecrawl | parallel | tavily
+  backend: firecrawl    # firecrawl | parallel | tavily | exa
 ```
 
 | Backend | Env Var | Search | Extract | Crawl |
@@ -1459,8 +1606,9 @@ web:
 | **Firecrawl** (default) | `FIRECRAWL_API_KEY` | ✔ | ✔ | ✔ |
 | **Parallel** | `PARALLEL_API_KEY` | ✔ | ✔ | — |
 | **Tavily** | `TAVILY_API_KEY` | ✔ | ✔ | ✔ |
+| **Exa** | `EXA_API_KEY` | ✔ | ✔ | — |
 
-**Backend selection:** If `web.backend` is not set, the backend is auto-detected from available API keys. If only `TAVILY_API_KEY` is set, Tavily is used. If only `PARALLEL_API_KEY` is set, Parallel is used. Otherwise Firecrawl is the default.
+**Backend selection:** If `web.backend` is not set, the backend is auto-detected from available API keys. If only `EXA_API_KEY` is set, Exa is used. If only `TAVILY_API_KEY` is set, Tavily is used. If only `PARALLEL_API_KEY` is set, Parallel is used. Otherwise Firecrawl is the default.
 
 **Self-hosted Firecrawl:** Set `FIRECRAWL_API_URL` to point at your own instance. When a custom URL is set, the API key becomes optional (set `USE_DB_AUTHENTICATION=false` on the server to disable auth).
 
@@ -1473,10 +1621,59 @@ Configure browser automation behavior:
 ```yaml
 browser:
   inactivity_timeout: 120        # Seconds before auto-closing idle sessions
+  command_timeout: 30             # Timeout in seconds for browser commands (screenshot, navigate, etc.)
   record_sessions: false         # Auto-record browser sessions as WebM videos to ~/.hermes/browser_recordings/
 ```
 
 The browser toolset supports multiple providers. See the [Browser feature page](/docs/user-guide/features/browser) for details on Browserbase, Browser Use, and local Chrome CDP setup.
+
+## Timezone
+
+Override the server-local timezone with an IANA timezone string. Affects timestamps in logs, cron scheduling, and system prompt time injection.
+
+```yaml
+timezone: "America/New_York"   # IANA timezone (default: "" = server-local time)
+```
+
+Supported values: any IANA timezone identifier (e.g. `America/New_York`, `Europe/London`, `Asia/Kolkata`, `UTC`). Leave empty or omit for server-local time.
+
+## Discord
+
+Configure Discord-specific behavior for the messaging gateway:
+
+```yaml
+discord:
+  require_mention: true          # Require @mention to respond in server channels
+  free_response_channels: ""     # Comma-separated channel IDs where bot responds without @mention
+  auto_thread: true              # Auto-create threads on @mention in channels
+```
+
+- `require_mention` — when `true` (default), the bot only responds in server channels when mentioned with `@BotName`. DMs always work without mention.
+- `free_response_channels` — comma-separated list of channel IDs where the bot responds to every message without requiring a mention.
+- `auto_thread` — when `true` (default), mentions in channels automatically create a thread for the conversation, keeping channels clean (similar to Slack threading).
+
+## Security
+
+Pre-execution security scanning and secret redaction:
+
+```yaml
+security:
+  redact_secrets: true           # Redact API key patterns in tool output and logs
+  tirith_enabled: true           # Enable Tirith security scanning for terminal commands
+  tirith_path: "tirith"          # Path to tirith binary (default: "tirith" in $PATH)
+  tirith_timeout: 5              # Seconds to wait for tirith scan before timing out
+  tirith_fail_open: true         # Allow command execution if tirith is unavailable
+  website_blocklist:             # See Website Blocklist section below
+    enabled: false
+    domains: []
+    shared_files: []
+```
+
+- `redact_secrets` — automatically detects and redacts patterns that look like API keys, tokens, and passwords in tool output before it enters the conversation context and logs.
+- `tirith_enabled` — when `true`, terminal commands are scanned by [Tirith](https://github.com/StackGuardian/tirith) before execution to detect potentially dangerous operations.
+- `tirith_path` — path to the tirith binary. Set this if tirith is installed in a non-standard location.
+- `tirith_timeout` — maximum seconds to wait for a tirith scan. Commands proceed if the scan times out.
+- `tirith_fail_open` — when `true` (default), commands are allowed to execute if tirith is unavailable or fails. Set to `false` to block commands when tirith cannot verify them.
 
 ## Website Blocklist
 
