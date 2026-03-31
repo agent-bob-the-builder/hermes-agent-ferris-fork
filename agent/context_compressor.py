@@ -127,6 +127,18 @@ class ContextCompressor:
         # Stores the previous compaction summary for iterative updates
         self._previous_summary: Optional[str] = None
 
+        # Current active compression job id (set by compress_start_async)
+        self.current_job_id: Optional[int] = None
+
+    @property
+    def previous_summary(self) -> Optional[str]:
+        """The summary from the most recent compression, if any."""
+        return self._previous_summary
+
+    @previous_summary.setter
+    def previous_summary(self, value: Optional[str]):
+        self._previous_summary = value
+
     def update_from_response(self, usage: Dict[str, Any]):
         """Update tracked token usage from API response."""
         self.last_prompt_tokens = usage.get("prompt_tokens", 0)
@@ -709,3 +721,119 @@ Write only the summary body. Do not include any preamble or prefix."""
             logger.info("Compression #%d complete", self.compression_count)
 
         return compressed
+
+    # ------------------------------------------------------------------
+    # Non-blocking compression via Rust job store (compress_start/check/cancel)
+    # ------------------------------------------------------------------
+
+    def compress_start_async(self, messages: List[Dict[str, Any]]) -> Optional[int]:
+        """Start a non-blocking compression job and return a job_id.
+
+        Use ``compress_check(job_id)`` to poll for completion or
+        ``compress_cancel(job_id)`` to abort.
+
+        Returns None if the Rust compressor is unavailable.
+        """
+        if rust_compressor is None:
+            return None
+        try:
+            job_id = rust_compressor.compress_start(
+                messages,
+                self.model,
+                self.context_length,
+                self.threshold_percent,
+                self.protect_first_n,
+                self.protect_last_n,
+                self.summary_target_ratio,
+                self.summary_model or None,
+                self.provider or "",
+                self.base_url or "",
+                self.api_key or "",
+                self._previous_summary,
+                self.compression_count,
+                self.quiet_mode,
+            )
+            self.current_job_id = job_id
+            return job_id
+        except Exception:
+            return None
+
+    def compress_check(self, job_id: int) -> tuple[int, Optional[List[Dict[str, Any]]], Optional[str]]:
+        """Poll a compression job started via ``compress_start_async``.
+
+        Returns:
+            (0, None, None)           — still running
+            (1, compressed_messages, summary_text) — completed
+            (2, None, error_message)  — failed
+            (3, None, None)           — cancelled / not found
+        """
+        if rust_compressor is None:
+            return (3, None, None)
+        try:
+            status, result, summary = rust_compressor.compress_check(job_id)
+            # Clear current_job_id once the job is no longer running
+            if status != 0 and self.current_job_id == job_id:
+                self.current_job_id = None
+            return (status, result, summary)
+        except Exception:
+            if self.current_job_id == job_id:
+                self.current_job_id = None
+            return (3, None, None)
+
+    def compress_cancel(self, job_id: int) -> bool:
+        """Cancel a running compression job.
+
+        Returns True if the job was cancelled, False if it was not found
+        or already completed.
+        """
+        if rust_compressor is None:
+            return False
+        try:
+            result = rust_compressor.compress_cancel(job_id)
+            if result and self.current_job_id == job_id:
+                self.current_job_id = None
+            return result
+        except Exception:
+            return False
+
+    def compress_async_poll(
+        self,
+        messages: List[Dict[str, Any]],
+        poll_interval: float = 0.1,
+        max_wait: float = 120.0,
+    ) -> List[Dict[str, Any]]:
+        """Start compression in background and poll until complete (non-blocking from caller's perspective).
+
+        This is a convenience wrapper around ``compress_start_async`` + ``compress_check``.
+
+        Args:
+            messages: Conversation messages to compress.
+            poll_interval: Seconds between status checks (default 0.1s).
+            max_wait: Abort after this many seconds (default 120s).
+
+        Returns:
+            Compressed message list on success; original messages if cancelled or on error.
+        """
+        job_id = self.compress_start_async(messages)
+        if job_id is None:
+            # Fall back to blocking Python path
+            return self.compress(messages)
+
+        import time
+        start = time.monotonic()
+        while time.monotonic() - start < max_wait:
+            status, result, summary = self.compress_check(job_id)
+            if status == 1:  # Completed
+                if result is not None:
+                    if summary:
+                        self._previous_summary = summary
+                    self.compression_count += 1
+                    return result
+                break
+            elif status in (2, 3):  # Failed or Cancelled
+                break
+            time.sleep(poll_interval)
+
+        # Timed out or error — cancel and fall back
+        self.compress_cancel(job_id)
+        return self.compress(messages)

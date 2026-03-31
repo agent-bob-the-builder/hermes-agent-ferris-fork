@@ -10,6 +10,40 @@
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use serde_json::Value;
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::thread;
+use once_cell::sync::Lazy;
+use tokio::runtime::Runtime;
+
+/// Static Tokio runtime shared across all compress calls.
+/// Created once; `spawn_blocking` is used for CPU-bound compression work
+/// so the runtime's async I/O workers remain available for HTTP calls.
+static RUNTIME: Lazy<Runtime> = Lazy::new(|| Runtime::new().unwrap());
+
+// ---------------------------------------------------------------------
+// Job state machine for non-blocking compression
+// ---------------------------------------------------------------------
+
+enum JobState {
+    Running,
+    Completed(Vec<Value>, Option<String>),
+    Failed(String),
+    Cancelled,
+}
+
+static JOB_STORE: Mutex<Option<HashMap<usize, JobState>>> = Mutex::new(None);
+static JOB_COUNTER: Mutex<usize> = Mutex::new(0);
+
+fn get_job_store() -> &'static Mutex<Option<HashMap<usize, JobState>>> {
+    &JOB_STORE
+}
+
+fn next_job_id() -> usize {
+    let mut counter = JOB_COUNTER.lock().unwrap();
+    *counter += 1;
+    *counter
+}
 
 mod compressor;
 mod summarizer;
@@ -211,8 +245,13 @@ fn estimate_messages_tokens(
     Ok(tokenizer::estimate_messages_tokens(&json_msgs))
 }
 
-/// Synchronous compress — blocks the calling thread while awaiting the LLM.
-/// Uses thread::scope so the GIL can be released while waiting on I/O.
+/// Non-blocking compress — runs compression in a background thread via
+/// `spawn_blocking` on the static `RUNTIME` and waits for the result.
+///
+/// The GIL is released automatically by PyO3 when blocking on `rx.recv()`,
+/// allowing other Python threads (including the agent loop) to run while
+/// compression is in progress. The GIL is re-acquired before the match
+/// below executes.
 #[pyfunction]
 fn compress_async(
     py: Python<'_>,
@@ -233,36 +272,46 @@ fn compress_async(
 ) -> PyResult<(Option<Vec<Py<PyAny>>>, Option<String>)> {
     let json_msgs: Vec<Value> = messages.iter().map(|d| dict_to_json(d)).collect();
 
-    let result = std::thread::scope(|s| {
-        s.spawn(|| {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(compressor::compress(
-                &json_msgs,
-                &model,
-                context_length,
-                threshold_percent,
-                protect_first_n,
-                protect_last_n,
-                summary_target_ratio,
-                summary_model.as_deref(),
-                &provider,
-                &base_url,
-                &api_key,
-                previous_summary.as_deref(),
-                compression_count,
-                quiet,
-            ))
-        })
-        .join()
-        .unwrap()
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    // Use the static runtime's `spawn_blocking` so the compression work
+    // (CPU-bound summarization + any HTTP I/O) runs on the blocking-thread
+    // pool without blocking the async worker threads.
+    RUNTIME.spawn_blocking(move || {
+        // json_msgs is owned by this closure for the duration of compression.
+        let result = RUNTIME.block_on(compressor::compress(
+            &json_msgs,
+            &model,
+            context_length,
+            threshold_percent,
+            protect_first_n,
+            protect_last_n,
+            summary_target_ratio,
+            summary_model.as_deref(),
+            &provider,
+            &base_url,
+            &api_key,
+            previous_summary.as_deref(),
+            compression_count,
+            quiet,
+        ));
+        let _ = tx.send(result);
     });
 
-        match result {
-            Some((compressed, summary_text)) => {
-                Ok((Some(json_msgs_to_py(py, compressed)), summary_text))
-            }
-            None => Ok((None, None)),
+    // The GIL is released automatically by PyO3 at this suspend-point — the
+    // `#[pyfunction]` calling convention means `py` is implicit, and PyO3
+    // releases the GIL when blocking on `rx.recv()`. The GIL is re-acquired
+    // when `rx.recv()` returns (before the match below executes).
+    let result = rx.recv();
+
+    match result {
+        Ok(Some((compressed, summary_text))) => {
+            // GIL is held again here — safe to build Python objects.
+            Ok((Some(json_msgs_to_py(py, compressed)), summary_text))
         }
+        Ok(None) => Ok((None, None)),
+        Err(_) => Ok((None, None)),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -511,6 +560,129 @@ fn is_tiktoken_available_py() -> PyResult<bool> {
     Ok(tokenizer::is_tiktoken_available())
 }
 
+// ---------------------------------------------------------------------
+// Non-blocking compression API
+// ---------------------------------------------------------------------
+
+/// Start a background compression job and return immediately.
+/// Returns a job ID that Python uses to poll/check/cancel.
+///
+/// Algorithm:
+///   1. Prune old tool results (cheap pre-pass, no LLM call)
+///   2. Protect head messages (system prompt + first exchange)
+///   3. Find tail boundary by token budget
+///   4. Summarize middle turns via LLM call (in background thread)
+///   5. On re-compression, iteratively update the previous summary
+///
+/// The GIL is released for the entire duration of the background thread,
+/// including the HTTP I/O for the LLM summarization call.
+#[pyfunction]
+fn compress_start(
+    messages: Vec<Bound<'_, PyDict>>,
+    model: String,
+    context_length: usize,
+    threshold_percent: f64,
+    protect_first_n: usize,
+    protect_last_n: usize,
+    summary_target_ratio: f64,
+    summary_model: Option<String>,
+    provider: String,
+    base_url: String,
+    api_key: String,
+    previous_summary: Option<String>,
+    compression_count: usize,
+    quiet: bool,
+) -> PyResult<usize> {
+    // Initialize job store if first call
+    {
+        let mut store = get_job_store().lock().unwrap();
+        if store.is_none() {
+            *store = Some(HashMap::new());
+        }
+    }
+
+    let job_id = next_job_id();
+    let json_msgs: Vec<Value> = messages.iter().map(|d| dict_to_json(d)).collect();
+
+    // Register Running state immediately
+    {
+        let mut store = get_job_store().lock().unwrap();
+        store.as_mut().unwrap().insert(job_id, JobState::Running);
+    }
+
+    // Spawn background thread — json_msgs is owned by this thread
+    thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(compressor::compress(
+            &json_msgs,
+            &model,
+            context_length,
+            threshold_percent,
+            protect_first_n,
+            protect_last_n,
+            summary_target_ratio,
+            summary_model.as_deref(),
+            &provider,
+            &base_url,
+            &api_key,
+            previous_summary.as_deref(),
+            compression_count,
+            quiet,
+        ));
+
+        let state = match result {
+            Some((compressed, summary)) => JobState::Completed(compressed, summary),
+            None => JobState::Cancelled,
+        };
+
+        let mut store = get_job_store().lock().unwrap();
+        if let Some(ref mut m) = *store {
+            m.insert(job_id, state);
+        }
+    });
+
+    Ok(job_id)
+}
+
+/// Poll a compression job — returns immediately without blocking.
+/// Returns:
+///   (0, None, None)         — still running
+///   (1, compressed, summary) — completed successfully
+///   (2, None, error_msg)    — failed
+///   (3, None, None)         — cancelled / not found
+#[pyfunction]
+fn compress_check(
+    job_id: usize,
+) -> PyResult<(u8, Option<Vec<Py<PyAny>>>, Option<String>)> {
+    let py = unsafe { Python::assume_attached() };
+    let store = get_job_store().lock().unwrap();
+
+    match store.as_ref().and_then(|m| m.get(&job_id)) {
+        None | Some(JobState::Running) => Ok((0, None, None)),
+        Some(JobState::Completed(compressed, summary)) => {
+            let py_compressed = json_msgs_to_py(py, compressed.clone());
+            Ok((1, Some(py_compressed), summary.clone()))
+        }
+        Some(JobState::Failed(err)) => Ok((2, None, Some(err.clone()))),
+        Some(JobState::Cancelled) => Ok((3, None, None)),
+    }
+}
+
+/// Cancel a running compression job and remove it from the store.
+/// No-op if job already completed or not found.
+#[pyfunction]
+fn compress_cancel(job_id: usize) -> PyResult<bool> {
+    let mut store = get_job_store().lock().unwrap();
+    let store = &mut *store;
+    if let Some(ref mut m) = *store {
+        if matches!(m.get(&job_id), Some(JobState::Running)) {
+            m.remove(&job_id);
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 #[pymodule]
 fn rust_compressor(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(prune_old_tool_results, m)?)?;
@@ -528,6 +700,9 @@ fn rust_compressor(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(is_tiktoken_available_py, m)?)?;
 
     m.add_function(wrap_pyfunction!(compress_async, m)?)?;
+    m.add_function(wrap_pyfunction!(compress_start, m)?)?;
+    m.add_function(wrap_pyfunction!(compress_check, m)?)?;
+    m.add_function(wrap_pyfunction!(compress_cancel, m)?)?;
     m.add_class::<PyContextCompressor>()?;
     Ok(())
 }

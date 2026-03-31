@@ -1,11 +1,6 @@
-#!/root/.hermes/hermes-agent-ferris-fork/.venv/bin/python3
-"""
-Hermes Agent CLI launcher.
-
-This wrapper should behave like the installed `hermes` command, including
-subcommands such as `gateway`, `cron`, and `doctor`.
-"""
-
-if __name__ == "__main__":
-    from hermes_cli.main import main
-    main()
+#!/bin/bash
+# hermes CLI wrapper — auto-sets HERMES_DIR based on symlink location, then
+# delegates to the hermes-agent venv Python.
+HERMES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export HERMES_DIR
+exec "$HERMES_DIR/venv/bin/python3" "$HERMES_DIR/cli.py" "$@"

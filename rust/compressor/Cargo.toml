@@ -14,6 +14,7 @@ serde_json.workspace = true
 reqwest.workspace = true
 tokio.workspace = true
 tiktoken-rs.workspace = true
+once_cell.workspace = true
 
 [package.metadata.maturin]
 name = "rust_compressor"
