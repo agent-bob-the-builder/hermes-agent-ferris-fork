@@ -334,18 +334,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "honcho_http_rs"
-version = "0.1.0"
-dependencies = [
- "once_cell",
- "pyo3",
- "reqwest",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
 name = "http"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1125,6 +1113,7 @@ version = "0.1.0"
 dependencies = [
  "once_cell",
  "pyo3",
+ "rayon",
  "reqwest",
  "serde",
  "serde_json",

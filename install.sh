@@ -234,11 +234,11 @@ else:
     print(f"[build] WARN: maturin --version failed: {result.stderr.strip()}", flush=True)
 
 crates = [
-    ("rust/compressor/Cargo.toml",        "compressor_rs"),
-    ("rust/model_tools_rs/Cargo.toml",     "_model_tools_rust"),
-    ("rust/prompt_builder_rs/Cargo.toml",  "_prompt_builder_rust"),
-    ("rust/skin_engine_rs/Cargo.toml",     "_skin_engine_rust"),
-    ("rust/hermes_state_rs/Cargo.toml",    "_hermes_state_rust"),
+    ("rust/compressor/Cargo.toml",        "rust_compressor"),
+    ("rust/model_tools_rs/Cargo.toml",     "model_tools_rs"),
+    ("rust/prompt_builder_rs/Cargo.toml",  "prompt_builder_rs"),
+    ("rust/skin_engine_rs/Cargo.toml",     "skin_engine_rs"),
+    ("rust/hermes_state_rs/Cargo.toml",    "hermes_state_rs"),
     ("rust/fuzzy_match_rs/Cargo.toml",     "fuzzy_match_rs"),
     ("rust/subprocess_rs/Cargo.toml",      "subprocess_rs"),
     ("rust/file_ops_rs/Cargo.toml",        "file_ops_rs"),

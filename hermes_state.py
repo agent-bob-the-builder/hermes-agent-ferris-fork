@@ -3,7 +3,7 @@
 SQLite State Store for Hermes Agent — Rust backend.
 
 Provides persistent session storage with FTS5 full-text search, delegating
-all SQL operations to _hermes_state_rust (rusqlite). The Python layer handles
+all SQL operations to hermes_state_rs (rusqlite). The Python layer handles
 serialization, API compatibility, and the public SessionDB interface.
 
 Key design decisions:
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # Try to import the Rust extension; fall back gracefully for environments
 # that haven't built it yet (e.g. tests, fresh clone).
 try:
-    from _hermes_state_rust import (
+    from hermes_state_rs import (
         append_message as _rs_append_message,
         create_session as _rs_create_session,
         delete_session as _rs_delete_session,
@@ -65,7 +65,7 @@ class SessionDB:
     """
     SQLite-backed session storage with FTS5 search.
 
-    Delegates all SQL operations to _hermes_state_rust (rusqlite) for
+    Delegates all SQL operations to hermes_state_rs (rusqlite) for
     significant performance improvements on write-heavy workloads.
 
     Thread-safe: the Rust side manages WAL locking internally with jitter
@@ -81,7 +81,7 @@ class SessionDB:
 
         if not _RUST_AVAILABLE:
             raise RuntimeError(
-                "hermes_state: _hermes_state_rust is not available. "
+                "hermes_state: hermes_state_rs is not available. "
                 "Build the Rust extension with: cd rust && maturin develop --release"
             )
 

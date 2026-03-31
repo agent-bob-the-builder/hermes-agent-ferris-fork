@@ -290,7 +290,7 @@ def _ensure_rust_backend():
     if _rust is not None:
         return _rust or False
     try:
-        import _model_tools_rust as _rust_mod
+        import model_tools_rs as _rust_mod
 
         _rust_mod.initialize()
 
@@ -595,13 +595,12 @@ def handle_function_call(
 
     rust = _ensure_rust_backend()
 
-    # Rust handle_function_call is disabled: the PyO3 GIL-wrapped Python call
-    # inside Rust deadlocks when registry.dispatch() runs CPU-bound Python code.
-    # Python dispatch (registry.dispatch) works correctly — use it always.
-    # The Rust backend is still used for get_tool_definitions (zero-copy schemas).
-    if False and rust:  # disabled — deadlocks
+    # Try Rust rs_dispatch first — O(1) HashMap lookup + direct handler call,
+    # no re-entrance into Python registry.dispatch() so no deadlock risk.
+    # Falls back to Python dispatch for unknown tools and async handlers.
+    if rust and hasattr(rust, "rs_dispatch"):
         try:
-            return rust.handle_function_call(
+            result = rust.rs_dispatch(
                 function_name=function_name,
                 function_args=function_args,
                 task_id=task_id,
@@ -611,9 +610,11 @@ def handle_function_call(
                 honcho_manager=honcho_manager,
                 honcho_session_key=honcho_session_key,
             )
+            if result is not None:
+                return result
         except Exception as e:
             logger.warning(
-                "Rust handle_function_call failed: %s, falling back to Python", e
+                "Rust rs_dispatch failed: %s, falling back to Python", e
             )
 
     # Python fallback

@@ -9,4 +9,8 @@ lazy_static = { workspace = true }
 regex = { workspace = true }
 
 [lib]
+name = "fuzzy_match_rs"
 crate-type = ["cdylib"]
+
+[package.metadata.maturin]
+name = "fuzzy_match_rs"

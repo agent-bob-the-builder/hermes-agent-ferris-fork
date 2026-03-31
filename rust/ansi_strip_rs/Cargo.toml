@@ -13,7 +13,7 @@ regex.workspace = true
 once_cell.workspace = true
 
 [package.metadata.maturin]
-name = "rust-ansi-strip"
+name = "rust_ansi_strip"
 
 [profile.release]
 lto = true

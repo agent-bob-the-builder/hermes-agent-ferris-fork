@@ -45,17 +45,17 @@ def _try_load_rust_pb():
     try:
         import sys as _sys
         venv_site = _sys.prefix + "/lib/python3.11/site-packages"
-        # Prepend venv site-packages so the proper _prompt_builder_rust package
-        # (with PyInit__prompt_builder_rust) is found before any stale .so in
+        # Prepend venv site-packages so the proper prompt_builder_rs package
+        # (with PyInit_prompt_builder_rs) is found before any stale .so in
         # the project root or cwd.
-        _rust_pb_dir = venv_site + "/_prompt_builder_rust"
+        _rust_pb_dir = venv_site + "/prompt_builder_rs"
         if _rust_pb_dir not in _sys.path:
             _sys.path.insert(0, _rust_pb_dir)
         if venv_site not in _sys.path:
             _sys.path.insert(0, venv_site)
         import importlib
         importlib.invalidate_caches()
-        mod = importlib.import_module("_prompt_builder_rust")
+        mod = importlib.import_module("prompt_builder_rs")
         # Sanity-check: stale .so files from the project root may shadow the
         # package and lack the `build` fn.
         if not hasattr(mod, "build"):
@@ -2578,7 +2578,7 @@ class AIAgent:
         Rust acceleration: when honcho is absent, skip_context_files is False,
         and no ephemeral system_message is provided, the hot-path
         (identity + tool guidance + skills + context files + timestamp) is
-        offloaded to the Rust _prompt_builder_rust extension for ~10x faster
+        offloaded to the Rust prompt_builder_rs extension for ~10x faster
         skill-index walking and threat-scanned context-file assembly.
         The pure-Python path remains the fallback for all other cases.
         """

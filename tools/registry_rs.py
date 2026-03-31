@@ -12,14 +12,14 @@ import json as _json
 # Lazy import — don't pay the cost of importing the Rust extension at module
 # load time. The Rust extension is only imported when a tool actually needs
 # to register itself, which only happens after the Rust backend has been
-# initialised (model_tools.py → _model_tools_rust.initialize()).
+# initialised (model_tools.py → model_tools_rs.initialize()).
 _rust = None
 
 
 def _get_rust():
     global _rust
     if _rust is None:
-        import _model_tools_rust as _model_tools_rust_module
+        import model_tools_rs as _model_tools_rust_module
 
         class _RustRegistry:
             def __getattr__(self, name: str):

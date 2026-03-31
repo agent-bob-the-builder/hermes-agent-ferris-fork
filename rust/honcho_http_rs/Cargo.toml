@@ -1,17 +1,16 @@
 [package]
-name = "prompt_builder_rs"
+name = "honcho_http_rs"
 version.workspace = true
 edition.workspace = true
 
 [lib]
-name = "prompt_builder_rs"
+name = "_honcho_http_rust"
 crate-type = ["cdylib"]
 
 [dependencies]
 pyo3.workspace = true
-regex.workspace = true
+serde.workspace = true
 serde_json.workspace = true
+reqwest = { workspace = true }
+tokio.workspace = true
 once_cell.workspace = true
-
-[package.metadata.maturin]
-name = "prompt_builder_rs"

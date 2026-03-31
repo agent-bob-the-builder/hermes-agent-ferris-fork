@@ -645,13 +645,13 @@ def init_skin_from_config(config: dict) -> None:
 
 
 # =============================================================================
-# Rust acceleration (_skin_engine_rust)
+# Rust acceleration (skin_engine_rs)
 # =============================================================================
 # Lazy import — Rust module is built by install.sh. If it exists, all skin
 # functions delegate to it. The pure-Python implementations above remain as
 # fallbacks for environments where the Rust extension hasn't been built.
 try:
-    from _skin_engine_rust import (
+    from skin_engine_rs import (
         get_active_skin as _rust_get_active_skin,
         set_active_skin as _rust_set_active_skin,
         load_skin as _rust_load_skin,

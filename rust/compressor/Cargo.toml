@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [lib]
-name = "rust-compressor"
+name = "rust_compressor"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
@@ -17,7 +17,7 @@ tiktoken-rs.workspace = true
 once_cell.workspace = true
 
 [package.metadata.maturin]
-name = "rust-compressor"
+name = "rust_compressor"
 
 [profile.release]
 lto = true
