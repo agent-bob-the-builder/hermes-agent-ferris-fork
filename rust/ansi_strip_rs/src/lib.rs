@@ -23,11 +23,11 @@ pub fn strip_ansi(text: &str) -> String {
                 // Final: bytes 0x40-0x7e (ASCII printable)
                 let mut j = i + 2;
                 // Consume params (0x30-0x3f) and intermediates (0x20-0x2f) in any order
-                let mut intermediates = 0usize;
+                let mut _intermediates = 0usize;
                 while j < bytes.len() {
                     let p = bytes[j];
                     if (0x20..=0x2f).contains(&p) {
-                        intermediates += 1;
+                        _intermediates += 1;
                         j += 1;
                     } else if (0x30..=0x3f).contains(&p) {
                         j += 1;

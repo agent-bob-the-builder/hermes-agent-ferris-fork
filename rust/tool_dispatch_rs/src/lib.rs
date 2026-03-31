@@ -86,6 +86,7 @@ fn paths_share_ancestor(left: &Path, right: &Path) -> bool {
 
 /// Returns `true` if the given tool call batch is safe to run concurrently.
 #[no_mangle]
+#[allow(improper_ctypes_definitions)]
 pub extern "C" fn should_parallelize(tool_calls_json: &str) -> bool {
     let Ok(calls) = serde_json::from_str::<Vec<ToolCallInput>>(tool_calls_json) else {
         return false;
@@ -155,6 +156,7 @@ fn invoke_single(
 
 /// Run tool calls concurrently with Rayon. Results are returned in original order.
 #[no_mangle]
+#[allow(improper_ctypes_definitions)]
 pub extern "C" fn run_concurrent_tool_batch(
     tool_calls_json: &str,
     invoke_py: pyo3::Py<pyo3::types::PyAny>,

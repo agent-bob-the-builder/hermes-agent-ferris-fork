@@ -196,7 +196,7 @@ fn find_hermes_md(cwd: &Path) -> Option<PathBuf> {
     None
 }
 
-fn read_context_file(path: &Path) -> String {
+fn _read_context_file(path: &Path) -> String {
     match fs::read_to_string(path) {
         Ok(content) => {
             let findings = scan_content(&content);
@@ -214,17 +214,17 @@ fn read_context_file(path: &Path) -> String {
     }
 }
 
-fn discover_context_files(cwd: Option<&Path>) -> Vec<(PathBuf, String)> {
+fn _discover_context_files(cwd: Option<&Path>) -> Vec<(PathBuf, String)> {
     let mut results = Vec::new();
     if let Some(dir) = cwd {
         for filename in ["AGENTS.md", ".cursorrules", ".clinerules"] {
             let path = dir.join(filename);
             if path.exists() {
-                results.push((path.clone(), read_context_file(&path)));
+                results.push((path.clone(), _read_context_file(&path)));
             }
         }
         if let Some(hm_path) = find_hermes_md(dir) {
-            results.push((hm_path.clone(), read_context_file(&hm_path)));
+            results.push((hm_path.clone(), _read_context_file(&hm_path)));
         }
     }
     if let Some(home_str) = std::env::var_os("HOME") {
@@ -232,12 +232,12 @@ fn discover_context_files(cwd: Option<&Path>) -> Vec<(PathBuf, String)> {
         for name in HERMES_MD_NAMES.iter() {
             let p = home_hermes.join(name);
             if p.exists() && !results.iter().any(|(path, _)| path == &p) {
-                results.push((p.clone(), read_context_file(&p)));
+                results.push((p.clone(), _read_context_file(&p)));
             }
         }
         let cr = home_hermes.join(".cursorrules");
         if cr.exists() && !results.iter().any(|(path, _)| path == &cr) {
-            results.push((cr.clone(), read_context_file(&cr)));
+            results.push((cr.clone(), _read_context_file(&cr)));
         }
     }
     results

@@ -102,26 +102,26 @@ pub enum MachineResult {
 // ─── Response evaluation ───────────────────────────────────────────────────
 
 struct ResponseEval {
-    finish_reason: String,
-    is_empty: bool,
+    _finish_reason: String,
+    _is_empty: bool,
     is_length: bool,
     is_tool_calls: bool,
     is_stop: bool,
     error_code: Option<String>,
     error_message: Option<String>,
-    http_status: Option<u16>,
+    _http_status: Option<u16>,
 }
 
 fn evaluate_response(mode: ApiMode, finish_reason: &str, response_json: &str) -> ResponseEval {
     let mut eval = ResponseEval {
-        finish_reason: finish_reason.to_string(),
-        is_empty: false,
+        _finish_reason: finish_reason.to_string(),
+        _is_empty: false,
         is_length: false,
         is_tool_calls: false,
         is_stop: false,
         error_code: None,
         error_message: None,
-        http_status: None,
+        _http_status: None,
     };
 
     if let Ok(v) = serde_json::from_str::<Value>(response_json) {
@@ -163,7 +163,7 @@ fn evaluate_response(mode: ApiMode, finish_reason: &str, response_json: &str) ->
             eval.error_code = code.as_str().map(String::from);
         }
         if let Some(status) = v.get("status_code").and_then(|s| s.as_u64()) {
-            eval.http_status = Some(status as u16);
+            eval._http_status = Some(status as u16);
         }
     }
 
@@ -175,7 +175,7 @@ fn evaluate_response(mode: ApiMode, finish_reason: &str, response_json: &str) ->
 struct ErrorReason {
     code: String,
     detail: String,
-    http_status: Option<u16>,
+    _http_status: Option<u16>,
 }
 
 fn classify_error(
@@ -206,7 +206,7 @@ fn classify_error(
         return Some(ErrorReason {
             code: "rate_limited".to_string(),
             detail: format!("Rate limited (HTTP {:?})", status),
-            http_status: status,
+            _http_status: status,
         });
     }
 
@@ -218,7 +218,7 @@ fn classify_error(
         return Some(ErrorReason {
             code: "ctx_overflow".to_string(),
             detail: "Request payload too large".to_string(),
-            http_status: status,
+            _http_status: status,
         });
     }
 
@@ -238,7 +238,7 @@ fn classify_error(
         return Some(ErrorReason {
             code: "ctx_overflow".to_string(),
             detail: "Context length exceeded".to_string(),
-            http_status: status,
+            _http_status: status,
         });
     }
 
@@ -247,7 +247,7 @@ fn classify_error(
             return Some(ErrorReason {
                 code: "client_error".to_string(),
                 detail: format!("HTTP {} client error", s),
-                http_status: Some(s),
+                _http_status: Some(s),
             });
         }
     }
@@ -256,14 +256,14 @@ fn classify_error(
         return Some(ErrorReason {
             code: "try_fallback".to_string(),
             detail: "Trying fallback provider".to_string(),
-            http_status: status,
+            _http_status: status,
         });
     }
 
     Some(ErrorReason {
         code: "other_error".to_string(),
         detail: msg,
-        http_status: status,
+        _http_status: status,
     })
 }
 
@@ -328,6 +328,7 @@ fn serialize_result(result: &MachineResult) -> String {
 
 /// Evaluate an API response and decide what the agent should do next.
 #[no_mangle]
+#[allow(improper_ctypes_definitions)]
 pub extern "C" fn evaluate(
     mode: &str,
     finish_reason: &str,

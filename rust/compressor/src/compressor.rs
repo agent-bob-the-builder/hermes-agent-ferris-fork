@@ -16,6 +16,7 @@ use super::tokenizer::count_tokens_fallible as tiktoken_count;
 // Constants (mirror Python)
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 const CHARS_PER_TOKEN: usize = 4;
 const PRUNED_PLACEHOLDER: &str = "[Old tool output cleared to save context space]";
 const LEGACY_SUMMARY_PREFIX: &str = "[CONTEXT SUMMARY]:";

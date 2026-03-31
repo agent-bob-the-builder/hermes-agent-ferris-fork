@@ -16,7 +16,6 @@ from typing import Any
 
 WORKSPACE = Path("/root/.hermes/hermes-agent-ferris-fork/rust")
 CRATES = [
-    "run_agent_loop_rs",
     "ansi_strip_rs",
     "compressor",
     "file_ops_rs",

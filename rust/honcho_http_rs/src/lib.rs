@@ -46,7 +46,7 @@ struct ObservationRequest<'a> {
 #[derive(Debug, Deserialize)]
 struct PrefetchResponse {
     #[serde(flatten)]
-    extra: Value,
+    _extra: Value,
     context: Option<String>,
 }
 
@@ -54,7 +54,7 @@ struct PrefetchResponse {
 struct SyncResponse {
     ok: bool,
     #[serde(flatten)]
-    extra: Value,
+    _extra: Value,
 }
 
 // ─── Core async functions ────────────────────────────────────────────────────

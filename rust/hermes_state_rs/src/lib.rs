@@ -3,7 +3,6 @@
 use pyo3::exceptions::{PyException, PyRuntimeError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyString};
-use rand::Rng;
 use regex::Regex;
 use rusqlite::{Connection, OpenFlags};
 use serde_json::Value as JsonValue;
@@ -18,7 +17,7 @@ static STATE: Mutex<Option<RustState>> = Mutex::new(None);
 
 struct RustState {
     conn: rusqlite::Connection,
-    write_count: u32,
+    _write_count: u32,
 }
 
 impl RustState {
@@ -31,7 +30,7 @@ impl RustState {
         )?;
         conn.execute_batch("PRAGMA journal_mode=WAL")?;
         conn.execute_batch("PRAGMA foreign_keys=ON")?;
-        Ok(Self { conn, write_count: 0 })
+        Ok(Self { conn, _write_count: 0 })
     }
 }
 
@@ -222,7 +221,6 @@ fn run_migrations(conn: &rusqlite::Connection, mut current_version: i32) -> Resu
             let _ = conn.execute(&sql, []);
         }
         let _ = conn.execute("UPDATE schema_version SET version = 6", []);
-        current_version = 6;
     }
     let _ = conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_title_unique ON sessions(title) WHERE title IS NOT NULL",

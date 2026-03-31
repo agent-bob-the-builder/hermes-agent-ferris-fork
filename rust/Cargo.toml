@@ -1,7 +1,6 @@
 [workspace]
 resolver = "2"
 members = [
-    "run_agent_loop_rs",
     "ansi_strip_rs",
     "compressor",
     "file_ops_rs",

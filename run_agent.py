@@ -73,50 +73,6 @@ def _try_load_rust_pb():
 
 
 # ---------------------------------------------------------------------------------
-# Rust agent loop — lazy-loaded from venv on first use.
-# When run_agent_loop_rs is available, run_conversation delegates to rs_run_loop()
-# instead of the Python main loop. Falls back to Python on any error.
-# ---------------------------------------------------------------------------------
-_rust_loop_loader_failed = False
-_rust_loop = None
-
-
-def _try_load_rust_loop():
-    global _rust_loop_loader_failed, _rust_loop
-    if _rust_loop is not None or _rust_loop_loader_failed:
-        return _rust_loop
-    # Allow disabling Rust loop via env var for debugging crashes
-    if os.getenv("HERMES_DISABLE_RUST_LOOP"):
-        _rust_loop_loader_failed = True
-        return None
-    try:
-        import sys as _sys
-
-        venv_site = _sys.prefix + "/lib/python3.11/site-packages"
-        _rust_loop_dir = venv_site + "/run_agent_loop_rs"
-        if _rust_loop_dir not in _sys.path:
-            _sys.path.insert(0, _rust_loop_dir)
-        if venv_site not in _sys.path:
-            _sys.path.insert(0, venv_site)
-        import importlib as _importlib
-
-        _importlib.invalidate_caches()
-        mod = _importlib.import_module("run_agent_loop_rs")
-        # Verify the module has the expected entry point
-        if not hasattr(mod, "rs_run_loop"):
-            raise ImportError(
-                f"run_agent_loop_rs loaded from {getattr(mod, '__file__', '?')} "
-                "but has no 'rs_run_loop' attribute"
-            )
-        _rust_loop = mod
-        logger.debug("Rust agent loop loaded successfully")
-        return _rust_loop
-    except Exception as _e:
-        _rust_loop_loader_failed = True
-        logger.debug("Rust agent loop unavailable (%s), using Python path", _e)
-        return None
-
-
 # ---------------------------------------------------------------------------------
 # Rust retry state machine — lazy-loaded from venv on first use.
 # Provides rs_evaluate() which replaces the complex Python retry/fallback/
@@ -2855,83 +2811,9 @@ class AIAgent:
         system_message: Optional[str],
     ) -> Optional[Dict[str, Any]]:
         """
-        Attempt to run the conversation via the Rust loop driver.
-
-        Returns None if the Rust loop is unavailable or returns an error,
-        in which case the caller should fall back to the Python loop.
-
-        Returns the LoopResult dict on success.
+        Rust loop was removed — always fall through to the Python loop.
         """
-        import json as _json
-
-        mod = _try_load_rust_loop()
-        if mod is None:
-            return None
-
-        try:
-            # Build config JSON from current AIAgent state
-            config = {
-                "model": self.model or "unknown",
-                "max_iterations": self.max_iterations,
-                "base_url": self.base_url or "",
-                "api_key": self.api_key or "",
-                "api_mode": self.api_mode or "chat_completions",
-                "provider": self.provider or "unknown",
-                "reasoning_config": self.reasoning_config,
-                "max_tokens": self.max_tokens,
-                "enabled_toolsets": None,
-                "disabled_toolsets": None,
-                "save_trajectories": self.save_trajectories,
-                "verbose_logging": self.verbose_logging,
-                "quiet_mode": self.quiet_mode,
-                "platform": getattr(self, "platform", None),
-                "session_id": self.session_id or "default",
-                "fallback_chain": [
-                    {"provider": fb.provider, "model": fb.model}
-                    for fb in getattr(self, "_fallback_chain", [])
-                    if fb
-                ],
-                "budget_caution_threshold": 0.70,
-                "budget_warning_threshold": 0.90,
-                "use_prompt_caching": self._use_prompt_caching,
-                "cache_ttl": getattr(self, "_cache_ttl", None),
-            }
-
-            history_json = _json.dumps(conversation_history or [])
-
-            result_json = mod.rs_run_loop(
-                config_json=_json.dumps(config),
-                user_message=user_message,
-                conversation_history_json=history_json,
-                system_prompt_fn=self._build_system_prompt,
-                api_call_fn=self._rust_api_call_fn,
-                tool_invoke_fn=handle_function_call,
-                interrupt_check_fn=self._rust_interrupt_check_fn,
-                on_status_fn=self._rust_on_status_fn,
-            )
-
-            result = _json.loads(result_json)
-
-            # Deserialize messages
-            messages = _json.loads(result.get("messages_json", "[]"))
-
-            # Assemble the same Dict[str, Any] shape that the Python loop returns
-            return {
-                "final_response": result.get("final_response"),
-                "last_reasoning": result.get("last_reasoning"),
-                "messages": messages,
-                "api_calls": result.get("api_calls", 0),
-                "completed": result.get("completed", False),
-                "partial": result.get("partial", False),
-                "interrupted": result.get("interrupted", False),
-                "model": self.model,
-                "provider": self.provider,
-                "base_url": self.base_url,
-            }
-
-        except Exception as exc:
-            logger.warning("Rust loop error (%s) — falling back to Python loop", exc)
-            return None
+        return None
 
     def _hydrate_todo_store(self, history: List[Dict[str, Any]]) -> None:
         """

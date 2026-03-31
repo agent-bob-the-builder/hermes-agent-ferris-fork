@@ -15,8 +15,3 @@ once_cell.workspace = true
 [package.metadata.maturin]
 name = "redact_rs"
 
-[profile.release]
-lto = true
-codegen-units = 1
-opt-level = 3
-panic = "abort"
