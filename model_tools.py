@@ -488,7 +488,7 @@ def get_tool_definitions(
     # Build tools_to_include in one pass using list + extend (faster than repeated update)
     tools_to_include_list: List[str] = []
 
-    if enabled_toolsets:
+    if enabled_toolsets is not None:
         for toolset_name in enabled_toolsets:
             if _is_valid_toolset_name(toolset_name) and validate_toolset(toolset_name):
                 resolved = _cached_resolve_toolset(toolset_name)

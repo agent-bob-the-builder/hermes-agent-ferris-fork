@@ -352,7 +352,7 @@ def bench_prompt_builder_rs(runs=100, warmup=20):
 import sys, os, json, time
 sys.path.insert(0, '{HERMES}')
 os.environ['HERMES_HOME'] = '/tmp/hermes_bench_home'
-import prompt_builder_rs as pb
+import _prompt_builder_rs as pb
 
 test_content = 'This is a test file with some content that needs truncation.'
 test_yaml = '---''\\ntitle: Test''\\n---''\\n# Markdown content''\\n'
