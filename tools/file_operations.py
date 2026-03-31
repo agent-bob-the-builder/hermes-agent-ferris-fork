@@ -656,6 +656,17 @@ class ShellFileOperations(FileOperations):
         dir_path = os.path.dirname(path) or "."
         filename = os.path.basename(path)
 
+        # Try Rust first (Rust walkdir is faster than os.listdir + character overlap)
+        if _rust_fo is not None:
+            try:
+                similar_paths = _rust_fo.suggest_similar_files_py(path)
+                return ReadResult(
+                    error=f"File not found: {path}",
+                    similar_files=similar_paths[:5]
+                )
+            except Exception:
+                pass
+
         similar = []
         try:
             entries = os.listdir(dir_path)
@@ -1096,6 +1107,32 @@ class ShellFileOperations(FileOperations):
         
         Returns None on any exception so caller falls back to ripgrep subprocess.
         """
+        # Try Rust first (Rust os.walk is ~5-10x faster than Python's)
+        if _rust_fo is not None:
+            try:
+                rust_result = _rust_fo.search_native_py(
+                    pattern, path, file_glob,
+                    limit, offset, output_mode, context
+                )
+                if rust_result is not None:
+                    import json
+                    data = json.loads(rust_result)
+                    matches = [
+                        SearchMatch(
+                            path=m["path"],
+                            line_number=m["line"],
+                            content=m["content"],
+                        )
+                        for m in data.get("matches", [])
+                    ]
+                    return SearchResult(
+                        matches=matches,
+                        total_count=data.get("total_count", len(matches)),
+                        truncated=data.get("truncated", False),
+                    )
+            except Exception:
+                pass
+
         try:
             path = os.path.abspath(os.path.expanduser(path))
             if not os.path.isdir(path):

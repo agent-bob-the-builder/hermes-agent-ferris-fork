@@ -391,11 +391,6 @@ class LocalEnvironment(PersistentShellMixin, BaseEnvironment):
             effective_stdin = stdin_data
 
         user_shell = _find_bash()
-        # Newline-separated wrapper (not `cmd; __hermes_rc=...` on one line).
-        # A trailing `; __hermes_rc` glued to `<<EOF` / a closing `EOF` line breaks
-        # heredoc parsing: the delimiter must be alone on its line, otherwise the
-        # rest of this script becomes heredoc body and leaks into stdout (e.g. gh
-        # issue/PR flows that use here-documents for bodies).
         fenced_cmd = (
             f"printf '{_OUTPUT_FENCE}'\n"
             f"{exec_command}\n"
@@ -405,82 +400,101 @@ class LocalEnvironment(PersistentShellMixin, BaseEnvironment):
         )
         run_env = _make_run_env(self.env)
 
-        proc = subprocess.Popen(
-            [user_shell, "-lic", fenced_cmd],
-            text=True,
-            cwd=work_dir,
-            env=run_env,
-            encoding="utf-8",
-            errors="replace",
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            stdin=subprocess.PIPE if effective_stdin is not None else subprocess.DEVNULL,
-            preexec_fn=None if _IS_WINDOWS else os.setsid,
-        )
+        # Try the Rust subprocess engine first; fall back to threading Popen.
+        try:
+            from tools.subprocess_rs import spawn, ExecuteResult
 
-        if effective_stdin is not None:
-            def _write_stdin():
+            handle = spawn(
+                cmd=[user_shell, "-lic", fenced_cmd],
+                cwd=work_dir,
+                timeout_ms=effective_timeout * 1000,
+                stdin_data=effective_stdin or "",
+                env=run_env,
+            )
+            result: ExecuteResult = handle.wait()
+            output = _extract_fenced_output(result.output)
+            return {
+                "output": output,
+                "returncode": result.returncode,
+            }
+        except Exception:
+            # Fallback: threading-based Popen (preserves compatibility)
+            proc = subprocess.Popen(
+                [user_shell, "-lic", fenced_cmd],
+                text=True,
+                cwd=work_dir,
+                env=run_env,
+                encoding="utf-8",
+                errors="replace",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.PIPE if effective_stdin is not None else subprocess.DEVNULL,
+                preexec_fn=None if _IS_WINDOWS else os.setsid,
+            )
+
+            if effective_stdin is not None:
+                def _write_stdin():
+                    try:
+                        proc.stdin.write(effective_stdin)
+                        proc.stdin.close()
+                    except (BrokenPipeError, OSError):
+                        pass
+                threading.Thread(target=_write_stdin, daemon=True).start()
+
+            _output_chunks: list[str] = []
+
+            def _drain_stdout():
                 try:
-                    proc.stdin.write(effective_stdin)
-                    proc.stdin.close()
-                except (BrokenPipeError, OSError):
+                    for line in proc.stdout:
+                        _output_chunks.append(line)
+                except ValueError:
                     pass
-            threading.Thread(target=_write_stdin, daemon=True).start()
+                finally:
+                    try:
+                        proc.stdout.close()
+                    except Exception:
+                        pass
 
-        _output_chunks: list[str] = []
+            reader = threading.Thread(target=_drain_stdout, daemon=True)
+            reader.start()
+            deadline = time.monotonic() + effective_timeout
 
-        def _drain_stdout():
-            try:
-                for line in proc.stdout:
-                    _output_chunks.append(line)
-            except ValueError:
-                pass
-            finally:
-                try:
-                    proc.stdout.close()
-                except Exception:
-                    pass
+            while proc.poll() is None:
+                if is_interrupted():
+                    try:
+                        if _IS_WINDOWS:
+                            proc.terminate()
+                        else:
+                            pgid = os.getpgid(proc.pid)
+                            os.killpg(pgid, signal.SIGTERM)
+                            try:
+                                proc.wait(timeout=1.0)
+                            except subprocess.TimeoutExpired:
+                                os.killpg(pgid, signal.SIGKILL)
+                    except (ProcessLookupError, PermissionError):
+                        proc.kill()
+                    reader.join(timeout=2)
+                    return {
+                        "output": "".join(_output_chunks) + "\n[Command interrupted — user sent a new message]",
+                        "returncode": 130,
+                    }
+                if time.monotonic() > deadline:
+                    try:
+                        if _IS_WINDOWS:
+                            proc.terminate()
+                        else:
+                            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                    except (ProcessLookupError, PermissionError):
+                        proc.kill()
+                    reader.join(timeout=2)
+                    partial = "".join(_output_chunks)
+                    timeout_msg = f"\n[Command timed out after {effective_timeout}s]"
+                    return {
+                        "output": partial + timeout_msg if partial else timeout_msg.lstrip(),
+                        "returncode": 124,
+                    }
+                time.sleep(0.2)
 
-        reader = threading.Thread(target=_drain_stdout, daemon=True)
-        reader.start()
-        deadline = time.monotonic() + effective_timeout
-
-        while proc.poll() is None:
-            if is_interrupted():
-                try:
-                    if _IS_WINDOWS:
-                        proc.terminate()
-                    else:
-                        pgid = os.getpgid(proc.pid)
-                        os.killpg(pgid, signal.SIGTERM)
-                        try:
-                            proc.wait(timeout=1.0)
-                        except subprocess.TimeoutExpired:
-                            os.killpg(pgid, signal.SIGKILL)
-                except (ProcessLookupError, PermissionError):
-                    proc.kill()
-                reader.join(timeout=2)
-                return {
-                    "output": "".join(_output_chunks) + "\n[Command interrupted — user sent a new message]",
-                    "returncode": 130,
-                }
-            if time.monotonic() > deadline:
-                try:
-                    if _IS_WINDOWS:
-                        proc.terminate()
-                    else:
-                        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                except (ProcessLookupError, PermissionError):
-                    proc.kill()
-                reader.join(timeout=2)
-                partial = "".join(_output_chunks)
-                timeout_msg = f"\n[Command timed out after {effective_timeout}s]"
-                return {
-                    "output": partial + timeout_msg if partial else timeout_msg.lstrip(),
-                    "returncode": 124,
-                }
-            time.sleep(0.2)
-
-        reader.join(timeout=5)
-        output = _extract_fenced_output("".join(_output_chunks))
-        return {"output": output, "returncode": proc.returncode}
+            reader.join(timeout=5)
+            output = _extract_fenced_output("".join(_output_chunks))
+            return {"output": output, "returncode": proc.returncode}
