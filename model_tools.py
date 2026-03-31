@@ -595,7 +595,11 @@ def handle_function_call(
 
     rust = _ensure_rust_backend()
 
-    if rust:
+    # Rust handle_function_call is disabled: the PyO3 GIL-wrapped Python call
+    # inside Rust deadlocks when registry.dispatch() runs CPU-bound Python code.
+    # Python dispatch (registry.dispatch) works correctly — use it always.
+    # The Rust backend is still used for get_tool_definitions (zero-copy schemas).
+    if False and rust:  # disabled — deadlocks
         try:
             return rust.handle_function_call(
                 function_name=function_name,
@@ -655,6 +659,11 @@ def handle_function_call(
             except Exception:
                 pass
 
+        # Guard _invoke_hook post-call with non-blocking wrap to prevent
+        # any plugin hook from blocking the dispatch result.
+        _post_hook = _cached_invoke_hook
+        _post_hook_registered = _invoke_hook_initialized
+
         if function_name == "execute_code":
             sandbox_enabled = (
                 enabled_tools
@@ -679,15 +688,23 @@ def handle_function_call(
                 honcho_session_key=honcho_session_key,
             )
 
-        if _cached_invoke_hook is not None:
+        if _post_hook is not None and _post_hook_registered:
             try:
-                _cached_invoke_hook(
-                    "post_tool_call",
-                    tool_name=function_name,
-                    args=function_args,
-                    result=result,
-                    task_id=task_id or "",
-                )
+                # Non-blocking post-hook: fire and forget. Never let plugin
+                # code block the tool result from reaching the caller.
+                import threading
+                def _fire_and_forget():
+                    try:
+                        _post_hook(
+                            "post_tool_call",
+                            tool_name=function_name,
+                            args=function_args,
+                            result=result,
+                            task_id=task_id or "",
+                        )
+                    except Exception:
+                        pass
+                threading.Thread(target=_fire_and_forget, daemon=True).start()
             except Exception:
                 pass
 

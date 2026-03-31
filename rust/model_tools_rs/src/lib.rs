@@ -582,10 +582,9 @@ fn handle_function_call(
         let sandbox = enabled_tools.or(last_resolved_tool_names.clone()).unwrap_or_default();
         kwargs.set_item("enabled_tools", PyList::new(py, &sandbox)?)?;
     } else if let Some(ref ut) = user_task {
-        kwargs.set_item("user_task", ut)?;
-    }
-
-    // Call Python dispatch while GIL is held
+    // Call Python dispatch synchronously while GIL is held.
+    // The Python registry.dispatch() is CPU-bound Python code — it does not
+    // block waiting for the GIL from another thread, so no deadlock risk here.
     let registry = get_cached_registry(py)?;
     let result = registry.call_method(
         "dispatch",
@@ -594,7 +593,11 @@ fn handle_function_call(
     )?;
 
     result.extract::<String>().map_err(|err| {
-        logger_call(py, "error", &format!("Error executing {}: {}", function_name, err));
+        logger_call(
+            py,
+            "error",
+            &format!("Error executing {}: {}", function_name, err),
+        );
         err
     })
 }
