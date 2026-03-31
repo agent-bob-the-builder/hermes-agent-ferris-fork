@@ -1,6 +1,5 @@
 [workspace]
 resolver = "2"
-package = {}  # satisfies maturin 1.x workspace validation
 members = [
     "compressor",
     "file_ops_rs",
@@ -14,11 +13,6 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
-edition = "2021"
-
-[package]
-name = "hermes-rs-workspace"
 version = "0.1.0"
 edition = "2021"
 
