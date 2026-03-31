@@ -23,6 +23,7 @@ members = [
     "url_safety_python_rs",
     "title_generator_rs",
     "model_metadata_rs",
+    "skill_utils_rs",
 ]
 
 [workspace.package]

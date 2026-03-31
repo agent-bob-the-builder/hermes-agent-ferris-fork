@@ -1,0 +1,16 @@
+[package]
+name = "skill_utils_rs"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "skill_utils_rs"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3.workspace = true
+regex.workspace = true
+once_cell.workspace = true
+
+[package.metadata.maturin]
+name = "skill_utils_rs"
