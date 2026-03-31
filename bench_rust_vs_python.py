@@ -5,10 +5,10 @@ Rust vs Python Benchmark — Hermes-Agent Ferris Fork
 Accurately compares Rust components vs their Python equivalents.
 
 Component pairs:
-  1. model_tools.get_tool_definitions    — Rust fast-path vs pure-Python (subprocess, cold)
-  2. rust_compressor operations          — Rust tokenizer-free ops vs Python approximations
-  3. _prompt_builder_rust vs agent/prompt_builder — prompt assembly sub-operations
-  4. hermes_state SessionDB FTS           — hermes_state_rs (native SQLite) vs Python sqlite3
+  1. model_tools.get_tool_definitions    — _model_tools_rs vs pure-Python (subprocess, cold)
+  2. compressor_rs operations            — tokenizer-free Rust vs Python approximations
+  3. prompt_builder_rs vs agent/prompt_builder — prompt assembly sub-operations
+  4. hermes_state SessionDB FTS          — hermes_state_rs (native SQLite) vs Python sqlite3
 
 Run with: source .venv/bin/activate && python bench_rust_vs_python.py
 """
@@ -108,7 +108,7 @@ def bench_subprocess(script_content, runs=10, warmup=2, env=None, timeout=120):
 def bench_get_tool_definitions_rust(runs=20, warmup=5):
     """
     Rust get_tool_definitions — in-process, warm cache.
-    Imports _model_tools_rust directly to bypass model_tools' lazy init
+    Imports _model_tools_rs directly to bypass model_tools' lazy init
     which can fail in cold subprocess envs.
     """
     script = """
@@ -116,7 +116,7 @@ import sys, os, json, time
 sys.path.insert(0, '/root/.hermes/hermes-agent-ferris-fork')
 os.environ['HERMES_HOME'] = '/tmp/hermes_bench_home'
 
-import _model_tools_rust as rust_mod
+import _model_tools_rs as rust_mod
 rust_mod.initialize()
 
 results = []
@@ -189,12 +189,12 @@ MESSAGES = [
 
 
 def bench_rust_compressor_ops(runs=200, warmup=20):
-    """Benchmark rust_compressor.so individual operations."""
+    """Benchmark compressor_rs individual operations."""
     script = """
 import sys, os, json, time, statistics
 sys.path.insert(0, '/root/.hermes/hermes-agent-ferris-fork')
 os.environ['HERMES_HOME'] = '/tmp/hermes_bench_home'
-import rust_compressor as rc  # noqa: E402
+import compressor_rs as rc  # noqa: E402
 
 messages = [
     {'role': 'system', 'content': 'You are a helpful AI assistant.'},
@@ -296,15 +296,15 @@ def bench_python_compressor_equivalents(runs=50, warmup=10):
     return results
 
 
-# ── 3. _prompt_builder_rust vs agent/prompt_builder ──────────────────────────
+# ── 3. prompt_builder_rs vs agent/prompt_builder ────────────────────────────
 
 def bench_prompt_builder_rust(runs=100, warmup=20):
-    """Benchmark _prompt_builder_rust.so sub-operations."""
+    """Benchmark prompt_builder_rs sub-operations."""
     script = """
 import sys, os, json, time
 sys.path.insert(0, '/root/.hermes/hermes-agent-ferris-fork')
 os.environ['HERMES_HOME'] = '/tmp/hermes_bench_home'
-import _prompt_builder_rust as pb
+import prompt_builder_rs as pb
 
 test_content = 'This is a test file with some content that needs truncation.'
 test_yaml = '---\\ntitle: Test\\n---\\n# Markdown content\\n'
@@ -582,7 +582,7 @@ def main():
         print("  ERR — compressor benchmarks failed")
 
     # ── 4. _prompt_builder_rust ─────────────────────────────────────────────
-    section("4. _prompt_builder_rust.so — Prompt Building Sub-operations")
+    section("4. prompt_builder_rs — Prompt Building Sub-operations")
     rust_pb = bench_prompt_builder_rust(runs=100, warmup=20)
     py_pb = bench_prompt_builder_python(runs=50, warmup=10)
 
@@ -600,7 +600,7 @@ def main():
         print("  ERR — prompt builder benchmark failed")
 
     # ── 5. SessionDB FTS ─────────────────────────────────────────────────────
-    section("5. SessionDB FTS — hermes_state (_hermes_state_rs/rusqlite) vs python sqlite3")
+    section("5. SessionDB FTS — hermes_state_rs (rusqlite) vs python sqlite3")
     sdb_rust = bench_sessiondb_fts_rust(runs=50, warmup=10)
     sdb_py = bench_sessiondb_fts_python_sqlite(runs=50, warmup=10)
 
@@ -626,9 +626,9 @@ def main():
     section("SUMMARY — What Rust Accelerates")
     print("""
   Component pairs compared:
-    get_tool_definitions  → Rust fast-path vs pure Python (no Rust loaded)
-    rust_compressor ops   → tokenizer-free Rust vs Python approximations
-    _prompt_builder_rust → prompt assembly primitives
+    get_tool_definitions  → _model_tools_rs fast-path vs pure Python (no Rust loaded)
+    compressor_rs ops      → tokenizer-free Rust vs Python approximations
+    prompt_builder_rs      → prompt assembly primitives
     hermes_state SessionDB → rusqlite/SQLite FTS5 vs python sqlite3
 
   Note: The Python comparison for get_tool_definitions uses a FRESH subprocess
