@@ -352,10 +352,10 @@ if not tmp_wheel_dir:
     sys.exit(1)
 
 crates = [
-    "compressor_rs", "model_tools_rs", "prompt_builder_rs", "skin_engine_rs",
-    "hermes_state_rs", "fuzzy_match_rs", "subprocess_rs", "file_ops_rs",
-    "patch_parser_rs", "ansi_strip_rs", "redact_rs", "run_agent_loop_rs",
-    "tool_dispatch_rs", "retry_state_machine_rs", "honcho_http_rs", "context_refs_rs",
+    "compressor_rs", "_model_tools_rs", "_prompt_builder_rs", "_skin_engine_rs",
+    "_hermes_state_rs", "_fuzzy_match_rs", "_subprocess_rs", "_file_ops_rs",
+    "_patch_parser_rs", "_ansi_strip_rs", "redact_rs", "run_agent_loop_rs",
+    "_tool_dispatch_rs", "_retry_state_machine_rs", "_honcho_http_rs", "_context_refs_rs",
     "approval_rs",
 ]
 
@@ -425,11 +425,11 @@ hermes = os.environ.get("HERMES_DIR", "/root/.hermes/hermes-agent")
 venv_python = os.path.join(hermes, "venv/bin/python3")
 
 result = subprocess.run([venv_python, "-c", """
-import compressor_rs, model_tools_rs, prompt_builder_rs, skin_engine_rs,
-       hermes_state_rs, fuzzy_match_rs, subprocess_rs, file_ops_rs,
-       patch_parser_rs, ansi_strip_rs, redact_rs, run_agent_loop_rs,
-       tool_dispatch_rs, retry_state_machine_rs, honcho_http_rs,
-       context_refs_rs, approval_rs
+import compressor_rs, _model_tools_rs, _prompt_builder_rs, _skin_engine_rs,
+       _hermes_state_rs, _fuzzy_match_rs, _subprocess_rs, _file_ops_rs,
+       _patch_parser_rs, _ansi_strip_rs, redact_rs, run_agent_loop_rs,
+       _tool_dispatch_rs, _retry_state_machine_rs, _honcho_http_rs,
+       _context_refs_rs, approval_rs
 print('All Rust extensions loaded OK')
 """], capture_output=True, text=True)
 

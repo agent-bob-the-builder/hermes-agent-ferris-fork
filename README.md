@@ -59,6 +59,8 @@ AIAgent (run_agent.py)
 │   └── patch_parser.py
 │       └── parse_v4a_patch() → patch_parser_rs           [Wired ✓]
 ├── run_agent.py
+│   ├── run_conversation()
+│   │   └── run_agent_loop_rs.rs_run_loop()               [Wired ✓]
 │   ├── _should_parallelize_tool_batch()
 │   │   └── tool_dispatch_rs.rs_should_parallelize()      [Wired ✓]
 │   └── _execute_tool_calls_concurrent_rs()
@@ -85,6 +87,7 @@ graph TD
     TDP["run_agent.py<br/>_execute_tool_calls_concurrent_rs()"]
     CRE["agent/context_references.py<br/>parse_context_references()"]
     APP["tools/approval.py<br/>check_approval()"]
+    RL_RS["run_agent_loop_rs"]
 
     PB_RS["prompt_builder_rs"]
     CO_RS["compressor_rs"]
@@ -106,6 +109,7 @@ graph TD
     RA -->|"skin loading"| SHE
     RA -->|"honcho session"| HON
     RA -->|"parallel tool batch"| TDP
+    RA -->|"core loop"| RL_RS
     RA -->|"@ reference parsing"| CRE
 
     PCP -->|"wired ✓"| PB_RS
