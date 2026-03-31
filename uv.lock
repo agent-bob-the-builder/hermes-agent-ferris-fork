@@ -1618,14 +1618,13 @@ wheels = [
 
 [[package]]
 name = "hermes-agent"
-version = "0.5.0"
+version = "0.6.0"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
     { name = "edge-tts" },
     { name = "exa-py" },
     { name = "fal-client" },
-    { name = "faster-whisper" },
     { name = "fire" },
     { name = "firecrawl-py" },
     { name = "httpx" },
@@ -1654,6 +1653,7 @@ all = [
     { name = "dingtalk-stream" },
     { name = "discord-py", extra = ["voice"] },
     { name = "elevenlabs" },
+    { name = "faster-whisper" },
     { name = "honcho-ai" },
     { name = "lark-oapi" },
     { name = "matrix-nio", extra = ["e2e"] },
@@ -1736,6 +1736,7 @@ tts-premium = [
     { name = "elevenlabs" },
 ]
 voice = [
+    { name = "faster-whisper" },
     { name = "numpy" },
     { name = "sounddevice" },
 ]
@@ -1760,7 +1761,7 @@ requires-dist = [
     { name = "exa-py", specifier = ">=2.9.0,<3" },
     { name = "fal-client", specifier = ">=0.13.1,<1" },
     { name = "fastapi", marker = "extra == 'rl'", specifier = ">=0.104.0,<1" },
-    { name = "faster-whisper", specifier = ">=1.0.0,<2" },
+    { name = "faster-whisper", marker = "extra == 'voice'", specifier = ">=1.0.0,<2" },
     { name = "fire", specifier = ">=0.7.1,<1" },
     { name = "firecrawl-py", specifier = ">=4.16.0,<5" },
     { name = "hermes-agent", extras = ["acp"], marker = "extra == 'all'" },

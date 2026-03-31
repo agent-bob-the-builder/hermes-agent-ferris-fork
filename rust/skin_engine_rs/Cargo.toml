@@ -1,0 +1,17 @@
+[package]
+name = "skin_engine_rs"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+pyo3 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+once_cell = { workspace = true }
+lazy_static = { workspace = true }
+serde_yaml = "0.9"
+dirs = "5"
+
+[lib]
+name = "skin_engine_rs"
+crate-type = ["cdylib"]

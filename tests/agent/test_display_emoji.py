@@ -64,7 +64,7 @@ class TestGetToolEmoji:
         with mock_patch("agent.display._get_skin", return_value=skin), \
              mock_patch.dict(sys.modules, {"tools.registry": mock_module}):
             result = get_tool_emoji("unknown_tool")
-            assert result == "⚡"
+            assert result == "🔨"
 
     def test_custom_default(self):
         """Custom default is returned when nothing matches."""

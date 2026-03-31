@@ -298,7 +298,7 @@ class TestEmojiMetadata:
             name="t", toolset="s", schema=_make_schema(),
             handler=_dummy_handler, emoji="",
         )
-        assert reg.get_emoji("t") == "⚡"
+        assert reg.get_emoji("t") == "🔨"
 
 
 class TestSecretCaptureResultContract:
