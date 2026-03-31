@@ -482,6 +482,8 @@ fn _file_ops_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(pyo3::wrap_pyfunction!(search_files_native_py, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(fuzzy_find_and_replace_py, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(mime_from_ext_py, m)?)?;
+    m.add_function(pyo3::wrap_pyfunction!(is_write_denied_py, m)?)?;
+    m.add_function(pyo3::wrap_pyfunction!(resolve_path_py, m)?)?;
 
     Ok(())
 }
@@ -575,4 +577,179 @@ fn fuzzy_find_and_replace_py(
 #[pyfunction]
 fn mime_from_ext_py(ext: &str) -> String {
     mime_from_ext(ext).to_string()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Write-path denial (security-critical — called on every write/patch)
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn get_home_dir() -> Option<std::path::PathBuf> {
+    dirs::home_dir()
+}
+
+fn get_hermes_home() -> std::path::PathBuf {
+    // Mirror hermes_constants.get_hermes_home() logic
+    std::env::var("HERMES_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            dirs::home_dir().unwrap_or_default()
+                .join(".hermes")
+        })
+}
+
+fn build_deny_set() -> Vec<std::path::PathBuf> {
+    let home = get_home_dir();
+    let hermes = get_hermes_home();
+
+    let mut set = Vec::new();
+
+    if let Some(ref h) = home {
+        for entry in &[
+            ".ssh/authorized_keys",
+            ".ssh/id_rsa",
+            ".ssh/id_ed25519",
+            ".ssh/config",
+            ".bashrc",
+            ".zshrc",
+            ".profile",
+            ".bash_profile",
+            ".zprofile",
+            ".netrc",
+            ".pgpass",
+            ".npmrc",
+            ".pypirc",
+        ] {
+            set.push(h.join(entry));
+        }
+    }
+
+    // hermes .env
+    set.push(hermes.join(".env"));
+
+    // system files
+    set.push(std::path::PathBuf::from("/etc/sudoers"));
+    set.push(std::path::PathBuf::from("/etc/passwd"));
+    set.push(std::path::PathBuf::from("/etc/shadow"));
+
+    set
+}
+
+fn build_deny_prefixes() -> Vec<String> {
+    let home = get_home_dir();
+
+    let mut prefixes = Vec::new();
+
+    if let Some(ref h) = home {
+        for entry in &[".ssh", ".aws", ".gnupg", ".kube"] {
+            prefixes.push(format!("{}{}{}", h.to_string_lossy(), std::path::MAIN_SEPARATOR_STR, entry));
+        }
+    }
+
+    prefixes.push("/etc/sudoers.d/".to_string());
+    prefixes.push("/etc/systemd/".to_string());
+
+    prefixes
+}
+
+/// Returns true if the resolved path is on the write deny list.
+/// safe_root optionally constrains all writes to a subdirectory tree.
+fn check_is_write_denied(path: &str, safe_root: Option<&str>) -> bool {
+    use std::path::Path;
+
+    // Canonicalize ~ and ~user manually (no std::fs::canonicalize — may not exist)
+    let expanded: std::path::PathBuf = if path == "~" {
+        get_home_dir().unwrap_or_else(|| Path::new("~").to_path_buf())
+    } else if path.starts_with("~/") {
+        if let Some(ref home) = get_home_dir() {
+            Path::new(home).join(&path[2..])
+        } else {
+            Path::new(path).to_path_buf()
+        }
+    } else if path.starts_with("~") {
+        // ~username — skip expand, deny for safety
+        return true;
+    } else {
+        Path::new(path).to_path_buf()
+    };
+
+    // Try to get a real resolved path
+    let resolved = match expanded.canonicalize() {
+        Ok(p) => p,
+        Err(_) => {
+            // File doesn't exist — use the parent directory for prefix checks
+            match expanded.parent() {
+                Some(parent) => match parent.canonicalize() {
+                    Ok(p) => p.join(expanded.file_name().unwrap_or_default()),
+                    Err(_) => expanded.clone(),
+                },
+                None => expanded.clone(),
+            }
+        }
+    };
+
+    // Static deny set (exact paths)
+    static DENY_SET: std::sync::OnceLock<Vec<std::path::PathBuf>> = std::sync::OnceLock::new();
+    let deny_set = DENY_SET.get_or_init(build_deny_set);
+
+    // Normalize to string for comparison
+    let resolved_str = resolved.to_string_lossy();
+
+    for denied in deny_set {
+        if resolved_str == denied.to_string_lossy() {
+            return true;
+        }
+    }
+
+    // Static deny prefixes
+    static DENY_PREFIXES: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    let deny_prefixes = DENY_PREFIXES.get_or_init(build_deny_prefixes);
+
+    for prefix in deny_prefixes {
+        if resolved_str.starts_with(prefix) {
+            return true;
+        }
+    }
+
+    // Optional safe-root sandbox
+    if let Some(root) = safe_root {
+        let root_path = Path::new(root);
+        let root_canonical = match root_path.canonicalize() {
+            Ok(p) => p,
+            Err(_) => root_path.to_path_buf(),
+        };
+        let root_str = root_canonical.to_string_lossy();
+        if !resolved_str.starts_with(&*root_str) && resolved_str != *root_str {
+            return true;
+        }
+    }
+
+    false
+}
+
+#[pyfunction]
+fn is_write_denied_py(path: &str, safe_root: Option<&str>) -> bool {
+    check_is_write_denied(path, safe_root)
+}
+
+#[pyfunction]
+fn resolve_path_py(path: &str) -> String {
+    use std::path::Path;
+    let expanded: std::path::PathBuf = if path == "~" {
+        get_home_dir().unwrap_or_else(|| Path::new("~").to_path_buf())
+    } else if path.starts_with("~/") {
+        if let Some(ref home) = get_home_dir() {
+            Path::new(home).join(&path[2..])
+        } else {
+            Path::new(path).to_path_buf()
+        }
+    } else if path.starts_with("~") {
+        return path.to_string();
+    } else {
+        Path::new(path).to_path_buf()
+    };
+
+    match expanded.canonicalize() {
+        Ok(p) => p.to_string_lossy().into_owned(),
+        Err(_) => expanded.to_string_lossy().into_owned(),
+    }
 }
