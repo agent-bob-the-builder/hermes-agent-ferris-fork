@@ -23,8 +23,7 @@ static RUNTIME: Lazy<Runtime> = Lazy::new(|| {
 static STATE: Mutex<Option<RustState>> = Mutex::new(None);
 
 struct RustState {
-    conn: rusqlite::Connection,
-    _write_count: u32,
+    conn: Connection,
 }
 
 impl RustState {
@@ -37,7 +36,7 @@ impl RustState {
         )?;
         conn.execute_batch("PRAGMA journal_mode=WAL")?;
         conn.execute_batch("PRAGMA foreign_keys=ON")?;
-        Ok(Self { conn, _write_count: 0 })
+        Ok(Self { conn })
     }
 }
 
@@ -238,63 +237,59 @@ fn run_migrations(conn: &rusqlite::Connection, mut current_version: i32) -> Resu
 
 // ── Write transaction with jitter retry ─────────────────────────────────────
 
-// ── Write transaction with jitter retry (async) ───────────────────────────────
+// ── Write transaction with jitter retry ─────────────────────────────────────
 //
-// Runs on the tokio blocking thread pool so std::thread::sleep does not
-// block the async event loop. Called from Python sync wrappers via
-// RUNTIME.block_on() — the GIL is held for the entire block_on call, so
-// no other Python code interleaves on this thread.
-
-async fn execute_write_async<F, T>(conn: Arc<rusqlite::Connection>, f: F) -> Result<T, String>
+// Uses RUNTIME.block_on(tokio::time::sleep) for jitter delays so the OS
+// thread is parked during sleep — does NOT block the tokio executor threads.
+// rusqlite::Connection is NOT Send+Sync so it stays on the Python sync thread.
+//
+fn execute_write<F, T>(state: &RustState, f: F) -> Result<T, String>
 where
-    F: FnOnce(&rusqlite::Connection) -> Result<T, String> + Send,
-    T: Send,
+    F: FnOnce(&rusqlite::Connection) -> Result<T, String>,
 {
     use rand::Rng;
-    use tokio::time::sleep;
 
     let mut rng = rand::thread_rng();
 
-    // Try to acquire the write lock with async jitter retries
-    for attempt in 0..WRITE_MAX_RETRIES {
-        match conn.execute_batch("BEGIN IMMEDIATE") {
-            Ok(()) => break,
-            Err(e) => {
-                if attempt < WRITE_MAX_RETRIES - 1 {
-                    let delay_ms = rng.gen_range(WRITE_RETRY_MIN_MS..WRITE_RETRY_MAX_MS) as u64;
-                    sleep(std::time::Duration::from_millis(delay_ms)).await;
-                    continue;
+    // Attempt 0: no sleep
+    match state.conn.execute_batch("BEGIN IMMEDIATE") {
+        Ok(()) => {}
+        Err(_e) => {
+            // Attempts 1..WRITE_MAX_RETRIES-1: async jitter sleep
+            for attempt in 1..WRITE_MAX_RETRIES {
+                let delay_ms = rng.gen_range(WRITE_RETRY_MIN_MS..WRITE_RETRY_MAX_MS) as u64;
+
+                // Park this OS thread during sleep — tokio executor threads untouched
+                let _ = RUNTIME.block_on(async {
+                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await
+                });
+
+                match state.conn.execute_batch("BEGIN IMMEDIATE") {
+                    Ok(()) => break,
+                    Err(e) => {
+                        if attempt == WRITE_MAX_RETRIES - 1 {
+                            return Err(format!("BEGIN IMMEDIATE: {}", e));
+                        }
+                    }
                 }
-                return Err(format!("BEGIN IMMEDIATE: {}", e));
             }
         }
     }
 
     // Execute the write function
-    match f(&conn) {
+    match f(&state.conn) {
         Ok(result) => {
-            if let Err(e) = conn.execute_batch("COMMIT") {
-                let _ = conn.execute_batch("ROLLBACK");
+            if let Err(e) = state.conn.execute_batch("COMMIT") {
+                let _ = state.conn.execute_batch("ROLLBACK");
                 return Err(format!("COMMIT: {}", e));
             }
             Ok(result)
         }
         Err(e) => {
-            let _ = conn.execute_batch("ROLLBACK");
+            let _ = state.conn.execute_batch("ROLLBACK");
             Err(e)
         }
     }
-}
-
-/// Synchronous wrapper for use in Python sync wrappers.
-/// Blocks on the shared tokio runtime — safe because the GIL is held.
-fn execute_write<F, T>(state: &RustState, f: F) -> Result<T, String>
-where
-    F: FnOnce(&rusqlite::Connection) -> Result<T, String> + Send + 'static,
-    T: Send + 'static,
-{
-    let conn = Arc::clone(&state.conn);
-    RUNTIME.block_on(execute_write_async(conn, f))
 }
 
 // ── Sanitization ────────────────────────────────────────────────────────────
@@ -411,7 +406,8 @@ fn create_session(
             .and_then(|s| json_parse(s).ok())
             .map(|v| serde_json::to_string(&v).unwrap_or_default());
 
-        execute_write(state, |conn| {
+        let session_id_return = session_id.clone();
+        execute_write(state, move |conn| {
             conn.execute(
                 "INSERT OR IGNORE INTO sessions (id, source, user_id, model, model_config, system_prompt, parent_session_id, started_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 rusqlite::params![
@@ -423,14 +419,14 @@ fn create_session(
             Ok(())
         })
         .map_err(PyException::new_err)?;
-        Ok(session_id)
+        Ok(session_id_return)
     })
 }
 
 #[pyfunction]
 fn end_session(session_id: String, end_reason: String) -> PyResult<()> {
     with_state(|state| {
-        execute_write(state, |conn| {
+        execute_write(state, move |conn| {
             conn.execute(
                 "UPDATE sessions SET ended_at = ?1, end_reason = ?2 WHERE id = ?3",
                 rusqlite::params![now_f64(), end_reason, session_id],
