@@ -10,12 +10,13 @@ fail()  { echo -e "${RED}[fail]${RESET}  $*" >&2; exit 1; }
 
 need()  { command -v "$1" &>/dev/null; }
 
-SKIP_DEPS=0; SKIP_RUST=0
+SKIP_DEPS=0; SKIP_RUST=0; FORCE_REBUILD=0
 for arg in "$@"; do
     case "$arg" in
-        --deps)  SKIP_DEPS=1 ;;
-        --rust)  SKIP_RUST=1 ;;
-        --help)  echo "Usage: $0 [--deps] [--rust]"; exit 0 ;;
+        --deps)        SKIP_DEPS=1 ;;
+        --rust)        SKIP_RUST=1 ;;
+        --force-rebuild) FORCE_REBUILD=1 ;;
+        --help)  echo "Usage: $0 [--deps] [--rust] [--force-rebuild]"; exit 0 ;;
         *)       fail "unknown argument: $arg" ;;
     esac
 done
@@ -189,31 +190,232 @@ ensure_rust_sources() {
     ok "rust sources downloaded"
 }
 
-# ── Install Rust extensions from combined wheel ───────────────────────────────
+# ── Detect platform tag for pre-built wheels ───────────────────────────────────
+# Returns: manylinux_2_34_x86_64 | manylinux_2_34_aarch64 | macosx_14_0_arm64 |
+#          macosx_13_x86_64 | macosx_11_0_x86_64
+detect_wheel_tag() {
+    local os_name uname_m arch
+
+    os_name=$(uname -s)
+    uname_m=$(uname -m)
+
+    case "$os_name" in
+        Linux*)
+            case "$uname_m" in
+                x86_64)  echo "manylinux_2_34_x86_64" ;;
+                aarch64) echo "manylinux_2_34_aarch64" ;;
+                arm64)   echo "manylinux_2_34_aarch64" ;;
+                *)       echo "" ;;
+            esac
+            ;;
+        Darwin*)
+            case "$uname_m" in
+                arm64)   echo "macosx_14_0_arm64" ;;
+                x86_64)  echo "macosx_13_x86_64" ;;
+                *)       echo "" ;;
+            esac
+            ;;
+        *)  echo "" ;;
+    esac
+}
+
+# ── Fetch and apply a pre-built combined wheel ────────────────────────────────
+# Tries: 1) local file  2) GitHub Release  3) source build
 install_rust_extensions() {
     install_build_deps
-
     reload_path
+
+    local wheel_tag
+    wheel_tag=$(detect_wheel_tag)
+    info "Platform tag: ${wheel_tag:-unknown} ($(uname -s) $(uname -m))"
+
+    # ── 1. Try local wheel ─────────────────────────────────────────────────────
+    local local_wheel=""
+    if [[ -n "$wheel_tag" ]]; then
+        local_wheel="$HERMES_DIR/target/wheels-all/compressor/hermes_agent-0.6.0-cp311-abi3-${wheel_tag}.whl"
+    fi
+    if [[ -z "$local_wheel" || ! -f "$local_wheel" ]]; then
+        # Scan for any local combined wheel
+        local_wheel=$(find "$HERMES_DIR/target" -name "hermes_agent-0.6.0-cp311-abi3-*.whl" 2>/dev/null | head -1)
+    fi
+
+    if [[ -f "${local_wheel:-}" ]] && [[ $FORCE_REBUILD -eq 0 ]]; then
+        info "Using local wheel: $local_wheel"
+        if install_wheel "$local_wheel"; then
+            return 0
+        fi
+        warn "Local wheel failed, trying GitHub Release..."
+    fi
+
+    # ── 2. Try GitHub Release ─────────────────────────────────────────────────────
+    if [[ -n "$wheel_tag" ]] && [[ $FORCE_REBUILD -eq 0 ]]; then
+        local gh_wheel="hermes_agent-0.6.0-cp311-abi3-${wheel_tag}.whl"
+        local tmp_wheel
+        tmp_wheel=$(mktemp "$gh_wheel.XXXXXX") || fail "mktemp failed"
+
+        info "Downloading $gh_wheel from GitHub Release..."
+        local repo="${REPO_URL##https://github.com/}"
+        if curl -fsSL \
+            "https://github.com/${repo}/releases/latest/download/${gh_wheel}" \
+            -o "$tmp_wheel" 2>/dev/null; then
+            if install_wheel "$tmp_wheel"; then
+                rm -f "$tmp_wheel"
+                return 0
+            fi
+            rm -f "$tmp_wheel"
+        fi
+        warn "No pre-built wheel on GitHub for this platform — building from source..."
+    fi
+
+    # ── 3. Build from source ────────────────────────────────────────────────────
+    build_rust_from_source
+}
+
+# ── Install a wheel file into the venv ────────────────────────────────────────
+install_wheel() {
+    local wheel_path="$1"
+    info "Installing wheel: $wheel_path"
+    if ! "$HERMES_DIR/venv/bin/pip" install --no-deps "$wheel_path" 2>&1; then
+        warn "pip install failed for $wheel_path"
+        return 1
+    fi
+    verify_rust_extensions
+}
+
+# ── Build all _rs crates from source and install the combined wheel ─────────────
+build_rust_from_source() {
+    install_rust
+    reload_path
+
     if ! "$HERMES_DIR/venv/bin/python3" -c "import maturin" 2>/dev/null; then
         info "Installing maturin..."
         uv tool install maturin -q || fail "maturin install failed"
     fi
     ok "maturin"
 
-    # Combined wheel: target/wheels-all/compressor/hermes_agent-0.6.0-cp311-abi3-manylinux_2_34_x86_64.whl
-    local combined_wheel="$HERMES_DIR/target/wheels-all/compressor/hermes_agent-0.6.0-cp311-abi3-manylinux_2_34_x86_64.whl"
-    if [[ ! -f "$combined_wheel" ]]; then
-        fail "Combined wheel not found at $combined_wheel — did the build complete?"
+    info "Building all Rust extensions from source..."
+
+    # Ensure rust sources are present
+    if [[ ! -f "$HERMES_DIR/rust/Cargo.toml" ]]; then
+        ensure_rust_sources
     fi
 
-    info "Installing combined Rust wheel ($combined_wheel)..."
-    if ! "$HERMES_DIR/venv/bin/pip" install --no-deps "$combined_wheel"; then
-        fail "pip install combined wheel failed"
-    fi
-    ok "combined wheel installed"
+    local tmp_wheel_dir
+    tmp_wheel_dir=$(mktemp -d) || fail "mktemp failed"
 
-    # Verify all _rs extensions load
+    # ── Build all crates into the tmp dir ───────────────────────────────────
+    local crates=(
+        "rust/compressor/Cargo.toml"
+        "rust/model_tools_rs/Cargo.toml"
+        "rust/prompt_builder_rs/Cargo.toml"
+        "rust/skin_engine_rs/Cargo.toml"
+        "rust/hermes_state_rs/Cargo.toml"
+        "rust/fuzzy_match_rs/Cargo.toml"
+        "rust/subprocess_rs/Cargo.toml"
+        "rust/file_ops_rs/Cargo.toml"
+        "rust/patch_parser_rs/Cargo.toml"
+        "rust/ansi_strip_rs/Cargo.toml"
+        "rust/redact_rs/Cargo.toml"
+        "rust/run_agent_loop_rs/Cargo.toml"
+        "rust/tool_dispatch_rs/Cargo.toml"
+        "rust/retry_state_machine_rs/Cargo.toml"
+        "rust/honcho_http_rs/Cargo.toml"
+        "rust/context_refs_rs/Cargo.toml"
+    )
+
+    for manifest in "${crates[@]}"; do
+        local crate_label="${manifest##*/}"  # e.g. compressor
+        info "  Building $crate_label..."
+
+        if ! maturin build \
+            --release \
+            --manifest-path "$manifest" \
+            --out "$tmp_wheel_dir" 2>&1; then
+            rm -rf "$tmp_wheel_dir"
+            fail "maturin build failed for $crate_label"
+        fi
+    done
+
+    # ── Combine all per-crate wheels into one ──────────────────────────────────
+    # Export vars so the Python heredoc can read them (double-quoted heredoc)
+    export HERMES_DIR WHEEL_TAG="$wheel_tag"
+    python3 - << PYEOF
+import zipfile, os, sys, shutil, tempfile
+
+hermes_dir = os.environ.get("HERMES_DIR", ".")
+wheel_tag  = os.environ.get("WHEEL_TAG", "manylinux_2_34_x86_64")
+tmp_wheel_dir = sys.argv[1] if len(sys.argv) > 1 else None
+
+if not tmp_wheel_dir:
+    print("[build] ERROR: tmp_wheel_dir not provided", file=sys.stderr)
+    sys.exit(1)
+
+crates = [
+    "compressor_rs", "model_tools_rs", "prompt_builder_rs", "skin_engine_rs",
+    "hermes_state_rs", "fuzzy_match_rs", "subprocess_rs", "file_ops_rs",
+    "patch_parser_rs", "ansi_strip_rs", "redact_rs", "run_agent_loop_rs",
+    "tool_dispatch_rs", "retry_state_machine_rs", "honcho_http_rs", "context_refs_rs",
+]
+
+dest_pkg_dir = os.path.join(hermes_dir, "target", "wheels-all", "compressor")
+os.makedirs(dest_pkg_dir, exist_ok=True)
+
+# Each wheel is a separate package. Extract each crate's .so into the shared
+# dest_pkg_dir so they sit next to each other like a combined wheel.
+for whl in sorted(os.listdir(tmp_wheel_dir)):
+    if not whl.endswith(".whl"):
+        continue
+    whl_path = os.path.join(tmp_wheel_dir, whl)
+    print(f"  Combining: {whl}", flush=True)
+    with zipfile.ZipFile(whl_path) as z:
+        for f in z.namelist():
+            if not f.endswith(".so"):
+                continue
+            z.extract(f, dest_pkg_dir)
+            extracted = os.path.join(dest_pkg_dir, f)
+            base = os.path.basename(f)
+            flat = os.path.join(dest_pkg_dir, base)
+            if extracted != flat:
+                os.replace(extracted, flat)
+
+# Build the combined wheel
+combined_dir = tempfile.mkdtemp()
+combined_whl_base = f"hermes_agent-0.6.0-cp311-abi3-{wheel_tag}.whl"
+combined_whl_path = os.path.join(combined_dir, combined_whl_base)
+
+with zipfile.ZipFile(combined_whl_path, "w", zipfile.ZIP_DEFLATED) as zout:
+    for root, dirs, files in os.walk(dest_pkg_dir):
+        for file in files:
+            full = os.path.join(root, file)
+            arcname = os.path.relpath(full, dest_pkg_dir)
+            zout.write(full, arcname)
+            print(f"  Added: {arcname}", flush=True)
+
+    dist_info_base = "hermes_agent-0.6.0.dist-info"
+    zout.writestr(f"{dist_info_base}/WHEEL",
+        "Wheel-Version: 1.0\nGenerator: hermes-build\nRoot-Is-Purelib: true\nTag: py3-abi3-cp311\n")
+    zout.writestr(f"{dist_info_base}/METADATA",
+        "Metadata-Version: 2.1\nName: hermes-agent\nVersion: 0.6.0\nSummary: hermes-agent Rust extensions\n")
+    zout.writestr(f"{dist_info_base}/RECORD", "")
+
+shutil.copy(combined_whl_path, os.path.join(dest_pkg_dir, combined_whl_base))
+print(f"Combined wheel: {dest_pkg_dir}/{combined_whl_base}", flush=True)
+PYEOF
+
+    local combined="$HERMES_DIR/target/wheels-all/compressor/hermes_agent-0.6.0-cp311-abi3-${wheel_tag:-manylinux_2_34_x86_64}.whl"
+    info "Installing combined wheel..."
+    if ! "$HERMES_DIR/venv/bin/pip" install --no-deps "$combined" 2>&1; then
+        rm -rf "$tmp_wheel_dir"
+        fail "combined wheel install failed"
+    fi
+    rm -rf "$tmp_wheel_dir"
+    verify_rust_extensions
+}
+
+# ── Verify all _rs extensions load ───────────────────────────────────────────
+verify_rust_extensions() {
     info "Verifying _rs extensions..."
+    local failed=0
     python3 - << 'PYEOF'
 import os, sys, subprocess
 
@@ -224,7 +426,8 @@ result = subprocess.run([venv_python, "-c", """
 import compressor_rs, model_tools_rs, prompt_builder_rs, skin_engine_rs,
        hermes_state_rs, fuzzy_match_rs, subprocess_rs, file_ops_rs,
        patch_parser_rs, ansi_strip_rs, redact_rs, run_agent_loop_rs,
-       tool_dispatch_rs, retry_state_machine_rs, honcho_http_rs
+       tool_dispatch_rs, retry_state_machine_rs, honcho_http_rs,
+       context_refs_rs
 print('All Rust extensions loaded OK')
 """], capture_output=True, text=True)
 
