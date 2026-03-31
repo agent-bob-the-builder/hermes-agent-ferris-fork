@@ -12,7 +12,7 @@ Eight PyO3 extension crates replace hot-path Python code — no visible behaviou
 
 | Crate | Hot path | Status |
 |---|---|---|
-| `rust_compressor` | `ContextCompressor.compress()` | Production ✓ |
+| `compressor_rs` | `ContextCompressor.compress()` | Production ✓ |
 | `model_tools_rs` | Tool registry + message sanitization | Production ✓ |
 | `prompt_builder_rs` | System prompt assembly | Production ✓ |
 | `skin_engine_rs` | Skin/theme loading and config | Production ✓ |
@@ -28,7 +28,7 @@ All crates are **transparent fallbacks**: if a crate is missing or fails to load
 ```
 AIAgent (run_agent.py)
 ├── context_compressor.py
-│   └── rust_compressor.compress_async()          [Production ✓]
+│   └── compressor_rs.compress_async()          [Production ✓]
 ├── model_tools.py + tools/registry_rs.py
 │   └── _model_tools_rust.sanitize()             [Production ✓]
 ├── hermes_state.py
@@ -63,7 +63,7 @@ graph TD
     PAT["tools/patch_parser.py<br/>parse_v4a_patch()"]
 
     PB_RS["prompt_builder_rs"]
-    CO_RS["rust_compressor"]
+    CO_RS["compressor_rs"]
     MT_RS["model_tools_rs"]
     HS_RS["hermes_state_rs"]
     SK_RS["skin_engine_rs"]
