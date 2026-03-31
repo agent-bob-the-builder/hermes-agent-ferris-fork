@@ -565,13 +565,19 @@ export HERMES_DIR
 exec "\$HERMES_DIR/venv/bin/python3" "\$HERMES_DIR/cli.py" "\$@"
 WRAPPER
     chmod +x "$hermes_wrapper"
-    # Detect shell rc files
+    # Detect shell rc files — add both PATH and hermes export so the install
+    # takes effect immediately in new shells without requiring a re-source.
     for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
         if [[ -f "$rc" ]]; then
-            # Avoid duplicate exports
-            if ! grep -q "export hermes=" "$rc" 2>/dev/null; then
+            # Avoid duplicate PATH exports (check for the specific pattern)
+            if ! grep -q 'export PATH="\$HOME/.local/bin:\$PATH"' "$rc" 2>/dev/null; then
                 echo "" >> "$rc"
                 echo "# hermes-agent (ferris-fork)" >> "$rc"
+                echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$rc"
+                ok "Added PATH export to $rc"
+            fi
+            # Avoid duplicate hermes exports
+            if ! grep -q "export hermes=" "$rc" 2>/dev/null; then
                 echo "export hermes=\"$HOME/.local/bin/hermes\"" >> "$rc"
                 ok "Added hermes export to $rc"
             fi
