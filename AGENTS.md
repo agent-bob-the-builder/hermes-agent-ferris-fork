@@ -105,6 +105,43 @@ class AIAgent:
 
 Core loop: send messages with tools → receive tool calls → execute via `handle_function_call()` → append results → repeat. Messages follow OpenAI format. Reasoning content stored in `assistant_msg["reasoning"]`.
 
+### Agent-Level Tool Interception
+
+Four tools are handled **inside the agent loop** before `handle_function_call()` is ever invoked: `todo`, `memory`, `session_search`, `delegate_task`. This is critical for Rust because `handle_function_call()` falls back to Python registry dispatch when Rust's `rs_dispatch` returns `None` — but these four must never reach the registry; they carry agent state that only the loop owns.
+
+```python
+# In run_agent.py — intercepted before registry.dispatch()
+_AGENT_LOOP_TOOLS = {"todo", "memory", "session_search", "delegate_task"}
+```
+
+If the Rust backend's `rs_dispatch` returns `None` for any other tool, Python's registry falls through. New tools added to `_AGENT_LOOP_TOOLS` must be handled in both the `_call_tool()` path and the streaming `_call_tool_with_streaming()` path in `run_agent.py`.
+
+---
+
+## Tool Dispatch Mechanics
+
+### `get_tool_definitions()`
+
+- Toolset-based filtering (enabled/disabled)
+- Cached — key is `(enabled_toolsets, disabled_toolsets, quiet_mode)`
+- Lazy discovery: MCP tools and plugins are discovered on first call
+- Rust fallback: tries `rust.get_tool_definitions()` first; falls back to Python registry if it raises
+
+### `handle_function_call()`
+
+- **Lazy loading**: `_ensure_tool_for_dispatch()` loads only the specific tool module needed — no upfront import of all tools
+- **Rust-first**: tries `rust.rs_dispatch()` first; falls back to Python `registry.dispatch()` if Rust returns `None`
+- **Pre/post hooks**: `pre_tool_call` fires synchronously before dispatch; `post_tool_call` fires asynchronously (fire-and-forget via daemon thread) so plugin code never blocks the tool result
+- **Special case**: `execute_code` passes `enabled_tools` explicitly for sandbox enforcement
+- **Agent-level guard**: if a tool name is in `_AGENT_LOOP_TOOLS` but somehow reaches `handle_function_call()`, it returns an error — these must be handled by the loop
+
+### Registry (`ToolRegistry` in `tools/registry.py`)
+
+- `register()` called at module-import time by each tool file
+- Stores `ToolEntry` per tool: name, toolset, schema, handler, check_fn, requires_env, is_async
+- Name collisions are logged but overwritten (last-registered wins)
+- `dispatch()` routes to the correct handler, wraps errors as JSON, checks availability
+
 ---
 
 ## Tool Registration Pattern
