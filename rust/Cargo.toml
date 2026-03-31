@@ -6,12 +6,16 @@ members = [
     "file_ops_rs",
     "fuzzy_match_rs",
     "hermes_state_rs",
+    "honcho_http_rs",
     "model_tools_rs",
     "patch_parser_rs",
     "prompt_builder_rs",
     "redact_rs",
+    "retry_state_machine_rs",
+    "run_agent_loop_rs",
     "skin_engine_rs",
     "subprocess_rs",
+    "tool_dispatch_rs",
 ]
 
 [workspace.package]
