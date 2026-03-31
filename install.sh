@@ -533,34 +533,29 @@ install_hermes_cli() {
 
     cat > "$hermes_wrapper" << WRAPPER
 #!/bin/bash
-# hermes CLI wrapper — resolves HERMES_DIR via symlink, falls back to known
-# paths, then delegates to the hermes-agent venv Python.
+# hermes CLI wrapper — finds the hermes repo and runs cli.py via venv Python.
 set -euo pipefail
 
-# (1) Resolve BASH_SOURCE[0] through symlinks to get the real script path.
-#     readlink -f resolves the full chain; if it fails (relative path / no such
-#     file), fall back to the path as-is so dirname still works.
-_real="\$(readlink -f "\${BASH_SOURCE[0]}" 2>/dev/null || echo "\${BASH_SOURCE[0]}")"
-_where="\$(cd "\$(dirname "\$_real")" && pwd)"
-
-# (2) If _where looks like a hermes dir, use it directly.
-#     Otherwise try known install locations.
-if [[ -f "\$_where/pyproject.toml" || -f "\$_where/setup.py" || -f "\$_where/rust/Cargo.toml" ]]; then
-    HERMES_DIR="\$_where"
-elif [[ -d "\$HOME/.hermes/hermes-agent-ferris-fork" && \\
-        -f "\$HOME/.hermes/hermes-agent-ferris-fork/pyproject.toml" ]]; then
+# Known install locations — checked first so symlink resolution doesn't matter.
+# readlink -f is unreliable across different Linux distros (sometimes returns the
+# symlink path itself instead of resolving it), so known paths take priority.
+if [[ -d "\$HOME/.hermes/hermes-agent-ferris-fork" && \\
+      -f "\$HOME/.hermes/hermes-agent-ferris-fork/pyproject.toml" ]]; then
     HERMES_DIR="\$HOME/.hermes/hermes-agent-ferris-fork"
 elif [[ -d "\$HOME/.local/hermes" && \\
         -f "\$HOME/.local/hermes/pyproject.toml" ]]; then
     HERMES_DIR="\$HOME/.local/hermes"
+elif [[ -f "\${BASH_SOURCE[0]}" ]]; then
+    # Fallback: resolve symlink chain, strip /hermes suffix to get repo root
+    _resolved="\$(readlink -f "\${BASH_SOURCE[0]}" 2>/dev/null || echo "\${BASH_SOURCE[0]}")"
+    HERMES_DIR="\$(cd "\$(dirname "\$_resolved")" && pwd)"
 else
-    # Dead end — point at _where anyway so the exec fails with a clear error
-    HERMES_DIR="\$_where"
+    echo "ERROR: hermes could not determine HERMES_DIR" >&2
+    exit 1
 fi
 
-# (3) Ensure ~/.local/bin is on PATH so subsequent hermes calls work without hash -r
-export PATH="\$HOME/.local/bin:\$PATH"
 export HERMES_DIR
+export PATH="\$HOME/.local/bin:\$PATH"
 
 exec "\$HERMES_DIR/venv/bin/python3" "\$HERMES_DIR/cli.py" "\$@"
 WRAPPER
