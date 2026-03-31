@@ -6206,6 +6206,20 @@ class AIAgent:
             if messages and messages[-1].get("_flush_sentinel") == _sentinel:
                 messages.pop()
 
+    def dump_memory_to_sqlite(self):
+        """Serialize current memory entries into the session's user_context column.
+
+        Called before context compression so memory state survives the session split
+        even if the model hasn't yet persisted to MEMORY.md/USER.md.
+        """
+        if not self._memory_store or not self._session_db:
+            return
+        try:
+            snapshot = self._memory_store.snapshot()
+            self._session_db.update_user_context(self.session_id, snapshot)
+        except Exception as e:
+            logger.debug("dump_memory_to_sqlite failed: %s", e)
+
     def _compress_context(
         self,
         messages: list,
@@ -6221,6 +6235,9 @@ class AIAgent:
         """
         # Pre-compression memory flush: let the model save memories before they're lost
         self.flush_memories(messages, min_turns=0)
+
+        # Persist live memory entries to SQLite before session is split
+        self.dump_memory_to_sqlite()
 
         compressed = self.context_compressor.compress(
             messages, current_tokens=approx_tokens

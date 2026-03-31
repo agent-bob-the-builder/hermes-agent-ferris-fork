@@ -49,6 +49,7 @@ try:
         session_count as _rs_session_count,
         set_session_title as _rs_set_session_title,
         update_system_prompt as _rs_update_system_prompt,
+        update_user_context as _rs_update_user_context,
         update_token_counts as _rs_update_token_counts,
     )
     _RUST_AVAILABLE = True
@@ -163,6 +164,10 @@ class SessionDB:
     def update_system_prompt(self, session_id: str, system_prompt: str) -> None:
         """Store the full assembled system prompt snapshot."""
         _rs_update_system_prompt(session_id=session_id, system_prompt=system_prompt)
+
+    def update_user_context(self, session_id: str, user_context: str) -> None:
+        """Store compressed memory/USER entries in the session record for recovery."""
+        _rs_update_user_context(session_id=session_id, user_context=user_context)
 
     def update_token_counts(
         self,

@@ -333,6 +333,17 @@ class MemoryStore:
         block = self._system_prompt_snapshot.get(target, "")
         return block if block else None
 
+    def snapshot(self) -> str:
+        """Return the current live memory + user entries as a JSON string.
+
+        Used by AIAgent to dump memory to SQLite before context compression,
+        so the state can be recovered even if the session is split.
+        """
+        return json.dumps({
+            "memory_entries": self.memory_entries,
+            "user_entries": self.user_entries,
+        }, ensure_ascii=False)
+
     # -- Internal helpers --
 
     def _success_response(self, target: str, message: str = None) -> Dict[str, Any]:

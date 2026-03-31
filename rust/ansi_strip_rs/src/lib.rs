@@ -88,8 +88,8 @@ fn strip_line(line: &str) -> String {
 /// For multi-line input, lines are processed in parallel via Rayon;
 /// for single-line or short input, falls back to the sequential path.
 pub fn strip_ansi(text: &str) -> String {
-    let lines: Vec<&str> = text.split('
-').collect();
+    let lines: Vec<&str> = text.split("
+").collect();
     if lines.len() == 1 {
         // Single line — no need to spawn parallel tasks
         return strip_line(text);

@@ -6649,7 +6649,7 @@ def _start_cron_ticker(stop_event: threading.Event, adapters=None, interval: int
     from gateway.platforms.base import cleanup_image_cache, cleanup_document_cache
 
     IMAGE_CACHE_EVERY = 60  # ticks — once per hour at default 60s interval
-    CHANNEL_DIR_EVERY = 5  # ticks — every 5 minutes
+    CHANNEL_DIR_EVERY = 1  # ticks — every minute
 
     logger.info("Cron ticker started (interval=%ds)", interval)
     tick_count = 0

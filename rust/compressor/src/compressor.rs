@@ -191,17 +191,18 @@ pub fn sanitize_tool_pairs(messages: &mut Vec<Value>) {
     if !orphaned_results.is_empty() {
         let before = messages.len();
         let orphaned_ref = &orphaned_results;
-        let pruned: Vec<&Value> = messages
+        let mut to_keep: Vec<bool> = messages
             .par_iter()
-            .filter(|m| {
-                !(m.get("role").and_then(|v| v.as_str()) == Some("tool")
+            .map(|m| {
+                let is_orphaned = m.get("role").and_then(|v| v.as_str()) == Some("tool")
                     && m.get("tool_call_id")
                         .and_then(|v| v.as_str())
                         .map(|s| orphaned_ref.contains(s))
-                        .unwrap_or(false))
+                        .unwrap_or(false);
+                !is_orphaned
             })
             .collect();
-        messages.retain(|m| pruned.contains(&m));
+        messages.retain(|_| to_keep.remove(0));
         let removed = before - messages.len();
         if removed > 0 {
             eprintln!("Compression sanitizer: removed {} orphaned tool result(s)", removed);
