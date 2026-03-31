@@ -9,7 +9,7 @@
 //! - format_token_count_compact
 
 use once_cell::sync::Lazy;
-use rust_decimal::Decimal;
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -19,14 +19,14 @@ use pyo3::prelude::*;
 // Constants
 // ---------------------------------------------------------------------------
 
-const ZERO: Decimal = Decimal::ZERO;
-const ONE_MILLION: Decimal = Decimal::const_new(1_000_000, rust_decimal::prelude::Scale::new(0).unwrap());
+const ZERO: f64 = 0.0;
+const ONE_MILLION: f64 = 1_000_000.0;
 
-fn dec(s: &str) -> Decimal {
-    s.parse().unwrap_or(ZERO)
+fn dec(s: &str) -> f64 {
+    s.parse().unwrap_or(0.0)
 }
 
-fn opt_dec(s: &str) -> Option<Decimal> {
+fn opt_dec(s: &str) -> Option<f64> {
     Some(dec(s))
 }
 
@@ -77,15 +77,15 @@ pub struct BillingRoute {
 #[pyclass]
 pub struct PricingEntry {
     #[pyo3(get, set)]
-    pub input_cost_per_million: Option<Decimal>,
+    pub input_cost_per_million: Option<f64>,
     #[pyo3(get, set)]
-    pub output_cost_per_million: Option<Decimal>,
+    pub output_cost_per_million: Option<f64>,
     #[pyo3(get, set)]
-    pub cache_read_cost_per_million: Option<Decimal>,
+    pub cache_read_cost_per_million: Option<f64>,
     #[pyo3(get, set)]
-    pub cache_write_cost_per_million: Option<Decimal>,
+    pub cache_write_cost_per_million: Option<f64>,
     #[pyo3(get, set)]
-    pub request_cost: Option<Decimal>,
+    pub request_cost: Option<f64>,
     #[pyo3(get, set)]
     pub source: String,
     #[pyo3(get, set)]
@@ -113,7 +113,7 @@ impl Default for PricingEntry {
 #[pyclass]
 pub struct CostResult {
     #[pyo3(get, set)]
-    pub amount_usd: Option<Decimal>,
+    pub amount_usd: Option<f64>,
     #[pyo3(get, set)]
     pub status: String,
     #[pyo3(get, set)]
@@ -597,39 +597,39 @@ pub fn has_known_pricing(model_name: &str, provider: Option<&str>, base_url: Opt
 pub fn compute_cost_from_usage(
     usage: &CanonicalUsage,
     entry: &PricingEntry,
-) -> (Decimal, Vec<String>) {
+) -> (f64, Vec<String>) {
     let mut amount = ZERO;
     let notes: Vec<String>;
 
     if usage.input_tokens > 0 && entry.input_cost_per_million.is_none() {
-        return (Decimal::MAX, vec![]);
+        return (f64::MAX, vec![]);
     }
     if usage.output_tokens > 0 && entry.output_cost_per_million.is_none() {
-        return (Decimal::MAX, vec![]);
+        return (f64::MAX, vec![]);
     }
     if usage.cache_read_tokens > 0 && entry.cache_read_cost_per_million.is_none() {
         notes = vec!["cache-read pricing unavailable for route".to_string()];
-        return (Decimal::MAX, notes);
+        return (f64::MAX, notes);
     }
     if usage.cache_write_tokens > 0 && entry.cache_write_cost_per_million.is_none() {
         notes = vec!["cache-write pricing unavailable for route".to_string()];
-        return (Decimal::MAX, notes);
+        return (f64::MAX, notes);
     }
 
     if let Some(cost) = entry.input_cost_per_million {
-        amount += Decimal::from(usage.input_tokens) * cost / ONE_MILLION;
+        amount += usage.input_tokens as f64 * cost / ONE_MILLION;
     }
     if let Some(cost) = entry.output_cost_per_million {
-        amount += Decimal::from(usage.output_tokens) * cost / ONE_MILLION;
+        amount += usage.output_tokens as f64 * cost / ONE_MILLION;
     }
     if let Some(cost) = entry.cache_read_cost_per_million {
-        amount += Decimal::from(usage.cache_read_tokens) * cost / ONE_MILLION;
+        amount += usage.cache_read_tokens as f64 * cost / ONE_MILLION;
     }
     if let Some(cost) = entry.cache_write_cost_per_million {
-        amount += Decimal::from(usage.cache_write_tokens) * cost / ONE_MILLION;
+        amount += usage.cache_write_tokens as f64 * cost / ONE_MILLION;
     }
     if let Some(cost) = entry.request_cost {
-        amount += Decimal::from(usage.request_count) * cost;
+        amount += usage.request_count as f64 * cost;
     }
 
     (amount, vec![])
@@ -659,11 +659,11 @@ pub fn estimate_usage_cost(
 
     let (amount, mut notes) = compute_cost_from_usage(usage, &entry);
 
-    if amount == Decimal::MAX {
+    if amount == f64::MAX {
         return CostResult::unknown(&entry.source);
     }
 
-    let status = if entry.source == "none" && amount == ZERO {
+    let status = if entry.source == "none" && amount.abs() < 1e-9 {
         "included"
     } else {
         "estimated"
@@ -769,7 +769,7 @@ fn py_compute_cost_from_usage(usage: &str, pricing_entry: &str) -> (Option<Strin
     let usage_val: CanonicalUsage = serde_json::from_str(usage).unwrap_or_default();
     let entry_val: PricingEntry = serde_json::from_str(pricing_entry).unwrap_or_default();
     let (amount, notes) = compute_cost_from_usage(&usage_val, &entry_val);
-    if amount == Decimal::MAX {
+    if amount == f64::MAX {
         (None, notes)
     } else {
         (Some(amount.to_string()), notes)
@@ -889,7 +889,7 @@ mod tests {
         let entry = lookup_official_docs_pricing(&route);
         assert!(entry.is_some());
         let e = entry.unwrap();
-        assert_eq!(e.input_cost_per_million, Some(Decimal::from(3)));
+        assert_eq!(e.input_cost_per_million, Some(3 as f64));
     }
 
     #[test]

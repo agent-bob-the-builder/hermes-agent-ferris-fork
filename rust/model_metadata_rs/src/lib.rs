@@ -1,6 +1,5 @@
 use pyo3::prelude::*;
 use regex::Regex;
-use serde_json::json;
 use std::net::IpAddr;
 use std::str::FromStr;
 

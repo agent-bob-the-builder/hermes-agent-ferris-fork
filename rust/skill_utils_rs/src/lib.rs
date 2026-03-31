@@ -18,16 +18,18 @@ static FRONTMATTER_RE: once_cell::sync::Lazy<regex::Regex> =
 fn parse_frontmatter(content: &str) -> PyResult<Py<PyTuple>> {
     Python::attach(|py| {
         if !content.starts_with("---") {
-            let empty_dict: Bound<'_, PyDict> = py.eval(c"{}", None, None)?.cast()?;
-            let body_py: Bound<'_, PyAny> = content.into_pyobject(py)?;
+            let empty_dict: Bound<'_, PyDict> = PyDict::new(py);
+            let body_py_obj = content.into_pyobject(py)?;
+            let body_py: &Bound<'_, PyAny> = &body_py_obj.as_any();
             let tuple = PyTuple::new(py, [empty_dict.as_any(), body_py])?;
             return Ok(tuple.unbind());
         }
 
         let rest = &content[3..];
         let Some(cap) = FRONTMATTER_RE.find(rest) else {
-            let empty_dict: Bound<'_, PyDict> = py.eval(c"{}", None, None)?.cast()?;
-            let body_py: Bound<'_, PyAny> = content.into_pyobject(py)?;
+            let empty_dict: Bound<'_, PyDict> = PyDict::new(py);
+            let body_py_obj = content.into_pyobject(py)?;
+            let body_py: &Bound<'_, PyAny> = &body_py_obj.as_any();
             let tuple = PyTuple::new(py, [empty_dict.as_any(), body_py])?;
             return Ok(tuple.unbind());
         };
@@ -36,29 +38,19 @@ fn parse_frontmatter(content: &str) -> PyResult<Py<PyTuple>> {
         let yaml_content = &content[3..yaml_end];
         let body: &str = &content[yaml_end + cap.len()..];
 
-        // Build {"key": "value", ...} from simple key:value lines.
+        // Build [(key, value), ...] from simple key:value lines.
         // Used as fallback when yaml_load fails.
-        fn simple_parse(yaml_content: &str) -> String {
+        fn simple_parse(yaml_content: &str) -> Vec<(String, String)> {
             let mut pairs = Vec::new();
             for line in yaml_content.trim().split('\n') {
                 let line = line.trim();
                 if let Some(idx) = line.find(':') {
-                    let key = line[..idx].trim();
-                    let value = line[idx + 1..].trim();
-                    let value_escaped = value
-                        .replace('\\', "\\\\")
-                        .replace('"', "\\\"")
-                        .replace('\n', "\\n")
-                        .replace('\r', "\\r")
-                        .replace('\t', "\\t");
-                    pairs.push(format!("\"{}\": \"{}\"", key, value_escaped));
+                    let key = line[..idx].trim().to_string();
+                    let value = line[idx + 1..].trim().to_string();
+                    pairs.push((key, value));
                 }
             }
-            if pairs.is_empty() {
-                "{}".to_string()
-            } else {
-                format!("{{{}}}", pairs.join(", "))
-            }
+            pairs
         }
 
         let yaml_module = py.import("yaml")?;
@@ -69,13 +61,13 @@ fn parse_frontmatter(content: &str) -> PyResult<Py<PyTuple>> {
         // Build positional args for yaml.load(yaml_content, Loader=loader)
         let yaml_args = PyTuple::new(
             py,
-            [yaml_content.into_pyobject(py)?, loader.as_any()],
+            [yaml_content.into_pyobject(py)?.as_any(), loader.as_any()],
         )?;
 
         let parsed_py: Bound<'_, PyDict> = match yaml_module.call1(yaml_args) {
             Ok(result) => {
                 if let Ok(d) = result.cast::<PyDict>() {
-                    d
+                    d.clone()
                 } else if let Ok(l) = result.cast::<PyList>() {
                     let dict = PyDict::new(py);
                     dict.set_item("__root__", l.as_any())?;
@@ -88,15 +80,17 @@ fn parse_frontmatter(content: &str) -> PyResult<Py<PyTuple>> {
             }
             Err(_) => {
                 // Fallback: simple key:value parsing
-                let fallback_json = simple_parse(yaml_content);
-                let code = format!("{{{}}}", fallback_json);
-                py.eval(c"{}", None, None)?; // just to validate syntax; will be replaced below
-                py.eval(&code, None, None)?
-                    .cast::<PyDict>()?
+                let pairs = simple_parse(yaml_content);
+                let dict = PyDict::new(py);
+                for (k, v) in pairs {
+                    dict.set_item(k, v)?;
+                }
+                dict
             }
         };
 
-        let body_py: Bound<'_, PyAny> = body.into_pyobject(py)?;
+        let body_py_obj = body.into_pyobject(py)?;
+        let body_py: &Bound<'_, PyAny> = &body_py_obj.as_any();
         let tuple = PyTuple::new(py, [parsed_py.as_any(), body_py])?;
         Ok(tuple.unbind())
     })

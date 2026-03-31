@@ -111,7 +111,7 @@ fn format_date(ts: Option<f64>) -> String {
     match ts {
         Some(t) => {
             let days_since_epoch = (t / 86400.0) as i64;
-            let (year, month, day) = civil_from_days(days_since_epoch + 719163);
+            let (_year, month, day) = civil_from_days(days_since_epoch + 719163);
             let month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
             format!("{} {:02}", month_names[(month - 1) as usize], day)
@@ -499,7 +499,7 @@ pub fn format_terminal(
     let padding = 58usize.saturating_sub(period_label.len());
     let left_pad = padding / 2;
     let right_pad = padding - left_pad;
-    lines.push(format!("  ║{}{} {}{}║", " ".repeat(left_pad), " ".repeat(right_pad), period_label, ""));
+    lines.push(format!("  ║{left}{label} {right}║", left=" ".repeat(left_pad), label=period_label, right=" ".repeat(right_pad)));
     lines.push("  ╚══════════════════════════════════════════════════════════╝".to_string());
     lines.push("".to_string());
 

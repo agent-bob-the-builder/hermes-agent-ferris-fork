@@ -1,11 +1,21 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Dict, Literal, Optional
 
 from agent.model_metadata import fetch_endpoint_model_metadata, fetch_model_metadata
+
+logger = logging.getLogger(__name__)
+
+# Attempt to load Rust-accelerated pure functions
+_rs_usage_pricing = None
+try:
+    from agent import usage_pricing_rs as _rs_usage_pricing
+except Exception:
+    pass
 
 DEFAULT_PRICING = {"input": 0.0, "output": 0.0}
 
@@ -301,6 +311,15 @@ def _format_duration_compact_rs(seconds: float) -> Optional[str]:
         return None
     try:
         return _rs_usage_pricing.format_duration_compact(seconds)
+    except Exception:
+        return None
+
+
+def _to_decimal(value: Any) -> Optional[Decimal]:
+    if value is None:
+        return None
+    try:
+        return Decimal(str(value))
     except Exception:
         return None
 

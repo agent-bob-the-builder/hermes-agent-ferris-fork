@@ -35,7 +35,7 @@ const DEFAULT_EXCLUDES: &[&str] = &[
 const MAX_FILES: usize = 50_000;
 
 /// Timeout for git operations in seconds
-const GIT_TIMEOUT: u64 = 30;
+const _GIT_TIMEOUT: u64 = 30;
 
 // ============================================================================
 // Python-facing types
@@ -535,7 +535,7 @@ impl CheckpointManager {
                 .ok();
             
             if let Some(d) = diff {
-                let _ = d.print(git2::DiffFormat::Patch, |delta, _hunk, line| {
+                let _ = d.print(git2::DiffFormat::Patch, |_delta, _hunk, line| {
                     let prefix = match line.origin() {
                         '+' => "+",
                         '-' => "-",
