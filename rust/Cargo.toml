@@ -17,6 +17,7 @@ members = [
     "subprocess_rs",
     "tool_dispatch_rs",
     "context_refs_rs",
+    "approval_rs",
 ]
 
 [workspace.package]

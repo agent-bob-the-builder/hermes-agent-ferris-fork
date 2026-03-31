@@ -49,7 +49,7 @@ def _ensure_rust_fuzzy():
     if _rust_fuzzy is not None:
         return _rust_fuzzy
     try:
-        import fuzzy_match_rs as _mod
+        import _fuzzy_match_rs as _mod
 
         _mod.fuzzy_find_and_replace(
             content="",

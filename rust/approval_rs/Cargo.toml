@@ -1,0 +1,22 @@
+[package]
+name = "approval_rs"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "approval_rs"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3.workspace = true
+regex.workspace = true
+once_cell.workspace = true
+
+[package.metadata.maturin]
+name = "approval_rs"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+panic = "abort"

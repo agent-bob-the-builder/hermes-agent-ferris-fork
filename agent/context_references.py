@@ -14,7 +14,7 @@ from typing import Awaitable, Callable
 from agent.model_metadata import estimate_tokens_rough
 
 try:
-    from context_refs_rs import (
+    from _context_refs_rs import (
         parse_context_references as _parse_context_references_rs,
         remove_reference_tokens as _remove_reference_tokens_rs,
         estimate_tokens_rough as _estimate_tokens_rough_rs,

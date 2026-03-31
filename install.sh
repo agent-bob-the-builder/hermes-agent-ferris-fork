@@ -318,9 +318,10 @@ build_rust_from_source() {
         "rust/redact_rs/Cargo.toml"
         "rust/run_agent_loop_rs/Cargo.toml"
         "rust/tool_dispatch_rs/Cargo.toml"
-        "rust/retry_state_machine_rs/Cargo.toml"
+        "rust/_retry_state_machine_rs/Cargo.toml"
         "rust/honcho_http_rs/Cargo.toml"
         "rust/context_refs_rs/Cargo.toml"
+        "rust/approval_rs/Cargo.toml"
     )
 
     for manifest in "${crates[@]}"; do
@@ -355,6 +356,7 @@ crates = [
     "hermes_state_rs", "fuzzy_match_rs", "subprocess_rs", "file_ops_rs",
     "patch_parser_rs", "ansi_strip_rs", "redact_rs", "run_agent_loop_rs",
     "tool_dispatch_rs", "retry_state_machine_rs", "honcho_http_rs", "context_refs_rs",
+    "approval_rs",
 ]
 
 dest_pkg_dir = os.path.join(hermes_dir, "target", "wheels-all", "compressor")
@@ -427,7 +429,7 @@ import compressor_rs, model_tools_rs, prompt_builder_rs, skin_engine_rs,
        hermes_state_rs, fuzzy_match_rs, subprocess_rs, file_ops_rs,
        patch_parser_rs, ansi_strip_rs, redact_rs, run_agent_loop_rs,
        tool_dispatch_rs, retry_state_machine_rs, honcho_http_rs,
-       context_refs_rs
+       context_refs_rs, approval_rs
 print('All Rust extensions loaded OK')
 """], capture_output=True, text=True)
 

@@ -28,6 +28,7 @@ A performance oriented Rust fork of [Hermes Agent](https://github.com/NousResear
 | `retry_state_machine_rs` | Retry/fallback/compression state machine | Callable ✓ |
 | `honcho_http_rs` | Honcho HTTP client | Wired ✓ |
 | `context_refs_rs` | @-reference parsing + token stripping | Wired ✓ |
+| `approval_rs` | Dangerous command detection / approval | Callable ✓ |
 
 Wired crates have **transparent Python fallbacks** — if a crate is missing or fails to load, the Python implementation runs instead with no visible difference.
 
@@ -62,9 +63,11 @@ AIAgent (run_agent.py)
 │   │   └── tool_dispatch_rs.rs_should_parallelize()      [Wired ✓]
 │   └── _execute_tool_calls_concurrent_rs()
 │       └── tool_dispatch_rs.rs_run_concurrent_tool_batch()[Wired ✓]
-└── agent/context_references.py
-    ├── parse_context_references() → context_refs_rs        [Wired ✓]
-    └── _remove_reference_tokens() → context_refs_rs         [Wired ✓]
+├── agent/context_references.py
+│   ├── parse_context_references() → context_refs_rs        [Wired ✓]
+│   └── _remove_reference_tokens() → context_refs_rs         [Wired ✓]
+└── tools/approval.py
+    └── check_approval() → approval_rs                      [Callable ✓]
 ```
 
 ```mermaid
@@ -81,6 +84,7 @@ graph TD
     HON["honcho_integration/session.py<br/>_honcho_http_rust"]
     TDP["run_agent.py<br/>_execute_tool_calls_concurrent_rs()"]
     CRE["agent/context_references.py<br/>parse_context_references()"]
+    APP["tools/approval.py<br/>check_approval()"]
 
     PB_RS["prompt_builder_rs"]
     CO_RS["compressor_rs"]
@@ -93,6 +97,7 @@ graph TD
     HH_RS["honcho_http_rs"]
     TD_RS["tool_dispatch_rs"]
     CR_RS["context_refs_rs"]
+    AP_RS["approval_rs"]
 
     RA -->|"prompt assembly"| PCP
     RA -->|"tool registry"| MTP
@@ -136,6 +141,9 @@ graph TD
     CRE -->|"wired ✓"| CR_RS
     CRE -.->|"fallback"| CRE
 
+    APP -->|"callable ✓"| AP_RS
+    APP -.->|"fallback"| APP
+
     style PB_RS fill:#de5347,color:#fff
     style CO_RS fill:#de5347,color:#fff
     style MT_RS fill:#de5347,color:#fff
@@ -147,6 +155,7 @@ graph TD
     style HH_RS fill:#de5347,color:#fff
     style TD_RS fill:#de5347,color:#fff
     style CR_RS fill:#de5347,color:#fff
+    style AP_RS fill:#de5347,color:#fff
 ```
 
 ---

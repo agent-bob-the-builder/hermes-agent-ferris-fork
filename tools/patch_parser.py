@@ -36,7 +36,7 @@ from enum import Enum
 
 # Rust accelerator — pure-Rust V4A parser, no Python state machine
 try:
-    import patch_parser_rs as _rust_parser
+    import _patch_parser_rs as _rust_parser
 except Exception:
     _rust_parser = None
 
