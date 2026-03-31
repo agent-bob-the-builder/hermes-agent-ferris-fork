@@ -536,21 +536,35 @@ install_hermes_cli() {
 # hermes CLI wrapper — finds the hermes repo and runs cli.py via venv Python.
 set -euo pipefail
 
-# Known install locations — checked first so symlink resolution doesn't matter.
-# readlink -f is unreliable across different Linux distros (sometimes returns the
-# symlink path itself instead of resolving it), so known paths take priority.
+# Known install locations — checked first, most reliable.
 if [[ -d "\$HOME/.hermes/hermes-agent-ferris-fork" && \\
       -f "\$HOME/.hermes/hermes-agent-ferris-fork/pyproject.toml" ]]; then
     HERMES_DIR="\$HOME/.hermes/hermes-agent-ferris-fork"
 elif [[ -d "\$HOME/.local/hermes" && \\
         -f "\$HOME/.local/hermes/pyproject.toml" ]]; then
     HERMES_DIR="\$HOME/.local/hermes"
-elif [[ -f "\${BASH_SOURCE[0]}" ]]; then
-    # Fallback: resolve symlink chain, strip /hermes suffix to get repo root
-    _resolved="\$(readlink -f "\${BASH_SOURCE[0]}" 2>/dev/null || echo "\${BASH_SOURCE[0]}")"
-    HERMES_DIR="\$(cd "\$(dirname "\$_resolved")" && pwd)"
+elif [[ -L "\${BASH_SOURCE[0]}" && -f "\${BASH_SOURCE[0]}" ]]; then
+    # Resolve symlink via ls -l (more portable than readlink -f).
+    # Handles both absolute and relative symlink targets.
+    _target="\$(ls -l "\${BASH_SOURCE[0]}" 2>/dev/null | awk '{print \$NF}')"
+    if [[ -n "\$_target" ]]; then
+        if [[ "\$_target" = /* ]]; then
+            HERMES_DIR="\$(dirname "\$_target")"
+        else
+            HERMES_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && cd "\$(dirname "\$_target")" && pwd)"
+        fi
+    else
+        HERMES_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+    fi
 else
-    echo "ERROR: hermes could not determine HERMES_DIR" >&2
+    echo "ERROR: could not determine HERMES_DIR" >&2
+    exit 1
+fi
+
+# Sanity check — if venv doesn't exist, fail clearly
+if [[ ! -f "\$HERMES_DIR/venv/bin/python3" ]]; then
+    echo "ERROR: hermes venv not found at \$HERMES_DIR/venv/bin/python3" >&2
+    echo "Run the install script again to fix." >&2
     exit 1
 fi
 
