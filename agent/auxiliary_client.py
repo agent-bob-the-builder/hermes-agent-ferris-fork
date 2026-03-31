@@ -718,7 +718,135 @@ def _read_main_model() -> str:
         os.getenv("OPENAI_MODEL") or os.getenv("HERMES_MODEL") or os.getenv("LLM_MODEL")
     )
     if from_env:
-        return from_env.strip()    return CodexAuxiliaryClient(real_client, _CODEX_AUX_MODEL), _CODEX_AUX_MODEL
+        return from_env.strip()
+    return CodexAuxiliaryClient(real_client, _CODEX_AUX_MODEL), _CODEX_AUX_MODEL
+
+
+
+def _resolve_custom_runtime() -> Tuple[Optional[str], Optional[str]]:
+    """Resolve the active custom/main endpoint the same way the main CLI does.
+
+    This covers both env-driven OPENAI_BASE_URL setups and config-saved custom
+    endpoints where the base URL lives in config.yaml instead of the live
+    environment.
+    """
+    try:
+        from hermes_cli.runtime_provider import resolve_runtime_provider
+
+        runtime = resolve_runtime_provider(requested="custom")
+    except Exception as exc:
+        logger.debug("Auxiliary client: custom runtime resolution failed: %s", exc)
+        return None, None
+
+    custom_base = runtime.get("base_url")
+    custom_key = runtime.get("api_key")
+    if not isinstance(custom_base, str) or not custom_base.strip():
+        return None, None
+
+    custom_base = custom_base.strip().rstrip("/")
+    if "openrouter.ai" in custom_base.lower():
+        # requested='custom' falls back to OpenRouter when no custom endpoint is
+        # configured. Treat that as "no custom endpoint" for auxiliary routing.
+        return None, None
+
+    # Local servers (Ollama, llama.cpp, vLLM, LM Studio) don't require auth.
+    # Use a placeholder key — the OpenAI SDK requires a non-empty string but
+    # local servers ignore the Authorization header.  Same fix as cli.py
+    # _ensure_runtime_credentials() (PR #2556).
+    if not isinstance(custom_key, str) or not custom_key.strip():
+        custom_key = "no-key-required"
+
+    return custom_base, custom_key.strip()
+
+
+
+def _current_custom_base_url() -> str:
+    custom_base, _ = _resolve_custom_runtime()
+    return custom_base or ""
+
+
+
+def _try_custom_endpoint() -> "Tuple[Optional[OpenAI], Optional[str]]":
+    from openai import OpenAI
+
+    custom_base, custom_key = _resolve_custom_runtime()
+    if not custom_base or not custom_key:
+        return None, None
+    model = _read_main_model() or "gpt-4o-mini"
+    logger.debug("Auxiliary client: custom endpoint (%s)", model)
+    return OpenAI(api_key=custom_key, base_url=custom_base), model
+
+
+
+def _try_codex() -> Tuple[Optional[Any], Optional[str]]:
+    from openai import OpenAI
+
+    codex_token = _read_codex_access_token()
+    if not codex_token:
+        return None, None
+    logger.debug(
+        "Auxiliary client: Codex OAuth (%s via Responses API)", _CODEX_AUX_MODEL
+    )
+    from openai import OpenAI
+
+    real_client = OpenAI(api_key=codex_token, base_url=_CODEX_AUX_BASE_URL)
+    return CodexAuxiliaryClient(real_client, _CODEX_AUX_MODEL), _CODEX_AUX_MODEL
+
+
+
+def _resolve_custom_runtime() -> Tuple[Optional[str], Optional[str]]:
+    """Resolve the active custom/main endpoint the same way the main CLI does.
+
+    This covers both env-driven OPENAI_BASE_URL setups and config-saved custom
+    endpoints where the base URL lives in config.yaml instead of the live
+    environment.
+    """
+    try:
+        from hermes_cli.runtime_provider import resolve_runtime_provider
+
+        runtime = resolve_runtime_provider(requested="custom")
+    except Exception as exc:
+        logger.debug("Auxiliary client: custom runtime resolution failed: %s", exc)
+        return None, None
+
+    custom_base = runtime.get("base_url")
+    custom_key = runtime.get("api_key")
+    if not isinstance(custom_base, str) or not custom_base.strip():
+        return None, None
+
+    custom_base = custom_base.strip().rstrip("/")
+    if "openrouter.ai" in custom_base.lower():
+        # requested='custom' falls back to OpenRouter when no custom endpoint is
+        # configured. Treat that as "no custom endpoint" for auxiliary routing.
+        return None, None
+
+    # Local servers (Ollama, llama.cpp, vLLM, LM Studio) don't require auth.
+    # Use a placeholder key — the OpenAI SDK requires a non-empty string but
+    # local servers ignore the Authorization header.  Same fix as cli.py
+    # _ensure_runtime_credentials() (PR #2556).
+    if not isinstance(custom_key, str) or not custom_key.strip():
+        custom_key = "no-key-required"
+
+    return custom_base, custom_key.strip()
+
+
+
+def _current_custom_base_url() -> str:
+    custom_base, _ = _resolve_custom_runtime()
+    return custom_base or ""
+
+
+
+def _try_custom_endpoint() -> "Tuple[Optional[OpenAI], Optional[str]]":
+    from openai import OpenAI
+
+    custom_base, custom_key = _resolve_custom_runtime()
+    if not custom_base or not custom_key:
+        return None, None
+    model = _read_main_model() or "gpt-4o-mini"
+    logger.debug("Auxiliary client: custom endpoint (%s)", model)
+    return OpenAI(api_key=custom_key, base_url=custom_base), model
+
 
 
 def _try_anthropic() -> Tuple[Optional[Any], Optional[str]]:

@@ -3521,11 +3521,11 @@ class HermesCLI:
 
                     custom_url = _get_custom_base_url() or os.getenv(
                         "OPENAI_BASE_URL", ""
-                    )                    if custom_url:
-                        print(f"      endpoint: {custom_url}")
-                    if is_active:
-                        print(f"      model: {self.model} ← current")
-                    print("      (use hermes model to change)")
+                    )
+                    if custom_url:
+                        if is_active:
+                            print(f"      model: {self.model} ← current")
+                        print("      (use hermes model to change)")
                 else:
                     print("      (use hermes model to change)")
                 print()
