@@ -14,4 +14,4 @@ serde_json.workspace = true
 once_cell.workspace = true
 
 [package.metadata.maturin]
-name = "_prompt_builder_rs"
+name = "prompt_builder_rs"

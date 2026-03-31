@@ -522,6 +522,15 @@ INVISIBLE_CHARS = {
     '\u2069',  # pop directional isolate
 }
 
+# Pre-compile all threat patterns once at module load for O(1) reuse
+COMPILED_PATTERNS = [
+    (re.compile(pattern, re.IGNORECASE), pid, severity, category, description)
+    for pattern, pid, severity, category, description in THREAT_PATTERNS
+]
+
+# Pre-compile invisible unicode detection as a single regex
+_INVISIBLE_CHARS_PATTERN = re.compile('[' + ''.join(INVISIBLE_CHARS) + ']')
+
 
 # ---------------------------------------------------------------------------
 # Scanning functions
@@ -553,12 +562,12 @@ def scan_file(file_path: Path, rel_path: str = "") -> List[Finding]:
     lines = content.split('\n')
     seen = set()  # (pattern_id, line_number) for deduplication
 
-    # Regex pattern matching
-    for pattern, pid, severity, category, description in THREAT_PATTERNS:
+    # Regex pattern matching (using pre-compiled patterns)
+    for compiled_pattern, pid, severity, category, description in COMPILED_PATTERNS:
         for i, line in enumerate(lines, start=1):
             if (pid, i) in seen:
                 continue
-            if re.search(pattern, line, re.IGNORECASE):
+            if compiled_pattern.search(line):
                 seen.add((pid, i))
                 matched_text = line.strip()
                 if len(matched_text) > 120:
@@ -573,21 +582,21 @@ def scan_file(file_path: Path, rel_path: str = "") -> List[Finding]:
                     description=description,
                 ))
 
-    # Invisible unicode character detection
+    # Invisible unicode character detection (using pre-compiled regex)
     for i, line in enumerate(lines, start=1):
-        for char in INVISIBLE_CHARS:
-            if char in line:
-                char_name = _unicode_char_name(char)
-                findings.append(Finding(
-                    pattern_id="invisible_unicode",
-                    severity="high",
-                    category="injection",
-                    file=rel_path,
-                    line=i,
-                    match=f"U+{ord(char):04X} ({char_name})",
-                    description=f"invisible unicode character {char_name} (possible text hiding/injection)",
-                ))
-                break  # one finding per line for invisible chars
+        match = _INVISIBLE_CHARS_PATTERN.search(line)
+        if match:
+            char = match.group()
+            char_name = _unicode_char_name(char)
+            findings.append(Finding(
+                pattern_id="invisible_unicode",
+                severity="high",
+                category="injection",
+                file=rel_path,
+                line=i,
+                match=f"U+{ord(char):04X} ({char_name})",
+                description=f"invisible unicode character {char_name} (possible text hiding/injection)",
+            ))
 
     return findings
 
