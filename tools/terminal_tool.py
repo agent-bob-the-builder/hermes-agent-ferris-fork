@@ -460,8 +460,14 @@ def _get_env_config() -> Dict[str, Any]:
     # Default cwd: local uses the host's current directory, everything
     # else starts in the user's home (~ resolves to whatever account
     # is running inside the container/remote).
+    # Guard against stale mounts / dead PTY dirs (blocks cron subprocesses).
+    try:
+        _default_cwd = os.getcwd()
+    except OSError:
+        _default_cwd = "/root"
+
     if env_type == "local":
-        default_cwd = os.getcwd()
+        default_cwd = _default_cwd
     elif env_type == "ssh":
         default_cwd = "~"
     else:
@@ -475,7 +481,7 @@ def _get_env_config() -> Dict[str, Any]:
     host_cwd = None
     host_prefixes = ("/Users/", "/home/", "C:\\", "C:/")
     if env_type == "docker" and mount_docker_cwd:
-        docker_cwd_source = os.getenv("TERMINAL_CWD") or os.getcwd()
+        docker_cwd_source = os.getenv("TERMINAL_CWD") or _default_cwd
         candidate = os.path.abspath(os.path.expanduser(docker_cwd_source))
         if (
             any(candidate.startswith(p) for p in host_prefixes)
