@@ -446,6 +446,7 @@ version = "0.1.0"
 dependencies = [
  "lazy_static",
  "once_cell",
+ "parking_lot",
  "pyo3",
  "rand 0.8.5",
  "regex",

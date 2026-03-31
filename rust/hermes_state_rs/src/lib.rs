@@ -7,7 +7,6 @@ use pyo3::types::{PyDict, PyList, PyString};
 use regex::Regex;
 use rusqlite::{Connection, OpenFlags};
 use serde_json::Value as JsonValue;
-use std::sync::Mutex;
 use tokio::runtime::Runtime;
 
 const SCHEMA_VERSION: i32 = 6;
@@ -20,7 +19,7 @@ static RUNTIME: Lazy<Runtime> = Lazy::new(|| {
     Runtime::new().expect("failed to create tokio runtime for hermes_state_rs")
 });
 
-static STATE: Mutex<Option<RustState>> = Mutex::new(None);
+static STATE: parking_lot::Mutex<Option<RustState>> = parking_lot::Mutex::new(None);
 
 struct RustState {
     conn: Connection,
@@ -260,7 +259,7 @@ where
                 let delay_ms = rng.gen_range(WRITE_RETRY_MIN_MS..WRITE_RETRY_MAX_MS) as u64;
 
                 // Park this OS thread during sleep — tokio executor threads untouched
-                let _ = RUNTIME.block_on(async {
+                RUNTIME.block_on(async {
                     tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await
                 });
 
@@ -356,9 +355,7 @@ fn sanitize_fts5_query(query: &str) -> String {
 
 #[pyfunction]
 fn init(db_path: String) -> PyResult<()> {
-    let mut guard = STATE
-        .lock()
-        .map_err(|e| PyException::new_err(e.to_string()))?;
+    let mut guard = STATE.lock();
     if guard.is_some() {
         return Ok(());
     }
@@ -372,16 +369,14 @@ fn init(db_path: String) -> PyResult<()> {
 
 #[pyfunction]
 fn is_initialized() -> bool {
-    STATE.lock().map(|g| g.is_some()).unwrap_or(false)
+    STATE.lock().is_some()
 }
 
 fn with_state<T, F>(f: F) -> PyResult<T>
 where
     F: FnOnce(&RustState) -> PyResult<T>,
 {
-    let guard = STATE
-        .lock()
-        .map_err(|e| PyException::new_err(e.to_string()))?;
+    let guard = STATE.lock();
     let state = guard.as_ref().ok_or_else(|| {
         PyRuntimeError::new_err("not initialized — call init() first")
     })?;
@@ -441,7 +436,7 @@ fn end_session(session_id: String, end_reason: String) -> PyResult<()> {
 #[pyfunction]
 fn update_system_prompt(session_id: String, system_prompt: String) -> PyResult<()> {
     with_state(|state| {
-        execute_write(state, |conn| {
+        execute_write(state, move |conn| {
             conn.execute(
                 "UPDATE sessions SET system_prompt = ?1 WHERE id = ?2",
                 rusqlite::params![system_prompt, session_id],
@@ -478,7 +473,7 @@ fn update_token_counts(_py: Python<'_>, session_id: String, counts_json: String)
         .map_err(|e| PyException::new_err(format!("bad counts JSON: {}", e)))?;
 
     with_state(|state| {
-        execute_write(state, |conn| {
+        execute_write(state, move |conn| {
             let sql = if counts.absolute {
                 "UPDATE sessions SET input_tokens=?1, output_tokens=?2, cache_read_tokens=?3, cache_write_tokens=?4, reasoning_tokens=?5, estimated_cost_usd=COALESCE(?6,0), actual_cost_usd=CASE WHEN ?7 IS NULL THEN actual_cost_usd ELSE ?7 END, cost_status=COALESCE(?8,cost_status), cost_source=COALESCE(?9,cost_source), pricing_version=COALESCE(?10,pricing_version), billing_provider=COALESCE(?11,billing_provider), billing_base_url=COALESCE(?12,billing_base_url), billing_mode=COALESCE(?13,billing_mode), model=COALESCE(?14,model) WHERE id=?15"
             } else {
@@ -515,7 +510,7 @@ fn update_token_counts(_py: Python<'_>, session_id: String, counts_json: String)
 #[pyfunction]
 fn ensure_session(session_id: String, source: String, model: Option<String>) -> PyResult<()> {
     with_state(|state| {
-        execute_write(state, |conn| {
+        execute_write(state, move |conn| {
             conn.execute(
                 "INSERT OR IGNORE INTO sessions (id, source, model, started_at) VALUES (?1, ?2, ?3, ?4)",
                 rusqlite::params![session_id, source, model, now_f64()],
@@ -551,7 +546,8 @@ fn append_message(
             .and_then(|v| v.as_array().map(|a| a.len() as i64))
             .unwrap_or(0);
 
-        let msg_id = execute_write(state, |conn| {
+        let session_id_for_update = session_id.clone();
+        let msg_id = execute_write(state, move |conn| {
             conn.execute(
                 "INSERT INTO messages (session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, reasoning, reasoning_details, codex_reasoning_items) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                 rusqlite::params![
@@ -568,12 +564,12 @@ fn append_message(
         if num_tool_calls > 0 {
             let _ = state.conn.execute(
                 "UPDATE sessions SET message_count=message_count+1, tool_call_count=tool_call_count+?1 WHERE id=?2",
-                rusqlite::params![num_tool_calls, session_id],
+                rusqlite::params![num_tool_calls, session_id_for_update],
             );
         } else {
             let _ = state.conn.execute(
                 "UPDATE sessions SET message_count=message_count+1 WHERE id=?1",
-                rusqlite::params![session_id],
+                rusqlite::params![session_id_for_update],
             );
         }
 
@@ -1030,7 +1026,7 @@ fn set_session_title(session_id: String, title: String) -> PyResult<bool> {
     })?;
 
     with_state(|state| {
-        execute_write(state, |conn| {
+        execute_write(state, move |conn| {
             if let Some(ref t) = Some(&title) {
                 let conflict: Option<String> = conn
                     .query_row(
@@ -1198,7 +1194,7 @@ fn message_count(session_id: Option<String>) -> PyResult<i64> {
 #[pyfunction]
 fn delete_session(session_id: String) -> PyResult<bool> {
     with_state(|state| {
-        execute_write(state, |conn| {
+        execute_write(state, move |conn| {
             let n: i64 = conn
                 .query_row(
                     "SELECT COUNT(*) FROM sessions WHERE id = ?1",
@@ -1228,7 +1224,7 @@ fn delete_session(session_id: String) -> PyResult<bool> {
 #[pyfunction]
 fn prune_sessions(older_than_days: i64, source: Option<String>) -> PyResult<i64> {
     with_state(|state| {
-        execute_write(state, |conn| {
+        execute_write(state, move |conn| {
             let cutoff = now_f64() - (older_than_days as f64 * 86400.0);
 
             let sids: Vec<String> = if let Some(ref s) = source {

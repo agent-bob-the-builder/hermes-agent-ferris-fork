@@ -17,6 +17,7 @@ serde.workspace = true
 serde_json.workspace = true
 lazy_static.workspace = true
 once_cell.workspace = true
+parking_lot.workspace = true
 regex.workspace = true
 rand.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
