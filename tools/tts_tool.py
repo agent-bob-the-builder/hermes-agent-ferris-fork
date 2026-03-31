@@ -2,11 +2,12 @@
 """
 Text-to-Speech Tool Module
 
-Supports four TTS providers:
+Supports five TTS providers:
 - Edge TTS (default, free, no API key): Microsoft Edge neural voices
 - ElevenLabs (premium): High-quality voices, needs ELEVENLABS_API_KEY
 - OpenAI TTS: Good quality, needs OPENAI_API_KEY
 - NeuTTS (local, free, no API key): On-device TTS via neutts_cli, needs neutts installed
+- KittenTTS (local, free, no API key): Lightweight ONNX-based TTS, CPU-optimized, 8 built-in voices (Bella/Jasper/Luna/Bruno/Rosie/Hugo/Kiki/Leo)
 
 Output formats:
 - Opus (.ogg) for Telegram voice bubbles (requires ffmpeg for Edge TTS)
@@ -74,6 +75,8 @@ DEFAULT_ELEVENLABS_MODEL_ID = "eleven_multilingual_v2"
 DEFAULT_ELEVENLABS_STREAMING_MODEL_ID = "eleven_flash_v2_5"
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini-tts"
 DEFAULT_OPENAI_VOICE = "alloy"
+DEFAULT_KITTENTTS_VOICE = "Bruno"
+DEFAULT_KITTENTTS_SPEED = 0.95
 def _get_default_output_dir() -> str:
     from hermes_constants import get_hermes_dir
     return str(get_hermes_dir("cache/audio", "audio_cache"))
@@ -342,6 +345,74 @@ def _generate_neutts(text: str, output_path: str, tts_config: Dict[str, Any]) ->
 
 
 # ===========================================================================
+# KittenTTS (local, free, CPU-optimised ONNX TTS)
+# ===========================================================================
+
+def _check_kittentts_available() -> bool:
+    """Check if the kittentts package is importable (installed locally)."""
+    try:
+        import importlib.util
+        return importlib.util.find_spec("kittentts") is not None
+    except Exception:
+        return False
+
+
+def _generate_kittentts(text: str, output_path: str, tts_config: Dict[str, Any]) -> str:
+    """Generate speech using the local KittenTTS engine.
+
+    Runs synthesis in a subprocess via the Python interpreter to keep the
+    ONNX model in a separate process that exits after synthesis.
+    Outputs WAV; the caller handles conversion for Telegram if needed.
+
+    Available voices: Bella, Jasper, Luna, Bruno, Rosie, Hugo, Kiki, Leo
+    Speed: 0.5 (slow) to 2.0 (fast), default 0.95
+    """
+    import sys
+
+    kittentts_config = tts_config.get("kittentts", {})
+    voice = kittentts_config.get("voice", DEFAULT_KITTENTTS_VOICE)
+    speed = float(kittentts_config.get("speed", DEFAULT_KITTENTTS_SPEED))
+
+    # KittenTTS outputs WAV natively
+    wav_path = output_path
+    if not output_path.endswith(".wav"):
+        wav_path = output_path.rsplit(".", 1)[0] + ".wav"
+
+    # Find the Python interpreter with kittentts installed.
+    # Use the hermes-agent-ferris-fork venv if available, otherwise fall back
+    # to sys.executable (which may not have kittentts in a bare environment).
+    venv_python = "/root/.hermes/hermes-agent-ferris-fork/.venv/bin/python3"
+    python_exec = venv_python if os.path.exists(venv_python) else sys.executable
+
+    script_path = str(Path(__file__).parent / "kittentts_synth.py")
+    cmd = [
+        python_exec, script_path,
+        "--text", text,
+        "--out", wav_path,
+        "--voice", voice,
+        "--speed", str(speed),
+    ]
+
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    if result.returncode != 0:
+        stderr = result.stderr.strip()
+        error_lines = [l for l in stderr.splitlines() if not l.startswith("OK:")]
+        raise RuntimeError(f"KittenTTS synthesis failed: {chr(10).join(error_lines) or 'unknown error'}")
+
+    # If caller wanted .mp3 or .ogg, convert from WAV
+    if wav_path != output_path:
+        ffmpeg_path = shutil.which("ffmpeg")
+        if ffmpeg_path:
+            conv_cmd = [ffmpeg_path, "-i", wav_path, "-y", "-loglevel", "error", output_path]
+            subprocess.run(conv_cmd, check=True, timeout=30)
+            os.remove(wav_path)
+        else:
+            os.rename(wav_path, output_path)
+
+    return output_path
+
+
+# ===========================================================================
 # Main tool function
 # ===========================================================================
 def text_to_speech_tool(
@@ -434,6 +505,16 @@ def text_to_speech_tool(
                 }, ensure_ascii=False)
             logger.info("Generating speech with NeuTTS (local)...")
             _generate_neutts(text, file_str, tts_config)
+
+        elif provider == "kittentts":
+            if not _check_kittentts_available():
+                return json.dumps({
+                    "success": False,
+                    "error": "KittenTTS provider selected but kittentts is not installed. "
+                             "Run: pip install https://github.com/KittenML/KittenTTS/releases/download/0.8.1/kittentts-0.8.1-py3-none-any.whl"
+                }, ensure_ascii=False)
+            logger.info("Generating speech with KittenTTS (local, voice=%s)...", tts_config.get("kittentts", {}).get("voice", DEFAULT_KITTENTTS_VOICE))
+            _generate_kittentts(text, file_str, tts_config)
 
         else:
             # Default: Edge TTS (free), with NeuTTS as local fallback
