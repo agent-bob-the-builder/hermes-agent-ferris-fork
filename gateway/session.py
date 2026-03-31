@@ -482,7 +482,10 @@ class SessionStore:
         # on_auto_reset is deprecated — memory flush now runs proactively
         # via the background session expiry watcher in GatewayRunner.
         self._pre_flushed_sessions: set = set()  # session_ids already flushed by watcher
-        
+        # Gate legacy JSONL writes. When disabled, append_to_transcript and
+        # rewrite_transcript skip the per-message json.dumps() entirely.
+        self._legacy_jsonl_enabled = getattr(config, "legacy_jsonl_enabled", True)
+
         # Initialize SQLite session database
         self._db = None
         try:
@@ -942,10 +945,11 @@ class SessionStore:
             except Exception as e:
                 logger.debug("Session DB operation failed: %s", e)
         
-        # Also write legacy JSONL (keeps existing tooling working during transition)
-        transcript_path = self.get_transcript_path(session_id)
-        with open(transcript_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(message, ensure_ascii=False) + "\n")
+        # Legacy JSONL write (only when enabled — see GatewayConfig.legacy_jsonl_enabled)
+        if self._legacy_jsonl_enabled:
+            transcript_path = self.get_transcript_path(session_id)
+            with open(transcript_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(message, ensure_ascii=False) + "\n")
     
     def rewrite_transcript(self, session_id: str, messages: List[Dict[str, Any]]) -> None:
         """Replace the entire transcript for a session with new messages.
@@ -973,11 +977,12 @@ class SessionStore:
             except Exception as e:
                 logger.debug("Failed to rewrite transcript in DB: %s", e)
         
-        # JSONL: overwrite the file
-        transcript_path = self.get_transcript_path(session_id)
-        with open(transcript_path, "w", encoding="utf-8") as f:
-            for msg in messages:
-                f.write(json.dumps(msg, ensure_ascii=False) + "\n")
+        # Legacy JSONL rewrite (only when enabled)
+        if self._legacy_jsonl_enabled:
+            transcript_path = self.get_transcript_path(session_id)
+            with open(transcript_path, "w", encoding="utf-8") as f:
+                for msg in messages:
+                    f.write(json.dumps(msg, ensure_ascii=False) + "\n")
 
     def load_transcript(self, session_id: str) -> List[Dict[str, Any]]:
         """Load all messages from a session's transcript."""
@@ -989,8 +994,15 @@ class SessionStore:
             except Exception as e:
                 logger.debug("Could not load messages from DB: %s", e)
 
-        # Load legacy JSONL transcript (may contain more history than SQLite
-        # for sessions created before the DB layer was introduced).
+        # Early-exit: if SQLite returned messages, skip the JSONL open+parse
+        # entirely. This avoids O(n) json.loads() on every load when SQLite
+        # is the primary store. JSONL is only opened as a fallback when
+        # SQLite came up empty (legacy session predating the DB layer).
+        if db_messages:
+            return db_messages
+
+        # Load legacy JSONL transcript (only when SQLite has no messages —
+        # sessions created before the DB layer was introduced).
         transcript_path = self.get_transcript_path(session_id)
         jsonl_messages = []
         if transcript_path.exists():
@@ -1006,7 +1018,9 @@ class SessionStore:
                                 session_id, line[:120],
                             )
 
-        # Prefer whichever source has more messages.
+        # JSONL is the source of truth when SQLite had no messages.
+        # (The "prefer longer" merge logic below is retained for safety but
+        # should never trigger in practice once SQLite is established.)
         #
         # Background: when a session pre-dates SQLite storage (or when the DB
         # layer was added while a long-lived session was already active), the

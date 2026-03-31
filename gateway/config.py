@@ -253,6 +253,12 @@ class GatewayConfig:
     # Unauthorized DM policy
     unauthorized_dm_behavior: str = "pair"  # "pair" or "ignore"
 
+    # Legacy JSONL transcript persistence.
+    # When True (default), append_to_transcript and rewrite_transcript also write
+    # to {session_id}.jsonl alongside SQLite. Disabling this eliminates the
+    # per-message json.dumps() overhead for users who only use SQLite.
+    legacy_jsonl_enabled: bool = True
+
     # Streaming configuration
     streaming: StreamingConfig = field(default_factory=StreamingConfig)
 
@@ -338,6 +344,7 @@ class GatewayConfig:
             "group_sessions_per_user": self.group_sessions_per_user,
             "unauthorized_dm_behavior": self.unauthorized_dm_behavior,
             "streaming": self.streaming.to_dict(),
+            "legacy_jsonl_enabled": self.legacy_jsonl_enabled,
         }
     
     @classmethod
@@ -397,6 +404,7 @@ class GatewayConfig:
             group_sessions_per_user=_coerce_bool(group_sessions_per_user, True),
             unauthorized_dm_behavior=unauthorized_dm_behavior,
             streaming=StreamingConfig.from_dict(data.get("streaming", {})),
+            legacy_jsonl_enabled=data.get("legacy_jsonl_enabled", True),
         )
 
     def get_unauthorized_dm_behavior(self, platform: Optional[Platform] = None) -> str:
