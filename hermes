@@ -1,6 +1,7 @@
 #!/bin/bash
 # hermes CLI wrapper — auto-sets HERMES_DIR based on symlink location, then
 # delegates to the hermes-agent venv Python.
-HERMES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REAL_SCRIPT="$(readlink -f "${BASH_SOURCE[0]}")"
+HERMES_DIR="$(cd "$(dirname "${REAL_SCRIPT}")" && pwd)"
 export HERMES_DIR
-exec "$HERMES_DIR/venv/bin/python3" "$HERMES_DIR/cli.py" "$@"
+exec "$HERMES_DIR/.venv/bin/python3" "$HERMES_DIR/hermes_cli/main.py" "$@"

@@ -74,8 +74,8 @@ const RAW_PATTERNS: &[(&str, &str)] = &[
     (r"chmod\s+(-[^\s]*\s+)*(777|666|o\+[rwx]*w|a\+[rwx]*w)\b", "world/other-writable permissions"),
     // 4
     (r"chmod\s+--recursive\b.*(777|666|o\+[rwx]*w|a\+[rwx]*w)", "recursive world/other-writable (long flag)"),
-    // 5
-    (r"chown\s+(-[^\s]*)?R\s+root", "recursive chown to root"),
+    // 5 — lowercase R after lowercasing input
+    (r"chown\s+(-[^\s]*)?\s+root", "recursive chown to root"),
     // 6
     (r"chown\s+--recursive\b.*root", "recursive chown to root (long flag)"),
     // 7

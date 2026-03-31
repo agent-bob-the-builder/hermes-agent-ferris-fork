@@ -273,8 +273,7 @@ fn execute_tools(
                     Ok(s) => s,
                     Err(_) => serde_json::json!({ "error": "GIL error" }).to_string(),
                 };
-                let is_error =
-                    content.contains("\"error\"") || content.starts_with("Error:");
+                let is_error = content.contains("\"error\"") || content.starts_with("Error:");
                 ToolResult {
                     index: i,
                     tool_call_id: call.id.clone(),
@@ -317,8 +316,7 @@ fn execute_tools(
                 Ok(s) => s,
                 Err(_) => serde_json::json!({ "error": "GIL error" }).to_string(),
             };
-            let is_error =
-                content.contains("\"error\"") || content.starts_with("Error:");
+            let is_error = content.contains("\"error\"") || content.starts_with("Error:");
             ToolResult {
                 index: i,
                 tool_call_id: call.id.clone(),
@@ -359,7 +357,10 @@ fn extract_finish_reason(response: &Value, api_mode: &str) -> String {
             .unwrap_or("stop")
             .to_string(),
         "codex_responses" => {
-            let status = response.get("status").and_then(|v| v.as_str()).unwrap_or("complete");
+            let status = response
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("complete");
             if status == "incomplete" {
                 "length".to_string()
             } else {
@@ -556,8 +557,8 @@ pub extern "C" fn run_loop(
     }));
 
     // Build system prompt (called once, cached for the session)
-    let system_prompt = pyo3::Python::attach(|py| py_call_0_str(py, &system_prompt_fn))
-        .unwrap_or_default();
+    let system_prompt =
+        pyo3::Python::attach(|py| py_call_0_str(py, &system_prompt_fn)).unwrap_or_default();
 
     // ─── Main iteration loop ───────────────────────────────────────────────
     'main: while state.iteration < max_iters {
@@ -592,15 +593,20 @@ pub extern "C" fn run_loop(
         );
         let _ignored: () = pyo3::Python::attach(|py| {
             let bound = on_status_fn.bind(py);
-            bound.call1((status_msg.as_str(),))
-                .map(|_| ())
+            bound.call1((status_msg.as_str(),)).map(|_| ())
         })
         .unwrap_or(());
 
         // Call API
         let response_json =
             match pyo3::Python::attach(|py| py_call_1_str(py, &api_call_fn, &api_messages_json)) {
-                Ok(json) => json,
+                Ok(json) => {
+                    eprintln!(
+                        "DEBUG API response (first 500 chars): {}",
+                        &json[..json.len().min(500)]
+                    );
+                    json
+                }
                 Err(e) => {
                     state.last_error = Some(format!("API call failed: {}", e));
                     state.retry_count += 1;
@@ -618,18 +624,45 @@ pub extern "C" fn run_loop(
         let finish_reason = extract_finish_reason(&response_val, &config.api_mode);
         let tool_calls = extract_tool_calls(&response_val, &config.api_mode).unwrap_or_default();
         let content = extract_content(&response_val, &config.api_mode);
+        let reasoning = extract_reasoning(&response_val, &config.api_mode);
+        eprintln!(
+            "DEBUG extract: finish_reason={:?}, tool_calls={}, content_len={}, reasoning_len={:?}",
+            finish_reason,
+            tool_calls.len(),
+            content.len(),
+            reasoning.as_ref().map(|s| s.len())
+        );
 
         // ── No tool calls: return content ──────────────────────────────
         if tool_calls.is_empty() || finish_reason == "stop" {
+            // Check if content is empty (model wrapped entire response in think blocks)
+            let (final_response, partial, error, completed) = if content.is_empty() {
+                if let Some(ref reasoning_content) = reasoning {
+                    // Use reasoning as the response content
+                    (Some(reasoning_content.clone()), false, None, true)
+                } else {
+                    // Truly empty - no content and no reasoning
+                    (
+                        None,
+                        true,
+                        Some(
+                            "Model generated only think blocks with no actual response".to_string(),
+                        ),
+                        false,
+                    )
+                }
+            } else {
+                (Some(content), false, None, true)
+            };
             let result = LoopResult {
-                final_response: Some(content),
-                last_reasoning: extract_reasoning(&response_val, &config.api_mode),
+                final_response,
+                last_reasoning: reasoning,
                 messages_json: serde_json::to_string(&messages).unwrap_or_default(),
                 api_calls: state.iteration,
-                completed: true,
-                partial: false,
+                completed,
+                partial,
                 interrupted: false,
-                error: None,
+                error,
                 state_json: serde_json::to_string(&state).unwrap_or_default(),
             };
             return serde_json::to_string(&result).map_err(|e| e.to_string());
@@ -686,8 +719,7 @@ pub extern "C" fn run_loop(
             );
             let _: () = pyo3::Python::attach(|py| {
                 let bound = on_status_fn.bind(py);
-                bound.call1((msg.as_str(),))
-                    .map(|_| ())
+                bound.call1((msg.as_str(),)).map(|_| ())
             })
             .unwrap_or(());
         } else if budget_pct >= config.budget_caution_threshold {
@@ -697,8 +729,7 @@ pub extern "C" fn run_loop(
             );
             let _: () = pyo3::Python::attach(|py| {
                 let bound = on_status_fn.bind(py);
-                bound.call1((msg.as_str(),))
-                    .map(|_| ())
+                bound.call1((msg.as_str(),)).map(|_| ())
             })
             .unwrap_or(());
         }
