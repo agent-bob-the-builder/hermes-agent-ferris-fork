@@ -189,173 +189,52 @@ ensure_rust_sources() {
     ok "rust sources downloaded"
 }
 
-# ── Build Rust extensions ────────────────────────────────────────────────────
-build_rust_extensions() {
-    [[ -f "$HERMES_DIR/rust/Cargo.toml" ]] || ensure_rust_sources
+# ── Install Rust extensions from combined wheel ───────────────────────────────
+install_rust_extensions() {
     install_build_deps
-    install_rust
 
     reload_path
     if ! "$HERMES_DIR/venv/bin/python3" -c "import maturin" 2>/dev/null; then
         info "Installing maturin..."
-        # Install maturin as a uv tool (not into the project venv) so it doesn't
-        # need pip present in the hermes venv.
         uv tool install maturin -q || fail "maturin install failed"
     fi
     ok "maturin"
 
-    info "Building Rust extensions..."
-    python3 - << 'PYEOF'
-import zipfile, shutil, os, sys, subprocess, tempfile
+    # Combined wheel: target/wheels-all/compressor/hermes_agent-0.6.0-cp311-abi3-manylinux_2_34_x86_64.whl
+    local combined_wheel="$HERMES_DIR/target/wheels-all/compressor/hermes_agent-0.6.0-cp311-abi3-manylinux_2_34_x86_64.whl"
+    if [[ ! -f "$combined_wheel" ]]; then
+        fail "Combined wheel not found at $combined_wheel — did the build complete?"
+    fi
 
-def log(msg):
-    print(f"[build] {msg}", flush=True)
+    info "Installing combined Rust wheel ($combined_wheel)..."
+    if ! "$HERMES_DIR/venv/bin/pip" install --no-deps "$combined_wheel"; then
+        fail "pip install combined wheel failed"
+    fi
+    ok "combined wheel installed"
+
+    # Verify all _rs extensions load
+    info "Verifying _rs extensions..."
+    python3 - << 'PYEOF'
+import os, sys, subprocess
 
 hermes = os.environ.get("HERMES_DIR", "/root/.hermes/hermes-agent")
 venv_python = os.path.join(hermes, "venv/bin/python3")
 
-# Detect Python version from the venv
-result = subprocess.run([venv_python, "-c", "import sys; print(f'python{sys.version_info.major}.{sys.version_info.minor}')"], capture_output=True, text=True)
-python_version = result.stdout.strip()
-site = os.path.join(hermes, f"venv/lib/{python_version}/site-packages")
-log(f"Detected venv Python: {python_version}")
-log(f"Site-packages: {site}")
+result = subprocess.run([venv_python, "-c", """
+import compressor_rs, model_tools_rs, prompt_builder_rs, skin_engine_rs,
+       hermes_state_rs, fuzzy_match_rs, subprocess_rs, file_ops_rs,
+       patch_parser_rs, ansi_strip_rs, redact_rs, run_agent_loop_rs,
+       tool_dispatch_rs, retry_state_machine_rs, honcho_http_rs
+print('All Rust extensions loaded OK')
+"""], capture_output=True, text=True)
 
-# Find maturin (installed as uv tool, not in project venv)
-import shutil as _shutil
-maturin = _shutil.which("maturin") or (hermes + "/.local/bin/maturin")
-log(f"maturin: {maturin}")
-
-# Verify maturin works
-result = subprocess.run([maturin, "--version"], capture_output=True, text=True)
-if result.returncode == 0:
-    log(f"maturin version: {result.stdout.strip()}")
-else:
-    print(f"[build] WARN: maturin --version failed: {result.stderr.strip()}", flush=True)
-
-crates = [
-    ("rust/compressor/Cargo.toml",           "compressor_rs"),
-    ("rust/model_tools_rs/Cargo.toml",       "model_tools_rs"),
-    ("rust/prompt_builder_rs/Cargo.toml",    "prompt_builder_rs"),
-    ("rust/skin_engine_rs/Cargo.toml",       "skin_engine_rs"),
-    ("rust/hermes_state_rs/Cargo.toml",      "hermes_state_rs"),
-    ("rust/fuzzy_match_rs/Cargo.toml",       "fuzzy_match_rs"),
-    ("rust/subprocess_rs/Cargo.toml",        "subprocess_rs"),
-    ("rust/file_ops_rs/Cargo.toml",          "file_ops_rs"),
-    ("rust/patch_parser_rs/Cargo.toml",      "patch_parser_rs"),
-    ("rust/ansi_strip_rs/Cargo.toml",        "ansi_strip_rs"),
-    ("rust/redact_rs/Cargo.toml",            "redact_rs"),
-    ("rust/run_agent_loop_rs/Cargo.toml",    "run_agent_loop_rs"),
-    ("rust/tool_dispatch_rs/Cargo.toml",     "tool_dispatch_rs"),
-    ("rust/retry_state_machine_rs/Cargo.toml", "retry_state_machine_rs"),
-    ("rust/honcho_http_rs/Cargo.toml",       "honcho_http_rs"),
-]
-
-with tempfile.TemporaryDirectory() as tmpdir:
-    for manifest, module in crates:
-        crate_name = manifest.split("/")[1]
-        log(f"Building crate {crate_name} ({module})...")
-        out = os.path.join(tmpdir, os.path.dirname(manifest))
-        log(f"  manifest: {manifest}")
-        log(f"  output dir: {out}")
-
-        result = subprocess.run(
-            [maturin, "build", "--release", "--manifest-path", manifest, "-o", out],
-            cwd=hermes, capture_output=True, text=True
-        )
-
-        if result.returncode != 0:
-            print(f"[build] ERROR: maturin build failed for {module}", file=sys.stderr)
-            print(f"[build] --- stdout ---", file=sys.stderr)
-            print(result.stdout[-1200:], file=sys.stderr)
-            print(f"[build] --- stderr ---", file=sys.stderr)
-            print(result.stderr[-1200:], file=sys.stderr)
-            sys.exit(1)
-
-        log(f"  build succeeded")
-
-        whl_files = [f for f in os.listdir(out) if f.endswith(".whl")]
-        if not whl_files:
-            print(f"[build] ERROR: no .whl file found in {out}", file=sys.stderr)
-            print(f"[build] Contents: {os.listdir(out)}", file=sys.stderr)
-            sys.exit(1)
-
-        whl = whl_files[0]
-        log(f"  wheel: {whl}")
-
-        with zipfile.ZipFile(os.path.join(out, whl)) as z:
-            log(f"  wheel contains {len(z.namelist())} files")
-
-            # Two extraction patterns:
-            #   1. Flat .so at wheel root:  compressor_rs/compressor_rs.abi3.so
-            #   2. Package dir with nested .so:  _hermes_state_rust/_hermes_state_rust.abi3.so
-            #
-            # Strategy: find the .so file anywhere in the wheel, then
-            # extract it to site-packages/{module}.{ext}.so (flat, not a dir).
-            so_file = None
-            so_dir_prefix = None
-            for f in z.namelist():
-                if f.endswith(".so") and module in f:
-                    so_file = f
-                    # If the .so is inside a subdirectory (pattern 2), record the prefix
-                    if "/" in f and not f.startswith(f"{module}/"):
-                        so_dir_prefix = f.rsplit("/", 1)[0] + "/"
-                    break
-
-            if so_file is None:
-                print(f"[build] WARN: no .so file for {module} in wheel", file=sys.stderr)
-                print(f"[build] Files in wheel: {[f for f in z.namelist() if module in f]}", file=sys.stderr)
-                continue
-
-            log(f"  found {so_file}")
-
-            # Remove any existing package dir or .so for this module
-            dest_so = os.path.join(site, f"{module}.abi3.so")
-            dest_dir = os.path.join(site, module)
-            shutil.rmtree(dest_dir, ignore_errors=True)
-            if os.path.exists(dest_so):
-                os.remove(dest_so)
-
-            # Extract the .so (may be inside a subdir — extract it directly)
-            z.extract(so_file, site)
-            extracted = os.path.join(site, so_file)
-
-            if extracted != dest_so:
-                # Move to flat name so Python can import it as {module}
-                os.rename(extracted, dest_so)
-                log(f"  installed {module} -> {dest_so}")
-            else:
-                log(f"  installed {module}")
-
-log("All crates built successfully")
-
-# Verify all extensions load
-log("Verifying extensions...")
-result = subprocess.run([venv_python, "-c",
-    "import compressor_rs, model_tools_rs, prompt_builder_rs, skin_engine_rs, hermes_state_rs, fuzzy_match_rs, subprocess_rs, file_ops_rs, patch_parser_rs, ansi_strip_rs, redact_rs, run_agent_loop_rs, tool_dispatch_rs, retry_state_machine_rs, honcho_http_rs; "
-    "print('compressor_rs ok'); "
-    "print('model_tools_rs ok'); "
-    "print('prompt_builder_rs ok'); "
-    "print('skin_engine_rs ok'); "
-    "print('hermes_state_rs ok'); "
-    "print('fuzzy_match_rs ok'); "
-    "print('subprocess_rs ok'); "
-    "print('file_ops_rs ok'); "
-    "print('patch_parser_rs ok'); "
-    "print('ansi_strip_rs ok'); "
-    "print('redact_rs ok'); "
-    "print('run_agent_loop_rs ok'); "
-    "print('tool_dispatch_rs ok'); "
-    "print('retry_state_machine_rs ok'); "
-    "print('honcho_http_rs ok'); "
-    "print('All Rust extensions loaded OK')"])
 if result.returncode != 0:
     print(f"[build] ERROR: extension load failure", file=sys.stderr)
-    print((result.stderr or "")[-800:], file=sys.stderr)
+    print((result.stderr or "")[:1000], file=sys.stderr)
     sys.exit(1)
-for line in (result.stdout or "").strip().split("\n"):
-    log(f"  {line}")
+print((result.stdout or "").strip())
 PYEOF
+    ok "_rs extensions verified"
 }
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -433,7 +312,7 @@ install_hermes_cli
     [[ -s .env ]] || warn "  → fill in your API keys / tokens in .env"
 }
 
-[[ $SKIP_RUST -eq 0 ]] && build_rust_extensions
+[[ $SKIP_RUST -eq 0 ]] && install_rust_extensions
 
 echo ""
 echo -e "${BOLD}Install complete!${RESET}"

@@ -99,18 +99,7 @@ class HonchoSessionManager:
         except ImportError:
             pass
 
-        # ── Rust HTTP acceleration ────────────────────────────────────────────
-        # honcho_http_rs provides async reqwest-based HTTP calls that bypass
-        # the Python SDK's httpx dependency.  Zero-cost when Honcho is absent.
-        self._using_rust = False
-        try:
-            import _honcho_http_rust as _rs  # noqa: F401
-            self._using_rust = True
-            logger.debug("honcho_http_rs Rust backend available")
-        except ImportError:
-            pass
-
-                self._honcho = honcho
+        self._honcho = honcho
         self._context_tokens = context_tokens
         self._config = config
         self._cache: dict[str, HonchoSession] = {}
@@ -293,10 +282,47 @@ class HonchoSessionManager:
         return session
 
     def _flush_session(self, session: HonchoSession) -> bool:
-        """Internal: write unsynced messages to Honcho synchronously."""
+        """Internal: write unsynced messages to Honcho synchronously.
+
+        When honcho_http_rs is available and config.base_url is set, uses
+        the Rust reqwest backend for lower latency.  Falls back to the Python
+        SDK (honcho-ai) for full API surface including recall and context.
+        """
         if not session.messages:
             return True
 
+        new_messages = [m for m in session.messages if not m.get("_synced")]
+        if not new_messages:
+            return True
+
+        # Rust HTTP path — available when base_url is configured and rust loaded.
+        # This only handles the /api/sync write; context() still uses Python SDK.
+        if self._using_rust and self._config and self._config.base_url:
+            import _honcho_http_rust as _rs
+            try:
+                for msg in new_messages:
+                    role = "user" if msg["role"] == "user" else "assistant"
+                    peer = self._config.peer_name or "hermes"
+                    ai_peer = self._config.ai_peer or "hermes-assistant"
+                    user_msg = msg["content"] if role == "user" else ""
+                    ai_msg = msg["content"] if role == "assistant" else ""
+                    ok = _rs.rs_sync(
+                        self._config.base_url,
+                        self._config.api_key or "local",
+                        peer,
+                        session.honcho_session_id,
+                        user_msg,
+                        ai_msg,
+                    )
+                    if not ok:
+                        raise RuntimeError(f"rs_sync returned {ok}")
+                    msg["_synced"] = True
+                return True
+            except Exception as rs_err:
+                logger.warning("honcho_http_rs sync failed, falling back to SDK: %s", rs_err)
+                # fall through to Python SDK
+
+        # Python SDK path — full Honcho API surface
         user_peer = self._get_or_create_peer(session.user_peer_id)
         assistant_peer = self._get_or_create_peer(session.assistant_peer_id)
         honcho_session = self._sessions_cache.get(session.honcho_session_id)
@@ -305,10 +331,6 @@ class HonchoSessionManager:
             honcho_session, _ = self._get_or_create_honcho_session(
                 session.honcho_session_id, user_peer, assistant_peer
             )
-
-        new_messages = [m for m in session.messages if not m.get("_synced")]
-        if not new_messages:
-            return True
 
         honcho_messages = []
         for msg in new_messages:
@@ -375,7 +397,7 @@ class HonchoSessionManager:
           "async"   — enqueue for background thread (zero blocking, zero token cost)
           "turn"    — flush synchronously every turn
           "session" — defer until flush_session() is called explicitly
-          N (int)   — flush every N turns
+          N (int)    — flush every N turns
         """
         self._turn_counter += 1
         wf = self._write_frequency
@@ -393,11 +415,7 @@ class HonchoSessionManager:
                 self._flush_session(session)
 
     def flush_all(self) -> None:
-        """Flush all pending unsynced messages for all cached sessions.
-
-        Called at session end for "session" write_frequency, or to force
-        a sync before process exit regardless of mode.
-        """
+        """Flush all pending unsynced messages for all cached sessions."""
         for session in list(self._cache.values()):
             try:
                 self._flush_session(session)
@@ -429,12 +447,7 @@ class HonchoSessionManager:
         return False
 
     def new_session(self, key: str) -> HonchoSession:
-        """
-        Create a new session, preserving the old one for user modeling.
-
-        Creates a fresh session with a new ID while keeping the old
-        session's data in Honcho for continued user modeling.
-        """
+        """Create a new session, preserving the old one for user modeling."""
         import time
 
         # Remove old session from caches (but don't delete from Honcho)

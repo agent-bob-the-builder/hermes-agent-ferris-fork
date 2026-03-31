@@ -575,7 +575,7 @@ fn rs_dispatch(
     last_resolved_tool_names: Option<Vec<String>>,
     honcho_manager: Option<Py<PyAny>>,
     honcho_session_key: Option<String>,
-) -> PyResult<Option<Py<PyAny>>> {
+) -> PyResult<Option<String>> {
     let handler: Py<PyAny> = {
         let registry = RUST_TOOL_REGISTRY.lock().unwrap();
         let entry = match registry.get(&function_name) {
@@ -665,10 +665,7 @@ fn handle_function_call(
     );
 
     match rust_result {
-        Ok(Some(result)) => {
-            let s: String = result.into_bound(py).str()?.extract()?;
-            Ok(s.to_string())
-        }
+        Ok(Some(result)) => Ok(result),
         Ok(None) | Err(_) => {
             let kwargs = PyDict::new(py);
             if let Some(ref tid) = task_id {
