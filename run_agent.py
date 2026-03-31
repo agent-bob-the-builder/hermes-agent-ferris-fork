@@ -51,12 +51,12 @@ def _try_load_rust_pb():
             _sys.path.insert(0, venv_site)
         import importlib
         importlib.invalidate_caches()
-        mod = importlib.import_module("_prompt_builder_rs")
+        mod = importlib.import_module("_prompt_builder_rust")
         # Sanity-check: stale .so files from the project root may shadow the
         # package and lack the `build` fn.
         if not hasattr(mod, "build"):
             raise ImportError(
-                f"_prompt_builder_rs loaded from {getattr(mod, '__file__', '?')} "
+                f"_prompt_builder_rust loaded from {getattr(mod, '__file__', '?')} "
                 "but has no 'build' attribute — stale .so in sys.path?"
             )
         _rust_pb = mod
@@ -167,16 +167,16 @@ def _try_load_tool_dispatch_rs():
         import importlib as _importlib
 
         _importlib.invalidate_caches()
-        mod = _importlib.import_module("_tool_dispatch_rust")
+        mod = _importlib.import_module("_tool_dispatch_rs")
         # Verify the module has the expected entry points
         if not hasattr(mod, "rs_should_parallelize"):
             raise ImportError(
-                f"_tool_dispatch_rust loaded from {getattr(mod, '__file__', '?')} "
+                f"_tool_dispatch_rs loaded from {getattr(mod, '__file__', '?')} "
                 "but has no 'rs_should_parallelize' attribute"
             )
         if not hasattr(mod, "rs_run_concurrent_tool_batch"):
             raise ImportError(
-                f"_tool_dispatch_rust loaded from {getattr(mod, '__file__', '?')} "
+                f"_tool_dispatch_rs loaded from {getattr(mod, '__file__', '?')} "
                 "but has no 'rs_run_concurrent_tool_batch' attribute"
             )
         _tool_dispatch_rs = mod
@@ -265,37 +265,6 @@ def _rs_evaluate_retry(
 # Replaces Python's _should_parallelize_tool_batch + concurrent execution with
 # a Rayon-based parallel executor via tool_dispatch_rs.
 # Falls back to pure-Python path on any error.
-# ---------------------------------------------------------------------------------
-_tool_dispatch_rs_loader_failed = False
-_tool_dispatch_rs = None
-
-
-def _try_load_tool_dispatch_rs():
-    global _tool_dispatch_rs_loader_failed, _tool_dispatch_rs
-    if _tool_dispatch_rs is not None or _tool_dispatch_rs_loader_failed:
-        return _tool_dispatch_rs
-    try:
-        import sys as _sys
-        venv_site = _sys.prefix + "/lib/python3.11/site-packages"
-        if venv_site not in _sys.path:
-            _sys.path.insert(0, venv_site)
-        import importlib
-        importlib.invalidate_caches()
-        mod = importlib.import_module("_tool_dispatch_rust")
-        if not hasattr(mod, "rs_should_parallelize") or not hasattr(mod, "rs_run_concurrent_tool_batch"):
-            raise ImportError(
-                f"_tool_dispatch_rust loaded from {getattr(mod, '__file__', '?')} "
-                "but is missing rs_should_parallelize or rs_run_concurrent_tool_batch"
-            )
-        _tool_dispatch_rs = mod
-        logger.debug("Rust tool dispatcher loaded successfully")
-        return _tool_dispatch_rs
-    except Exception as _e:
-        _tool_dispatch_rs_loader_failed = True
-        logger.debug("Rust tool dispatcher unavailable (%s), using Python path", _e)
-        return None
-
-
 def _rs_should_parallelize(tool_calls_json: str) -> bool:
     """Rust path for _should_parallelize_tool_batch — returns True if batch is safe to parallelize."""
     mod = _try_load_tool_dispatch_rs()
