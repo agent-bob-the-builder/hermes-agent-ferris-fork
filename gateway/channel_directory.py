@@ -101,6 +101,18 @@ def _build_discord(adapter) -> List[Dict[str, str]]:
                 "guild": guild.name,
                 "type": "channel",
             })
+        # Fetch all accessible threads (public + private threads the bot can see)
+        try:
+            for thread in guild.threads:
+                channels.append({
+                    "id": str(thread.id),
+                    "name": thread.name,
+                    "guild": guild.name,
+                    "type": "thread",
+                    "thread_id": str(thread.id),
+                })
+        except Exception as e:
+            logger.debug("Channel directory: failed to fetch threads for guild %s: %s", guild.name, e)
         # Also include DM-capable users we've interacted with is not
         # feasible via guild enumeration; those come from sessions.
 
