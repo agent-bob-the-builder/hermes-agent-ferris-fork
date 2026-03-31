@@ -64,22 +64,19 @@ def _load_rs_module():
     lib_path = _resolve_rs_lib()
     _rs_lib_path = lib_path
 
-    try:
-        # PyO3 cdylib exposes the module as "subprocess_rs" regardless of
-        # the crate's lib name, because #[pymodule] is fn subprocess_rs(…).
-        _subprocess_rs = __import__("subprocess_rs")
-    except ImportError:
-        # Fallback: load via importlib.util directly from the .so path.
-        # This works when the cdylib isn't installed as a Python package.
-        import importlib.util
+    # Always use importlib.util to load the .so directly — avoids re-importing
+    # this Python module via the sys.modules["subprocess_rs"] lookup that
+    # __import__("subprocess_rs") would trigger (recursive import guard fails
+    # when the Python package name matches the cdylib module name).
+    import importlib.util
 
-        spec = importlib.util.spec_from_file_location("subprocess_rs", lib_path)
-        if spec is None or spec.loader is None:
-            raise ImportError(f"Could not create module spec for {lib_path}")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules["subprocess_rs"] = module
-        spec.loader.exec_module(module)
-        _subprocess_rs = module
+    spec = importlib.util.spec_from_file_location("subprocess_rs", lib_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Could not create module spec for {lib_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["subprocess_rs"] = module
+    spec.loader.exec_module(module)
+    _subprocess_rs = module
 
 
 def spawn(

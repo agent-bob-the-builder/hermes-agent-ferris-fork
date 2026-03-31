@@ -391,11 +391,11 @@ fn _uuid_v4() -> String {
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_nanos() as u64;
-    let counter = UUID_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let pid = std::process::id() as u64;
-    // Mix bits for apparent randomness
-    let e = ts ^ (pid * 0x517cc1b727220a95) ^ (counter * 0x8d04d2a7);
+        .as_nanos() as u128;
+    let counter = UUID_COUNTER.fetch_add(1, Ordering::Relaxed) as u128;
+    let pid = std::process::id() as u128;
+    // Use u128 to avoid overflow in the mixing step
+    let e = ts ^ (pid * 0x517cc1b727220a95u128) ^ (counter * 0x8d04d2a7u128);
     format!(
         "{:08x}-{:04x}-4{:03x}-{:04x}-{:012x}",
         (e & 0xffffffff) as u32,

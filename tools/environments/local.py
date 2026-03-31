@@ -413,6 +413,15 @@ class LocalEnvironment(PersistentShellMixin, BaseEnvironment):
             )
             result: ExecuteResult = handle.wait()
             output = _extract_fenced_output(result.output)
+
+            # Match the timeout/interrupt message format of the Python fallback
+            if result.timed_out:
+                msg = f"\n[Command timed out after {effective_timeout}s]"
+                output = (output + msg) if output.strip() else msg.lstrip()
+            elif result.interrupted:
+                msg = "\n[Command interrupted — user sent a new message]"
+                output = output + msg if output.strip() else msg
+
             return {
                 "output": output,
                 "returncode": result.returncode,

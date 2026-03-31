@@ -237,11 +237,14 @@ crates = [
     ("rust/compressor/Cargo.toml",        "compressor_rs"),
     ("rust/model_tools_rs/Cargo.toml",     "_model_tools_rust"),
     ("rust/prompt_builder_rs/Cargo.toml",  "_prompt_builder_rust"),
-    ("rust/skin_engine_rs/Cargo.toml",    "_skin_engine_rust"),
+    ("rust/skin_engine_rs/Cargo.toml",     "_skin_engine_rust"),
     ("rust/hermes_state_rs/Cargo.toml",    "_hermes_state_rust"),
     ("rust/fuzzy_match_rs/Cargo.toml",     "fuzzy_match_rs"),
     ("rust/subprocess_rs/Cargo.toml",      "subprocess_rs"),
     ("rust/file_ops_rs/Cargo.toml",        "file_ops_rs"),
+    ("rust/patch_parser_rs/Cargo.toml",    "patch_parser_rs"),
+    ("rust/ansi_strip_rs/Cargo.toml",      "rust_ansi_strip"),
+    ("rust/redact_rs/Cargo.toml",          "rust_redact"),
 ]
 
 with tempfile.TemporaryDirectory() as tmpdir:
@@ -325,7 +328,7 @@ log("All crates built successfully")
 # Verify all extensions load
 log("Verifying extensions...")
 result = subprocess.run([venv_python, "-c",
-    "import compressor_rs, _model_tools_rust, _prompt_builder_rust, _skin_engine_rust, _hermes_state_rust, fuzzy_match_rs, subprocess_rs, file_ops_rs; "
+    "import compressor_rs, _model_tools_rust, _prompt_builder_rust, _skin_engine_rust, _hermes_state_rust, fuzzy_match_rs, subprocess_rs, file_ops_rs, patch_parser_rs, rust_ansi_strip, rust_redact; "
     "print('compressor_rs ok'); "
     "print('_model_tools_rust ok'); "
     "print('_prompt_builder_rust ok'); "
@@ -334,6 +337,9 @@ result = subprocess.run([venv_python, "-c",
     "print('fuzzy_match_rs ok'); "
     "print('subprocess_rs ok'); "
     "print('file_ops_rs ok'); "
+    "print('patch_parser_rs ok'); "
+    "print('rust_ansi_strip ok'); "
+    "print('rust_redact ok'); "
     "print('All Rust extensions loaded OK')"])
 if result.returncode != 0:
     print(f"[build] ERROR: extension load failure", file=sys.stderr)

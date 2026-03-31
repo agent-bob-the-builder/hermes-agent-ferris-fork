@@ -323,6 +323,27 @@ class SingularityEnvironment(BaseEnvironment):
 
         try:
             import time as _time
+
+            # Try the Rust subprocess engine first; fall back to threading Popen.
+            try:
+                from tools.subprocess_rs import spawn, ExecuteResult
+
+                handle = spawn(
+                    cmd=cmd,
+                    cwd="",
+                    timeout_ms=effective_timeout * 1000,
+                    stdin_data=effective_stdin or "",
+                    env={},
+                )
+                result: ExecuteResult = handle.wait()
+                return {
+                    "output": result.output,
+                    "returncode": result.returncode,
+                }
+            except Exception:
+                pass
+
+            # Fallback: threading-based Popen
             _output_chunks = []
             proc = subprocess.Popen(
                 cmd,

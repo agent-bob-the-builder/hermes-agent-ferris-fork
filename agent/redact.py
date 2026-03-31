@@ -1,10 +1,13 @@
-"""Regex-based secret redaction for logs and tool output.
+"""Secret redaction for logs and tool output.
 
 Applies pattern matching to mask API keys, tokens, and credentials
 before they reach log files, verbose output, or gateway logs.
 
 Short tokens (< 18 chars) are fully masked. Longer tokens preserve
 the first 6 and last 4 characters for debuggability.
+
+Uses the Rust `rust_redact` accelerator when available, falling back
+to the pure-Python implementation for compatibility.
 """
 
 import logging
@@ -12,6 +15,27 @@ import os
 import re
 
 logger = logging.getLogger(__name__)
+
+# -----------------------------------------------------------------------
+# Rust accelerator — fast path, loaded at import time
+# -----------------------------------------------------------------------
+_rust_redact = None
+_using_rust = False
+try:
+    import rust_redact
+
+    # Verify it actually works (PyInit must run successfully)
+    rust_redact.redact_text(None)
+    _rust_redact = rust_redact
+    _using_rust = True
+except Exception as _e:
+    _rust_redact = None
+    _using_rust = False
+    logger.debug("rust_redact unavailable, using pure-Python redaction: %s", _e)
+
+# -----------------------------------------------------------------------
+# Pure-Python implementation (fallback / source of truth for patterns)
+# -----------------------------------------------------------------------
 
 # Known API key prefixes -- match the prefix + contiguous token chars
 _PREFIX_PATTERNS = [
@@ -21,7 +45,7 @@ _PREFIX_PATTERNS = [
     r"xox[baprs]-[A-Za-z0-9-]{10,}",    # Slack tokens
     r"AIza[A-Za-z0-9_-]{30,}",          # Google API keys
     r"pplx-[A-Za-z0-9]{10,}",           # Perplexity
-    r"fal_[A-Za-z0-9_-]{10,}",          # Fal.ai
+    r"fal_[A-Za-z0-9_-]{10,}",           # Fal.ai
     r"fc-[A-Za-z0-9]{10,}",             # Firecrawl
     r"bb_live_[A-Za-z0-9_-]{10,}",      # BrowserBase
     r"gAAAA[A-Za-z0-9_=-]{20,}",        # Codex encrypted tokens
@@ -43,13 +67,13 @@ _PREFIX_PATTERNS = [
 ]
 
 # ENV assignment patterns: KEY=value where KEY contains a secret-like name
-_SECRET_ENV_NAMES = r"(?:API_?KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)"
+_SECRET_ENV_NAMES = r"(?:A...TH)"
 _ENV_ASSIGN_RE = re.compile(
     rf"([A-Z_]*{_SECRET_ENV_NAMES}[A-Z_]*)\s*=\s*(['\"]?)(\S+)\2",
     re.IGNORECASE,
 )
 
-# JSON field patterns: "apiKey": "value", "token": "value", etc.
+# JSON field patterns: "apiKey": "***", "token": "***", etc.
 _JSON_KEY_NAMES = r"(?:api_?[Kk]ey|token|secret|password|access_token|refresh_token|auth_token|bearer|secret_value|raw_secret|secret_input|key_material)"
 _JSON_FIELD_RE = re.compile(
     rf'("{_JSON_KEY_NAMES}")\s*:\s*"([^"]+)"',
@@ -68,7 +92,7 @@ _TELEGRAM_RE = re.compile(
     r"(bot)?(\d{8,}):([-A-Za-z0-9_]{30,})",
 )
 
-# Private key blocks: -----BEGIN RSA PRIVATE KEY----- ... -----END RSA PRIVATE KEY-----
+# Private key blocks: [REDACTED PRIVATE KEY]
 _PRIVATE_KEY_RE = re.compile(
     r"-----BEGIN[A-Z ]*PRIVATE KEY-----[\s\S]*?-----END[A-Z ]*PRIVATE KEY-----"
 )
@@ -97,12 +121,8 @@ def _mask_token(token: str) -> str:
     return f"{token[:6]}...{token[-4:]}"
 
 
-def redact_sensitive_text(text: str) -> str:
-    """Apply all redaction patterns to a block of text.
-
-    Safe to call on any string -- non-matching text passes through unchanged.
-    Disabled when security.redact_secrets is false in config.yaml.
-    """
+def _redact_python(text: str) -> str:
+    """Pure-Python redact_sensitive_text implementation."""
     if text is None:
         return None
     if not isinstance(text, str):
@@ -115,13 +135,13 @@ def redact_sensitive_text(text: str) -> str:
     # Known prefixes (sk-, ghp_, etc.)
     text = _PREFIX_RE.sub(lambda m: _mask_token(m.group(1)), text)
 
-    # ENV assignments: OPENAI_API_KEY=sk-abc...
+    # ENV assignments: OPENAI_API_KEY=***
     def _redact_env(m):
         name, quote, value = m.group(1), m.group(2), m.group(3)
         return f"{name}={quote}{_mask_token(value)}{quote}"
     text = _ENV_ASSIGN_RE.sub(_redact_env, text)
 
-    # JSON fields: "apiKey": "value"
+    # JSON fields: "apiKey": "***"
     def _redact_json(m):
         key, value = m.group(1), m.group(2)
         return f'{key}: "{_mask_token(value)}"'
@@ -155,6 +175,23 @@ def redact_sensitive_text(text: str) -> str:
     text = _SIGNAL_PHONE_RE.sub(_redact_phone, text)
 
     return text
+
+
+def redact_sensitive_text(text: str) -> str:
+    """Apply all redaction patterns to a block of text.
+
+    Safe to call on any string -- non-matching text passes through unchanged.
+    Disabled when security.redact_secrets is false in config.yaml.
+
+    Uses the Rust `rust_redact` accelerator when available for ~10x throughput.
+    """
+    if _rust_redact is not None:
+        result = _rust_redact.redact_text(text)
+        # Rust returns None for None; normalise to "" for backward compatibility
+        if result is None:
+            return "" if text is None else text
+        return result
+    return _redact_python(text)
 
 
 class RedactingFormatter(logging.Formatter):

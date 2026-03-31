@@ -1113,6 +1113,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rust-ansi-strip"
+version = "0.1.0"
+dependencies = [
+ "once_cell",
+ "pyo3",
+ "regex",
+]
+
+[[package]]
 name = "rust-compressor"
 version = "0.1.0"
 dependencies = [
@@ -1123,6 +1132,15 @@ dependencies = [
  "serde_json",
  "tiktoken-rs",
  "tokio",
+]
+
+[[package]]
+name = "rust-redact"
+version = "0.1.0"
+dependencies = [
+ "once_cell",
+ "pyo3",
+ "regex",
 ]
 
 [[package]]
