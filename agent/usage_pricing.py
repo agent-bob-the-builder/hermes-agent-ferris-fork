@@ -287,11 +287,20 @@ _OFFICIAL_DOCS_PRICING: Dict[tuple[str, str], PricingEntry] = {
 }
 
 
-def _to_decimal(value: Any) -> Optional[Decimal]:
-    if value is None:
+def _format_token_count_compact_rs(value: int) -> Optional[str]:
+    if _rs_usage_pricing is None:
         return None
     try:
-        return Decimal(str(value))
+        return _rs_usage_pricing.format_token_count_compact(value)
+    except Exception:
+        return None
+
+
+def _format_duration_compact_rs(seconds: float) -> Optional[str]:
+    if _rs_usage_pricing is None:
+        return None
+    try:
+        return _rs_usage_pricing.format_duration_compact(seconds)
     except Exception:
         return None
 
@@ -620,6 +629,11 @@ def estimate_cost_usd(
 
 
 def format_duration_compact(seconds: float) -> str:
+    # Try Rust first
+    rs_result = _format_duration_compact_rs(seconds)
+    if rs_result is not None:
+        return rs_result
+    # Pure Python fallback
     if seconds < 60:
         return f"{seconds:.0f}s"
     minutes = seconds / 60
@@ -634,6 +648,11 @@ def format_duration_compact(seconds: float) -> str:
 
 
 def format_token_count_compact(value: int) -> str:
+    # Try Rust first
+    rs_result = _format_token_count_compact_rs(value)
+    if rs_result is not None:
+        return rs_result
+    # Pure Python fallback
     abs_value = abs(int(value))
     if abs_value < 1_000:
         return str(int(value))

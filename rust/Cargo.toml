@@ -12,6 +12,7 @@ members = [
     "model_tools_rs",
     "patch_parser_rs",
     "prompt_builder_rs",
+    "insights_rs",
     "redact_rs",
     "_retry_state_machine_rs",
     "skin_engine_rs",
