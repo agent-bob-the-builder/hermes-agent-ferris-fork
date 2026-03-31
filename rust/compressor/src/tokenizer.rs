@@ -30,7 +30,7 @@ fn get_encoder() -> Option<&'static TiktokenEncoder> {
 }
 
 /// Count tokens in a string using tiktoken.  Falls back to chars/4.
-fn count_tokens_fallible(text: &str) -> usize {
+pub fn count_tokens_fallible(text: &str) -> usize {
     match get_encoder() {
         Some(enc) => enc.encode_ordinary(text).len(),
         None => text.len() / 4,

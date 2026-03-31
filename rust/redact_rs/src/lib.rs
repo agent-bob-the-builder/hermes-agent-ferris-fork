@@ -259,7 +259,7 @@ impl RedactingFormatter {
 }
 
 #[pymodule]
-fn rust_redact(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn redact_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(redact_text, m)?)?;
     m.add_class::<RedactingFormatter>()?;
     Ok(())

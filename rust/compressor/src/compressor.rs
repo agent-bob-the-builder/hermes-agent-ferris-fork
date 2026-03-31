@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use std::collections::HashSet;
 
 use super::summarizer::{generate_summary, with_summary_prefix};
+use super::tokenizer::count_tokens_fallible as tiktoken_count;
 
 // ---------------------------------------------------------------------------
 // Constants (mirror Python)
@@ -45,9 +46,10 @@ pub fn find_tail_cut(
     for i in (head_end..n).rev() {
         let msg = &messages[i];
         let content = msg.get("content").and_then(|v| v.as_str()).unwrap_or("");
-        let mut msg_tokens = content.len() / CHARS_PER_TOKEN + 10; // +10 for role/metadata
+        // Use tiktoken for accurate token counting instead of char-count heuristic
+        let mut msg_tokens = tiktoken_count(content);
 
-        // Include tool call arguments in estimate
+        // Include tool call arguments in estimate (still char-count — arguments are typically compact)
         if let Some(tcs) = msg.get("tool_calls").and_then(|v| v.as_array()) {
             for tc in tcs {
                 if let Some(args) = tc
@@ -55,7 +57,7 @@ pub fn find_tail_cut(
                     .and_then(|f| f.get("arguments"))
                     .and_then(|a| a.as_str())
                 {
-                    msg_tokens += args.len() / CHARS_PER_TOKEN;
+                    msg_tokens += tiktoken_count(args);
                 }
             }
         }

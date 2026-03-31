@@ -12,7 +12,7 @@ A performance oriented Rust fork of [Hermes Agent](https://github.com/NousResear
 
 | Crate | Hot path | Status |
 |---|---|---|
-| `rust_compressor` | `ContextCompressor.compress()` | Production ✓ |
+| `compressor_rs` | `ContextCompressor.compress()` | Production ✓ |
 | `model_tools_rs` | Tool registry + message sanitization | Production ✓ |
 | `prompt_builder_rs` | System prompt assembly | Production ✓ |
 | `skin_engine_rs` | Skin/theme loading and config | Production ✓ |
@@ -20,8 +20,8 @@ A performance oriented Rust fork of [Hermes Agent](https://github.com/NousResear
 | `file_ops_rs` | Binary detection, line numbering, path expansion, shell escaping, unified diff, fuzzy file search | Production ✓ |
 | `fuzzy_match_rs` | 8-strategy fuzzy find-and-replace | Production ✓ |
 | `patch_parser_rs` | V4A patch format parsing | Production ✓ |
-| `rust_ansi_strip` | Strip ANSI escape sequences | Production ✓ |
-| `rust_redact` | Sensitive data redaction | Production ✓ |
+| `ansi_strip_rs` | Strip ANSI escape sequences | Production ✓ |
+| `redact_rs` | Sensitive data redaction | Production ✓ |
 | `subprocess_rs` | Subprocess orchestration | Production ✓ |
 | `run_agent_loop_rs` | Core agent loop | Production ✓ |
 | `tool_dispatch_rs` | Tool dispatch routing | Production ✓ |
@@ -35,7 +35,7 @@ All crates are **transparent fallbacks**: if a crate is missing or fails to load
 ```
 AIAgent (run_agent.py)
 ├── context_compressor.py
-│   └── rust_compressor.compress_async()          [Production ✓]
+│   └── compressor_rs.compress_async()             [Production ✓]
 ├── model_tools.py + tools/registry_rs.py
 │   └── model_tools_rs.sanitize()                 [Production ✓]
 ├── hermes_state.py
@@ -74,7 +74,7 @@ graph TD
     RET["agent/trajectory.py<br/>retry_state_machine_rs"]
 
     PB_RS["prompt_builder_rs"]
-    CO_RS["rust_compressor"]
+    CO_RS["compressor_rs"]
     MT_RS["model_tools_rs"]
     HS_RS["hermes_state_rs"]
     SK_RS["skin_engine_rs"]

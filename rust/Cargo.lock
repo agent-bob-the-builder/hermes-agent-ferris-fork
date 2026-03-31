@@ -12,6 +12,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ansi_strip_rs"
+version = "0.1.0"
+dependencies = [
+ "once_cell",
+ "pyo3",
+ "regex",
+]
+
+[[package]]
 name = "anyhow"
 version = "1.0.102"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -100,6 +109,19 @@ name = "cfg_aliases"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
+
+[[package]]
+name = "compressor_rs"
+version = "0.1.0"
+dependencies = [
+ "once_cell",
+ "pyo3",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tiktoken-rs",
+ "tokio",
+]
 
 [[package]]
 name = "crossbeam-deque"
@@ -331,6 +353,18 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "honcho_http_rs"
+version = "0.1.0"
+dependencies = [
+ "once_cell",
+ "pyo3",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -987,6 +1021,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "redact_rs"
+version = "0.1.0"
+dependencies = [
+ "once_cell",
+ "pyo3",
+ "regex",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1133,37 +1176,6 @@ dependencies = [
  "libsqlite3-sys",
  "smallvec",
  "sqlite-wasm-rs",
-]
-
-[[package]]
-name = "rust_ansi_strip"
-version = "0.1.0"
-dependencies = [
- "once_cell",
- "pyo3",
- "regex",
-]
-
-[[package]]
-name = "rust_compressor"
-version = "0.1.0"
-dependencies = [
- "once_cell",
- "pyo3",
- "reqwest",
- "serde",
- "serde_json",
- "tiktoken-rs",
- "tokio",
-]
-
-[[package]]
-name = "rust_redact"
-version = "0.1.0"
-dependencies = [
- "once_cell",
- "pyo3",
- "regex",
 ]
 
 [[package]]

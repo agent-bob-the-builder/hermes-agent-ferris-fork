@@ -234,7 +234,7 @@ else:
     print(f"[build] WARN: maturin --version failed: {result.stderr.strip()}", flush=True)
 
 crates = [
-    ("rust/compressor/Cargo.toml",          "rust_compressor"),
+    ("rust/compressor/Cargo.toml",           "compressor_rs"),
     ("rust/model_tools_rs/Cargo.toml",       "model_tools_rs"),
     ("rust/prompt_builder_rs/Cargo.toml",    "prompt_builder_rs"),
     ("rust/skin_engine_rs/Cargo.toml",       "skin_engine_rs"),
@@ -243,8 +243,8 @@ crates = [
     ("rust/subprocess_rs/Cargo.toml",        "subprocess_rs"),
     ("rust/file_ops_rs/Cargo.toml",          "file_ops_rs"),
     ("rust/patch_parser_rs/Cargo.toml",      "patch_parser_rs"),
-    ("rust/ansi_strip_rs/Cargo.toml",        "rust_ansi_strip"),
-    ("rust/redact_rs/Cargo.toml",            "rust_redact"),
+    ("rust/ansi_strip_rs/Cargo.toml",        "ansi_strip_rs"),
+    ("rust/redact_rs/Cargo.toml",            "redact_rs"),
     ("rust/run_agent_loop_rs/Cargo.toml",    "run_agent_loop_rs"),
     ("rust/tool_dispatch_rs/Cargo.toml",     "tool_dispatch_rs"),
     ("rust/retry_state_machine_rs/Cargo.toml", "retry_state_machine_rs"),
@@ -332,8 +332,8 @@ log("All crates built successfully")
 # Verify all extensions load
 log("Verifying extensions...")
 result = subprocess.run([venv_python, "-c",
-    "import rust_compressor, model_tools_rs, prompt_builder_rs, skin_engine_rs, hermes_state_rs, fuzzy_match_rs, subprocess_rs, file_ops_rs, patch_parser_rs, rust_ansi_strip, rust_redact, run_agent_loop_rs, tool_dispatch_rs, retry_state_machine_rs, honcho_http_rs; "
-    "print('rust_compressor ok'); "
+    "import compressor_rs, model_tools_rs, prompt_builder_rs, skin_engine_rs, hermes_state_rs, fuzzy_match_rs, subprocess_rs, file_ops_rs, patch_parser_rs, ansi_strip_rs, redact_rs, run_agent_loop_rs, tool_dispatch_rs, retry_state_machine_rs, honcho_http_rs; "
+    "print('compressor_rs ok'); "
     "print('model_tools_rs ok'); "
     "print('prompt_builder_rs ok'); "
     "print('skin_engine_rs ok'); "
@@ -342,8 +342,8 @@ result = subprocess.run([venv_python, "-c",
     "print('subprocess_rs ok'); "
     "print('file_ops_rs ok'); "
     "print('patch_parser_rs ok'); "
-    "print('rust_ansi_strip ok'); "
-    "print('rust_redact ok'); "
+    "print('ansi_strip_rs ok'); "
+    "print('redact_rs ok'); "
     "print('run_agent_loop_rs ok'); "
     "print('tool_dispatch_rs ok'); "
     "print('retry_state_machine_rs ok'); "

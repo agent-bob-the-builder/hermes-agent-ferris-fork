@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [lib]
-name = "_honcho_http_rust"
+name = "honcho_http_rs"
 crate-type = ["cdylib"]
 
 [dependencies]

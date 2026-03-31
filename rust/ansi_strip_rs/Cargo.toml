@@ -1,10 +1,10 @@
 [package]
-name = "rust_ansi_strip"
+name = "ansi_strip_rs"
 version.workspace = true
 edition.workspace = true
 
 [lib]
-name = "rust_ansi_strip"
+name = "ansi_strip_rs"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
@@ -13,7 +13,7 @@ regex.workspace = true
 once_cell.workspace = true
 
 [package.metadata.maturin]
-name = "rust_ansi_strip"
+name = "ansi_strip_rs"
 
 [profile.release]
 lto = true
