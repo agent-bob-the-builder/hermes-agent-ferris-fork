@@ -3,7 +3,10 @@ use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::{PyAnyMethods, PyDict, PyList, PyListMethods, PyModuleMethods, PySet};
 use std::collections::{HashMap, HashSet};
-use std::sync::{Mutex, atomic::{AtomicBool, Ordering}};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex,
+};
 
 // Legacy toolset mapping
 fn legacy_toolset_map() -> HashMap<&'static str, Vec<&'static str>> {
@@ -69,6 +72,7 @@ struct RustToolEntry {
     /// Stored directly — no JSON conversion needed at return time.
     schema: Py<PyAny>,
     check_fn: Option<Py<PyAny>>,
+    handler: Option<Py<PyAny>>,
     requires_env: Vec<String>,
     is_async: bool,
     description: String,
@@ -320,7 +324,10 @@ fn init_toolset_cache(py: Python<'_>) -> PyResult<()> {
         } else {
             // It's a dict — extract keys
             let dict: Bound<'_, PyDict> = resolved.cast::<PyDict>()?.clone();
-            dict.keys().iter().map(|k| k.extract::<String>()).collect::<PyResult<Vec<String>>>()?
+            dict.keys()
+                .iter()
+                .map(|k| k.extract::<String>())
+                .collect::<PyResult<Vec<String>>>()?
         };
         resolved_lock.insert(ts_name.clone(), vec.clone());
         for tool in vec {
@@ -343,14 +350,12 @@ fn init_toolset_cache(py: Python<'_>) -> PyResult<()> {
         .call_method0("get_all_tool_names")?
         .extract()?;
     for name in all_names {
-        let entry_dict: Bound<'_, PyAny> = registry
-            .bind(py)
-            .getattr("_tools")?
-            .get_item(name)?;
+        let entry_dict: Bound<'_, PyAny> = registry.bind(py).getattr("_tools")?.get_item(name)?;
         let py_name: String = entry_dict.getattr("name")?.extract()?;
         let py_toolset: String = entry_dict.getattr("toolset")?.extract()?;
         let py_schema_any: Bound<'_, PyAny> = entry_dict.getattr("schema")?.into_any();
         let py_check_fn: Py<PyAny> = entry_dict.getattr("check_fn")?.into_any().into();
+        let py_handler: Py<PyAny> = entry_dict.getattr("handler")?.into_any().into();
         let py_requires_env: Vec<String> = entry_dict.getattr("requires_env")?.extract()?;
         let py_is_async: bool = entry_dict.getattr("is_async")?.extract()?;
         let py_desc: String = entry_dict.getattr("description")?.extract()?;
@@ -362,6 +367,12 @@ fn init_toolset_cache(py: Python<'_>) -> PyResult<()> {
             Some(py_check_fn)
         };
 
+        let handler_py = if py_handler.is_none(py) {
+            None
+        } else {
+            Some(py_handler)
+        };
+
         rust_registry.insert(
             py_name.clone(),
             RustToolEntry {
@@ -369,6 +380,7 @@ fn init_toolset_cache(py: Python<'_>) -> PyResult<()> {
                 toolset: py_toolset,
                 schema: py_schema_any.into(),
                 check_fn: check_fn_py,
+                handler: handler_py,
                 requires_env: py_requires_env,
                 is_async: py_is_async,
                 description: py_desc,
@@ -534,7 +546,11 @@ fn get_tool_definitions(
         let py_names: Vec<&str> = available_tool_names.iter().map(|s| s.as_str()).collect();
         let py_list = PyList::new(py, &py_names)?;
         if let Err(e) = cb.call1(py, (py_list,)) {
-            logger_call(py, "warning", &format!("set_last_resolved_callback failed: {}", e));
+            logger_call(
+                py,
+                "warning",
+                &format!("set_last_resolved_callback failed: {}", e),
+            );
         }
     }
 
@@ -560,19 +576,20 @@ fn rs_dispatch(
     honcho_manager: Option<Py<PyAny>>,
     honcho_session_key: Option<String>,
 ) -> PyResult<Option<Py<PyAny>>> {
-    let registry = RUST_TOOL_REGISTRY.lock().unwrap();
-    let entry = match registry.get(&function_name) {
-        Some(e) => e,
-        None => return Ok(None),
+    let handler: Py<PyAny> = {
+        let registry = RUST_TOOL_REGISTRY.lock().unwrap();
+        let entry = match registry.get(&function_name) {
+            Some(e) => e,
+            None => return Ok(None),
+        };
+        if entry.is_async {
+            return Ok(None);
+        }
+        match entry.handler.as_ref() {
+            Some(h) => h.clone_ref(py),
+            None => return Ok(None),
+        }
     };
-    if entry.is_async {
-        return Ok(None);
-    }
-    let handler = match entry.handler.as_ref() {
-        Some(h) => h,
-        None => return Ok(None),
-    };
-    drop(registry);
 
     let kwargs = PyDict::new(py);
     if let Some(ref tid) = task_id {
@@ -585,7 +602,10 @@ fn rs_dispatch(
         kwargs.set_item("honcho_session_key", sk)?;
     }
     if function_name == "execute_code" {
-        let sandbox = enabled_tools.or(last_resolved_tool_names.clone()).unwrap_or_default();
+        let sandbox = enabled_tools
+            .clone()
+            .or(last_resolved_tool_names.clone())
+            .unwrap_or_default();
         kwargs.set_item("enabled_tools", PyList::new(py, &sandbox)?)?;
     } else if let Some(ref ut) = user_task {
         kwargs.set_item("user_task", ut)?;
@@ -593,6 +613,7 @@ fn rs_dispatch(
         kwargs.set_item("user_task", py.None())?;
     }
 
+    // Call the Python handler and return the raw Py result
     let result = handler.call(py, (function_args.bind(py),), Some(&kwargs))?;
     Ok(Some(result))
 }
@@ -625,21 +646,26 @@ fn handle_function_call(
 
     let function_args_cloned = function_args.clone_ref(py);
     let enabled_tools_cloned = enabled_tools.clone();
+    let task_id_clone = task_id.clone();
+    let user_task_clone = user_task.clone();
+    let last_resolved_clone = last_resolved_tool_names.clone();
+    let honcho_manager_clone = honcho_manager.as_ref().map(|h| h.clone_ref(py));
+    let honcho_session_key_clone = honcho_session_key.clone();
     let rust_result = rs_dispatch(
         py,
         function_name.clone(),
         function_args,
-        task_id,
-        user_task,
+        task_id_clone,
+        user_task_clone,
         enabled_tools_cloned,
-        last_resolved_tool_names,
-        honcho_manager,
-        honcho_session_key,
+        last_resolved_clone,
+        honcho_manager_clone,
+        honcho_session_key_clone,
     );
 
     match rust_result {
         Ok(Some(result)) => {
-            let s: &str = result.borrow(py).str()?.extract()?;
+            let s: String = result.into_bound(py).str()?.extract()?;
             Ok(s.to_string())
         }
         Ok(None) | Err(_) => {
@@ -654,7 +680,10 @@ fn handle_function_call(
                 kwargs.set_item("honcho_session_key", sk)?;
             }
             if function_name == "execute_code" {
-                let sandbox = enabled_tools.or(last_resolved_tool_names.clone()).unwrap_or_default();
+                let sandbox = enabled_tools
+                    .clone()
+                    .or(last_resolved_tool_names.clone())
+                    .unwrap_or_default();
                 kwargs.set_item("enabled_tools", PyList::new(py, &sandbox)?)?;
             } else if let Some(ref ut) = user_task {
                 kwargs.set_item("user_task", ut)?;
@@ -668,7 +697,7 @@ fn handle_function_call(
                 (function_name.as_str(), function_args_bound),
                 Some(&kwargs),
             )?;
-            let s: &str = result.borrow(py).str()?.extract()?;
+            let s: String = result.str()?.extract()?;
             Ok(s.to_string())
         }
     }
@@ -679,12 +708,10 @@ fn handle_function_call(
 // Called from Python after MCP/plugin discovery so the Rust backend picks up any new tools.
 // -------------------------------------------------------------------------------------------------
 
-
 #[pyfunction]
 fn refresh_toolset_cache(py: Python<'_>) -> PyResult<()> {
     init_toolset_cache(py)
 }
-
 
 // -------------------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------------------
@@ -792,7 +819,9 @@ pub fn sanitize_api_messages_json(json_str: &str) -> Option<String> {
         if msg.get("role").and_then(|r| r.as_str()) != Some("assistant") {
             continue;
         }
-        let Some(arr) = msg.get("tool_calls").and_then(|v| v.as_array()) else { continue };
+        let Some(arr) = msg.get("tool_calls").and_then(|v| v.as_array()) else {
+            continue;
+        };
         for tc in arr {
             if let Some(id_val) = tc.get("id") {
                 if let Some(s) = id_val.as_str() {
@@ -835,16 +864,23 @@ pub fn sanitize_api_messages_json(json_str: &str) -> Option<String> {
     for msg in &messages {
         let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("");
         if role == "tool" {
-            let cid = msg.get("tool_call_id").and_then(|id| id.as_str()).unwrap_or("");
+            let cid = msg
+                .get("tool_call_id")
+                .and_then(|id| id.as_str())
+                .unwrap_or("");
             if orphaned.iter().any(|s| s == cid) {
                 continue;
             }
         }
         result.push(msg.clone());
         if role == "assistant" {
-            let Some(arr) = msg.get("tool_calls").and_then(|v| v.as_array()) else { continue };
+            let Some(arr) = msg.get("tool_calls").and_then(|v| v.as_array()) else {
+                continue;
+            };
             for tc in arr {
-                let cid = tc.get("id").and_then(|id| id.as_str())
+                let cid = tc
+                    .get("id")
+                    .and_then(|id| id.as_str())
                     .or_else(|| {
                         let f = tc.get("function")?;
                         let id_val = f.get("id")?;

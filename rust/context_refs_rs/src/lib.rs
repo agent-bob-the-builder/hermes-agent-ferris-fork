@@ -17,8 +17,10 @@ use std::sync::LazyLock;
 // Regex patterns — compiled once at static init via LazyLock
 // ---------------------------------------------------------------------------
 
+// Note: no lookbehind in the regex — we check the preceding character manually
+// in the parsing loop to replicate Python's (?<![\w/]) behaviour.
 static REFERENCE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?<![\w/])(?:@(?P<simple>diff|staged)\b|(?P<kind>file|folder|git|url):(?P<value>\S+))").unwrap()
+    Regex::new(r"@(?:(?P<simple>diff|staged)\b|(?P<kind>file|folder|git|url):(?P<value>\S+))").unwrap()
 });
 
 static FILE_RANGE_RE: LazyLock<Regex> = LazyLock::new(|| {
@@ -39,6 +41,12 @@ const TRAILING_PUNCT_CHARS: &str = ",.;!?";
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// True if ch is a word character ([a-zA-Z0-9_]) or '/'.
+#[inline]
+fn is_word_or_slash(ch: char) -> bool {
+    ch.is_alphanumeric() || ch == '_' || ch == '/'
+}
 
 /// Strip trailing punctuation characters from a reference target.
 /// Handles balanced bracket pairs (e.g. "(foo)" → "foo").
@@ -77,6 +85,16 @@ fn parse_context_references(py: Python<'_>, message: &str) -> PyResult<Vec<Py<Py
         let m = caps.get(0).unwrap();
         let start = m.start();
         let end = m.end();
+
+        // Replicate Python's (?<![\w/]) lookbehind: skip if preceded by a
+        // word character or forward slash. Position 0 always passes.
+        if start > 0 {
+            let prev_char = message[..start].chars().last().unwrap();
+            if is_word_or_slash(prev_char) {
+                continue;
+            }
+        }
+
         let raw_text = m.as_str();
 
         if let Some(simple_match) = caps.name("simple") {
@@ -98,11 +116,13 @@ fn parse_context_references(py: Python<'_>, message: &str) -> PyResult<Vec<Py<Py
 
         if kind == "file" {
             if let Some(range_caps) = FILE_RANGE_RE.captures(&stripped) {
-                let path = range_caps.name("path").map(|m| m.as_str()).unwrap_or(&stripped);
-                let line_start: i64 = range_caps.name("start")
+                let path = range_caps.name("path").map(|m| m.as_str()).unwrap_or(&*stripped);
+                let line_start: i64 = range_caps
+                    .name("start")
                     .map(|m| m.as_str().parse().unwrap_or(1))
                     .unwrap_or(1);
-                let line_end: i64 = range_caps.name("end")
+                let line_end: i64 = range_caps
+                    .name("end")
                     .map(|m| m.as_str().parse::<i64>().unwrap_or(line_start))
                     .unwrap_or(line_start);
                 let dict = PyDict::new(py);

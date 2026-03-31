@@ -88,8 +88,19 @@ class HonchoSessionManager:
             config: HonchoClientConfig from global config (provides peer_name, ai_peer,
                     write_frequency, memory_mode, etc.).
         """
+        # ── Rust HTTP acceleration ────────────────────────────────────────────
+        # honcho_http_rs provides async reqwest-based HTTP calls that bypass
+        # the Python SDK's httpx dependency.  Zero-cost when Honcho is absent.
+        self._using_rust = False
+        try:
+            import _honcho_http_rust as _rs  # noqa: F401
+            self._using_rust = True
+            logger.debug("honcho_http_rs Rust backend available")
+        except ImportError:
+            pass
+
         self._honcho = honcho
-        self._context_tokens = context_tokens
+        self._context_tokens=***
         self._config = config
         self._cache: dict[str, HonchoSession] = {}
         self._peers_cache: dict[str, Any] = {}
