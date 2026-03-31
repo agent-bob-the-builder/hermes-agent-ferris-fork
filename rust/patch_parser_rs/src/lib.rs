@@ -229,7 +229,7 @@ pub fn parse_v4a_patch(patch_content: &str) -> PyResult<String> {
 }
 
 #[pymodule]
-fn patch_parser_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _patch_parser_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parse_v4a_patch, m)?)?;
     Ok(())
 }

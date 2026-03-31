@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [lib]
-name = "_tool_dispatch_rs"
+name = "tool_dispatch_rs"
 crate-type = ["cdylib"]
 
 [package.metadata.maturin]

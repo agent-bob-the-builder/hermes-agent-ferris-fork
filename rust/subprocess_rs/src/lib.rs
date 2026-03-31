@@ -411,7 +411,7 @@ fn _uuid_v4() -> String {
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[pymodule]
-pub fn subprocess_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub fn _subprocess_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(spawn, m)?)?;
     m.add_function(wrap_pyfunction!(interrupt, m)?)?;
     m.add_function(wrap_pyfunction!(cleanup_session, m)?)?;

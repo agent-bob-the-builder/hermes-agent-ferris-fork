@@ -512,7 +512,7 @@ fn fuzzy_find_and_replace(
 }
 
 #[pymodule]
-fn fuzzy_match_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _fuzzy_match_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(fuzzy_find_and_replace, m)?)?;
     Ok(())
 }

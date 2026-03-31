@@ -1,5 +1,5 @@
 [package]
-name = "context_refs_rs"
+name = "_context_refs_rs"
 version = "0.1.0"
 edition = "2021"
 
@@ -15,3 +15,4 @@ pyo3 = { workspace = true }
 serde = { workspace = true }
 serde_json.workspace = true
 once_cell = { workspace = true }
+regex = { workspace = true }

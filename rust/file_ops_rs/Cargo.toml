@@ -1,5 +1,5 @@
 [package]
-name = "file_ops_rs"
+name = "_file_ops_rs"
 version.workspace = true
 edition = "2021"
 

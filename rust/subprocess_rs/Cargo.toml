@@ -1,5 +1,5 @@
 [package]
-name = "subprocess_rs"
+name = "_subprocess_rs"
 version = "0.1.0"
 edition = "2021"
 
@@ -14,3 +14,5 @@ crate-type = ["cdylib"]
 pyo3 = { workspace = true }
 serde = { workspace = true }
 serde_json.workspace = true
+once_cell = { workspace = true }
+libc = "0.2"

@@ -198,7 +198,7 @@ fn estimate_tokens_rough(text: &str) -> PyResult<usize> {
 // ---------------------------------------------------------------------------
 
 #[pymodule]
-fn context_refs_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _context_refs_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parse_context_references, m)?)?;
     m.add_function(wrap_pyfunction!(remove_reference_tokens, m)?)?;
     m.add_function(wrap_pyfunction!(estimate_tokens_rough, m)?)?;
