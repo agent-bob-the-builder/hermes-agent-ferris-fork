@@ -1110,9 +1110,15 @@ class ShellFileOperations(FileOperations):
 
     def _rg_subprocess(self, args: List[str], timeout: int = 60) -> tuple:
         """Run ripgrep as a direct subprocess, bypassing bash -lic."""
+        import sys, time as _time, os as _os
         rg_path = self._get_rg_binary()
         if rg_path is None:
+            sys.stderr.write(f"[_rg_subprocess] rg_path=None, returning (-1)\n")
+            sys.stderr.flush()
             return ("", -1)
+        sys.stderr.write(f"[_rg_subprocess] cmd=[rg_path] + {args}, cwd={self.cwd!r}\n")
+        sys.stderr.flush()
+        t0 = _time.time()
         try:
             result = subprocess.run(
                 [rg_path] + args,
@@ -1121,8 +1127,16 @@ class ShellFileOperations(FileOperations):
                 timeout=timeout,
                 cwd=self.cwd or None,
             )
+            sys.stderr.write(f"[_rg_subprocess] done in {_time.time()-t0:.3f}s, rc={result.returncode}\n")
+            sys.stderr.flush()
             return (result.stdout, result.returncode)
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        except subprocess.TimeoutExpired:
+            sys.stderr.write(f"[_rg_subprocess] TIMEOUT after {timeout}s\n")
+            sys.stderr.flush()
+            return ("", -1)
+        except (FileNotFoundError, OSError) as e:
+            sys.stderr.write(f"[_rg_subprocess] OSError: {e}\n")
+            sys.stderr.flush()
             return ("", -1)
 
     def _search_with_rg_subprocess(self, pattern: str, path: str,

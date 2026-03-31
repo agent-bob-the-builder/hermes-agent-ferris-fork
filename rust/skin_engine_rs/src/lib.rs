@@ -2,14 +2,11 @@ use once_cell::sync::Lazy;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use serde::{Deserialize, Serialize};
+use serde_yaml::Value as YamlValue;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::RwLock;
-
-// =============================================================================
-// Data structures
-// =============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[pyclass]
@@ -19,7 +16,7 @@ pub struct SkinConfig {
     #[serde(default)]
     colors: HashMap<String, String>,
     #[serde(default)]
-    spinner: HashMap<String, serde_yaml::Value>,
+    spinner: HashMap<String, YamlValue>,
     #[serde(default)]
     branding: HashMap<String, String>,
     #[serde(default)]
@@ -41,8 +38,6 @@ impl SkinConfig {
     #[getter]
     fn colors(&self) -> HashMap<String, String> { self.colors.clone() }
     #[getter]
-    fn spinner(&self) -> HashMap<String, serde_yaml::Value> { self.spinner.clone() }
-    #[getter]
     fn branding(&self) -> HashMap<String, String> { self.branding.clone() }
     #[getter]
     fn tool_prefix(&self) -> String { self.tool_prefix.clone() }
@@ -56,18 +51,18 @@ impl SkinConfig {
     fn get_color(&self, key: &str, fallback: &str) -> String {
         self.colors.get(key).cloned().unwrap_or_else(|| fallback.to_string())
     }
-    fn get_branding(&self, key: &str, fallback: &str) -> String {
+    fn get_branding_key(&self, key: &str, fallback: &str) -> String {
         self.branding.get(key).cloned().unwrap_or_else(|| fallback.to_string())
     }
     fn get_spinner_list(&self, key: &str) -> Vec<String> {
-        self.spinner.get(key).and_then(|v| v.as_sequence()).map(|seq| {
-            seq.iter().filter_map(|item| item.as_str().map(String::from)).collect()
+        self.spinner.get(key).and_then(|v: &YamlValue| v.as_sequence()).map(|seq: &serde_yaml::Sequence| {
+            seq.iter().filter_map(|item: &YamlValue| item.as_str().map(String::from)).collect()
         }).unwrap_or_default()
     }
     fn get_spinner_wings(&self) -> Vec<(String, String)> {
-        self.spinner.get("wings").and_then(|v| v.as_sequence()).map(|seq| {
-            seq.iter().filter_map(|item| {
-                item.as_sequence().and_then(|pair| {
+        self.spinner.get("wings").and_then(|v: &YamlValue| v.as_sequence()).map(|seq: &serde_yaml::Sequence| {
+            seq.iter().filter_map(|item: &YamlValue| {
+                item.as_sequence().and_then(|pair: &serde_yaml::Sequence| {
                     if pair.len() == 2 {
                         Some((pair[0].as_str().unwrap_or("").to_string(), pair[1].as_str().unwrap_or("").to_string()))
                     } else { None }
@@ -77,210 +72,179 @@ impl SkinConfig {
     }
 }
 
-// =============================================================================
-// Built-in skins
-// =============================================================================
+fn sv(s: &str) -> YamlValue { YamlValue::String(s.to_string()) }
+fn vi(v: Vec<&str>) -> YamlValue { YamlValue::Sequence(v.into_iter().map(|s| YamlValue::String(s.to_string())).collect()) }
+fn vv(v: Vec<Vec<&str>>) -> YamlValue { YamlValue::Sequence(v.into_iter().map(|pair| YamlValue::Sequence(pair.into_iter().map(|s| YamlValue::String(s.to_string())).collect())).collect()) }
+fn vd() -> HashMap<String, YamlValue> { HashMap::new() }
 
-type SkinData = HashMap<&'static str, serde_yaml::Value>;
+macro_rules! skin_data {
+    ($name:expr, $desc:expr, $colors:expr, $spinner:expr, $branding:expr, $tp:expr, $logo:expr, $hero:expr) => {{
+        let mut d = HashMap::new();
+        d.insert("name".to_string(), sv($name));
+        d.insert("description".to_string(), sv($desc));
+        d.insert("colors".to_string(), serde_yaml::to_value($colors).unwrap());
+        d.insert("spinner".to_string(), serde_yaml::to_value(&$spinner).unwrap());
+        d.insert("branding".to_string(), serde_yaml::to_value(&$branding).unwrap());
+        d.insert("tool_prefix".to_string(), sv($tp));
+        if !$logo.is_empty() { d.insert("banner_logo".to_string(), sv($logo)); }
+        if !$hero.is_empty() { d.insert("banner_hero".to_string(), sv($hero)); }
+        d
+    }};
+    ($name:expr, $desc:expr, $colors:expr, $spinner:expr, $branding:expr, $tp:expr) => {{
+        let mut d = HashMap::new();
+        d.insert("name".to_string(), sv($name));
+        d.insert("description".to_string(), sv($desc));
+        d.insert("colors".to_string(), serde_yaml::to_value($colors).unwrap());
+        d.insert("spinner".to_string(), serde_yaml::to_value(&$spinner).unwrap());
+        d.insert("branding".to_string(), serde_yaml::to_value(&$branding).unwrap());
+        d.insert("tool_prefix".to_string(), sv($tp));
+        d
+    }};
+}
+
+type SkinData = HashMap<String, YamlValue>;
 
 fn make_builtin_skins() -> HashMap<&'static str, SkinData> {
     let mut skins = HashMap::new();
 
     // --- default ---
     {
-        let mut colors = HashMap::new();
-        colors.insert("banner_border", "#CD7F32");
-        colors.insert("banner_title", "#FFD700");
-        colors.insert("banner_accent", "#FFBF00");
-        colors.insert("banner_dim", "#B8860B");
-        colors.insert("banner_text", "#FFF8DC");
-        colors.insert("ui_accent", "#FFBF00");
-        colors.insert("ui_label", "#4dd0e1");
-        colors.insert("ui_ok", "#4caf50");
-        colors.insert("ui_error", "#ef5350");
-        colors.insert("ui_warn", "#ffa726");
-        colors.insert("prompt", "#FFF8DC");
-        colors.insert("input_rule", "#CD7F32");
-        colors.insert("response_border", "#FFD700");
-        colors.insert("session_label", "#DAA520");
-        colors.insert("session_border", "#8B8682");
-        let mut branding = HashMap::new();
-        branding.insert("agent_name", "Hermes Agent");
-        branding.insert("welcome", "Welcome to Hermes Agent! Type your message or /help for commands.");
-        branding.insert("goodbye", "Goodbye! ⚕");
-        branding.insert("response_label", " ⚕ Hermes ");
-        branding.insert("prompt_symbol", "❯ ");
-        branding.insert("help_header", "(^_^)? Available Commands");
-        let mut data = SkinData::new();
-        data.insert("name", "default".into());
-        data.insert("description", "Classic Hermes — gold and kawaii".into());
-        data.insert("colors", serde_yaml::to_value(colors).unwrap());
-        data.insert("spinner", serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
-        data.insert("branding", serde_yaml::to_value(branding).unwrap());
-        data.insert("tool_prefix", "┊".into());
-        skins.insert("default", data);
+        let mut c = HashMap::new();
+        c.insert("banner_border", "#CD7F32"); c.insert("banner_title", "#FFD700");
+        c.insert("banner_accent", "#FFBF00"); c.insert("banner_dim", "#B8860B");
+        c.insert("banner_text", "#FFF8DC"); c.insert("ui_accent", "#FFBF00");
+        c.insert("ui_label", "#4dd0e1"); c.insert("ui_ok", "#4caf50");
+        c.insert("ui_error", "#ef5350"); c.insert("ui_warn", "#ffa726");
+        c.insert("prompt", "#FFF8DC"); c.insert("input_rule", "#CD7F32");
+        c.insert("response_border", "#FFD700"); c.insert("session_label", "#DAA520");
+        c.insert("session_border", "#8B8682");
+        let mut b = HashMap::new();
+        b.insert("agent_name", "Hermes Agent"); b.insert("welcome", "Welcome to Hermes Agent! Type your message or /help for commands.");
+        b.insert("goodbye", "Goodbye! ⚕"); b.insert("response_label", " ⚕ Hermes ");
+        b.insert("prompt_symbol", "❯ "); b.insert("help_header", "(^_^)? Available Commands");
+        skins.insert("default", skin_data!("default", "Classic Hermes — gold and kawaii", c, vd(), b, "┊"));
     }
 
     // --- ares ---
     {
-        let mut colors = HashMap::new();
-        colors.insert("banner_border", "#9F1C1C"); colors.insert("banner_title", "#C7A96B");
-        colors.insert("banner_accent", "#DD4A3A"); colors.insert("banner_dim", "#6B1717");
-        colors.insert("banner_text", "#F1E6CF"); colors.insert("ui_accent", "#DD4A3A");
-        colors.insert("ui_label", "#C7A96B"); colors.insert("ui_ok", "#4caf50");
-        colors.insert("ui_error", "#ef5350"); colors.insert("ui_warn", "#ffa726");
-        colors.insert("prompt", "#F1E6CF"); colors.insert("input_rule", "#9F1C1C");
-        colors.insert("response_border", "#C7A96B"); colors.insert("session_label", "#C7A96B");
-        colors.insert("session_border", "#6E584B");
-        let mut spinner = HashMap::new();
-        spinner.insert("waiting_faces", serde_yaml::to_value(vec!["(⚔)", "(⛨)", "(▲)", "(<>)", "(/)"]).unwrap());
-        spinner.insert("thinking_faces", serde_yaml::to_value(vec!["(⚔)", "(⛨)", "(▲)", "(⌁)", "(<>)"]).unwrap());
-        spinner.insert("thinking_verbs", serde_yaml::to_value(vec!["forging", "marching", "sizing the field", "holding the line", "hammering plans", "tempering steel", "plotting impact", "raising the shield"]).unwrap());
-        spinner.insert("wings", serde_yaml::to_value(vec![vec!["⟪⚔", "⚔⟫"], vec!["⟪▲", "▲⟫"], vec!["⟪╸", "╺⟫"], vec!["⟪⛨", "⛨⟫"]]).unwrap());
-        let mut branding = HashMap::new();
-        branding.insert("agent_name", "Ares Agent"); branding.insert("welcome", "Welcome to Ares Agent! Type your message or /help for commands.");
-        branding.insert("goodbye", "Farewell, warrior! ⚔"); branding.insert("response_label", " ⚔ Ares ");
-        branding.insert("prompt_symbol", "⚔ ❯ "); branding.insert("help_header", "(⚔) Available Commands");
-        let mut data = SkinData::new();
-        data.insert("name", "ares".into()); data.insert("description", "War-god theme — crimson and bronze".into());
-        data.insert("colors", serde_yaml::to_value(colors).unwrap());
-        data.insert("spinner", serde_yaml::to_value(spinner).unwrap());
-        data.insert("branding", serde_yaml::to_value(branding).unwrap());
-        data.insert("tool_prefix", "╎".into());
-        data.insert("banner_logo", "[bold #A3261F] █████╗ ██████╗ ███████╗███████╗       █████╗  ██████╗ ███████╗███╗   ██╗████████╗[/]\n[bold #B73122]██╔══██╗██╔══██╗██╔════╝██╔════╝      ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝[/]\n[#C93C24]███████║██████╔╝█████╗  ███████╗█████╗███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║[/]\n[#D84A28]██╔══██║██╔══██╗██╔══╝  ╚════██║╚════╝██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║[/]\n[#E15A2D]██║  ██║██║  ██║███████╗███████║      ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║[/]\n[#EB6C32]╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝      ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝[/]");
-        data.insert("banner_hero", "[#9F1C1C]⠀⠀⠀⠀━━━━━━━━━━━━━━━━━━━━━━[/]\n[#9F1C1C]⡠⠊⠉⠉⠉⠉⠉⠑⠊⠔⣔[/]\n[#C7A96B]⣀⠤⠒⠒⠒⠒⠒⠤⣀[/]\n[#C7A96B]⢀⣠⣤⣤⣤⣤⣤⣄⡀[/]\n[#DD4A3A]⢸⣿⣿⣿⣿⣿⣿⣿⡇[/]\n[#DD4A3A]⢸⣿⣿⣿⣿⣿⣿⣿⡇[/]\n[#9F1C1C]⢸⣿⣿⣿⣿⣿⣿⣿⡇[/]\n[#9F1C1C]⢸⣿⠋  ⠙⣿⡇[/]\n[#6B1717]⢸⣿      �⣿⡇[/]\n[#6B1717]⠸⣿    ⣸⠇[/]\n[#C7A96B]  ⠙⠒⠒⠙[/]\n[#C7A96B]  ⠒⠒⠒⠒[/]\n[#DD4A3A]  ⚔[/]\n[dim #6B1717]war god online[/]");
-        skins.insert("ares", data);
+        let mut c = HashMap::new();
+        c.insert("banner_border", "#9F1C1C"); c.insert("banner_title", "#C7A96B");
+        c.insert("banner_accent", "#DD4A3A"); c.insert("banner_dim", "#6B1717");
+        c.insert("banner_text", "#F1E6CF"); c.insert("ui_accent", "#DD4A3A");
+        c.insert("ui_label", "#C7A96B"); c.insert("ui_ok", "#4caf50");
+        c.insert("ui_error", "#ef5350"); c.insert("ui_warn", "#ffa726");
+        c.insert("prompt", "#F1E6CF"); c.insert("input_rule", "#9F1C1C");
+        c.insert("response_border", "#C7A96B"); c.insert("session_label", "#C7A96B");
+        c.insert("session_border", "#6E584B");
+        let mut sp = HashMap::new();
+        sp.insert("waiting_faces", vi(vec!["(⚔)", "(⛨)", "(▲)", "(<>)", "(/)"]));
+        sp.insert("thinking_faces", vi(vec!["(⚔)", "(⛨)", "(▲)", "(⌁)", "(<>)"]));
+        sp.insert("thinking_verbs", vi(vec!["forging", "marching", "sizing the field", "holding the line", "hammering plans", "tempering steel", "plotting impact", "raising the shield"]));
+        sp.insert("wings", vv(vec![vec!["⟪⚔", "⚔⟫"], vec!["⟪▲", "▲⟫"], vec!["⟪╸", "╺⟫"], vec!["⟪⛨", "⛨⟫"]]));
+        let mut b = HashMap::new();
+        b.insert("agent_name", "Ares Agent"); b.insert("welcome", "Welcome to Ares Agent! Type your message or /help for commands.");
+        b.insert("goodbye", "Farewell, warrior! ⚔"); b.insert("response_label", " ⚔ Ares ");
+        b.insert("prompt_symbol", "⚔ ❯ "); b.insert("help_header", "(⚔) Available Commands");
+        let logo = "[bold #A3261F] █████╗ ██████╗ ███████╗███████╗       █████╗  ██████╗ ███████╗███╗   ██╗████████╗[/]\n[bold #B73122]██╔══██╗██╔══██╗██╔════╝██╔════╝      ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝[/]\n[#C93C24]███████║██████╔╝█████╗  ███████╗█████╗███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║[/]\n[#D84A28]██╔══██║██╔══██╗██╔══╝  ╚════██║╚════╝██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║[/]\n[#E15A2D]██║  ██║██║  ██║███████╗███████║      ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║[/]\n[#EB6C32]╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝      ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝[/]";
+        let hero = "[#9F1C1C]⠀⠀⠀⠀━━━━━━━━━━━━━━━━━━━━━━[/]\n[#9F1C1C]⡠⠊⠉⠉⠉⠉⠉⠑⠊⠔⣔[/]\n[#C7A96B]⣀⠤⠒⠒⠒⠒⠒⠤⣀[/]\n[#C7A96B]⢀⣠⣤⣤⣤⣤⣤⣄⡀[/]\n[#DD4A3A]⢸⣿⣿⣿⣿⣿⣿⣿⡇[/]\n[#DD4A3A]⢸⣿⣿⣿⣿⣿⣿⣿⡇[/]\n[#9F1C1C]⢸⣿⣿⣿⣿⣿⣿⣿⡇[/]\n[#9F1C1C]⢸⣿⠋  ⠙⣿⡇[/]\n[#6B1717]⢸⣿      �⣿⡇[/]\n[#6B1717]⠸⣿    ⣸⠇[/]\n[#C7A96B]  ⠙⠒⠒⠙[/]\n[#C7A96B]  ⠒⠒⠒⠒[/]\n[#DD4A3A]  ⚔[/]\n[dim #6B1717]war god online[/]";
+        skins.insert("ares", skin_data!("ares", "War-god theme — crimson and bronze", c, sp, b, "╎", logo, hero));
     }
 
     // --- mono ---
     {
-        let mut colors = HashMap::new();
-        colors.insert("banner_border", "#555555"); colors.insert("banner_title", "#e6edf3");
-        colors.insert("banner_accent", "#aaaaaa"); colors.insert("banner_dim", "#444444");
-        colors.insert("banner_text", "#c9d1d9"); colors.insert("ui_accent", "#aaaaaa");
-        colors.insert("ui_label", "#888888"); colors.insert("ui_ok", "#888888");
-        colors.insert("ui_error", "#cccccc"); colors.insert("ui_warn", "#999999");
-        colors.insert("prompt", "#c9d1d9"); colors.insert("input_rule", "#444444");
-        colors.insert("response_border", "#aaaaaa"); colors.insert("session_label", "#888888");
-        colors.insert("session_border", "#555555");
-        let mut data = SkinData::new();
-        data.insert("name", "mono".into()); data.insert("description", "Monochrome — clean grayscale".into());
-        data.insert("colors", serde_yaml::to_value(colors).unwrap());
-        data.insert("spinner", serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
-        data.insert("branding", serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
-        data.insert("tool_prefix", "┊".into());
-        skins.insert("mono", data);
+        let mut c = HashMap::new();
+        c.insert("banner_border", "#555555"); c.insert("banner_title", "#e6edf3");
+        c.insert("banner_accent", "#aaaaaa"); c.insert("banner_dim", "#444444");
+        c.insert("banner_text", "#c9d1d9"); c.insert("ui_accent", "#aaaaaa");
+        c.insert("ui_label", "#888888"); c.insert("ui_ok", "#888888");
+        c.insert("ui_error", "#cccccc"); c.insert("ui_warn", "#999999");
+        c.insert("prompt", "#c9d1d9"); c.insert("input_rule", "#444444");
+        c.insert("response_border", "#aaaaaa"); c.insert("session_label", "#888888");
+        c.insert("session_border", "#555555");
+        skins.insert("mono", skin_data!("mono", "Monochrome — clean grayscale", c, vd(), vd(), "┊"));
     }
 
     // --- slate ---
     {
-        let mut colors = HashMap::new();
-        colors.insert("banner_border", "#4169e1"); colors.insert("banner_title", "#7eb8f6");
-        colors.insert("banner_accent", "#8EA8FF"); colors.insert("banner_dim", "#4b5563");
-        colors.insert("banner_text", "#c9d1d9"); colors.insert("ui_accent", "#7eb8f6");
-        colors.insert("ui_label", "#8EA8FF"); colors.insert("ui_ok", "#63D0A6");
-        colors.insert("ui_error", "#F7A072"); colors.insert("ui_warn", "#e6a855");
-        colors.insert("prompt", "#c9d1d9"); colors.insert("input_rule", "#4169e1");
-        colors.insert("response_border", "#7eb8f6"); colors.insert("session_label", "#7eb8f6");
-        colors.insert("session_border", "#4b5563");
-        let mut data = SkinData::new();
-        data.insert("name", "slate".into()); data.insert("description", "Cool blue — developer-focused".into());
-        data.insert("colors", serde_yaml::to_value(colors).unwrap());
-        data.insert("spinner", serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
-        data.insert("branding", serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
-        data.insert("tool_prefix", "┊".into());
-        skins.insert("slate", data);
+        let mut c = HashMap::new();
+        c.insert("banner_border", "#4169e1"); c.insert("banner_title", "#7eb8f6");
+        c.insert("banner_accent", "#8EA8FF"); c.insert("banner_dim", "#4b5563");
+        c.insert("banner_text", "#c9d1d9"); c.insert("ui_accent", "#7eb8f6");
+        c.insert("ui_label", "#8EA8FF"); c.insert("ui_ok", "#63D0A6");
+        c.insert("ui_error", "#F7A072"); c.insert("ui_warn", "#e6a855");
+        c.insert("prompt", "#c9d1d9"); c.insert("input_rule", "#4169e1");
+        c.insert("response_border", "#7eb8f6"); c.insert("session_label", "#7eb8f6");
+        c.insert("session_border", "#4b5563");
+        skins.insert("slate", skin_data!("slate", "Cool blue — developer-focused", c, vd(), vd(), "┊"));
     }
 
     // --- poseidon ---
     {
-        let mut colors = HashMap::new();
-        colors.insert("banner_border", "#2A6FB9"); colors.insert("banner_title", "#A9DFFF");
-        colors.insert("banner_accent", "#5DB8F5"); colors.insert("banner_dim", "#153C73");
-        colors.insert("banner_text", "#EAF7FF"); colors.insert("ui_accent", "#5DB8F5");
-        colors.insert("ui_label", "#A9DFFF"); colors.insert("ui_ok", "#4caf50");
-        colors.insert("ui_error", "#ef5350"); colors.insert("ui_warn", "#ffa726");
-        colors.insert("prompt", "#EAF7FF"); colors.insert("input_rule", "#2A6FB9");
-        colors.insert("response_border", "#5DB8F5"); colors.insert("session_label", "#A9DFFF");
-        colors.insert("session_border", "#496884");
-        let mut spinner = HashMap::new();
-        spinner.insert("waiting_faces", serde_yaml::to_value(vec!["(≈)", "(Ψ)", "(∿)", "(◌)", "(◠)"]).unwrap());
-        spinner.insert("thinking_faces", serde_yaml::to_value(vec!["(Ψ)", "(∿)", "(≈)", "(⌁)", "(◌)"]).unwrap());
-        spinner.insert("thinking_verbs", serde_yaml::to_value(vec!["charting currents", "sounding the depth", "reading foam lines", "steering the trident", "tracking undertow", "plotting sea lanes", "calling the swell", "measuring pressure"]).unwrap());
-        spinner.insert("wings", serde_yaml::to_value(vec![vec!["⟪≈", "≈⟫"], vec!["⟪Ψ", "Ψ⟫"], vec!["⟪∿", "∿⟫"], vec!["⟪◌", "◌⟫"]]).unwrap());
-        let mut data = SkinData::new();
-        data.insert("name", "poseidon".into()); data.insert("description", "Ocean-god theme — deep blue and seafoam".into());
-        data.insert("colors", serde_yaml::to_value(colors).unwrap());
-        data.insert("spinner", serde_yaml::to_value(spinner).unwrap());
-        data.insert("branding", serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
-        data.insert("tool_prefix", "│".into());
-        data.insert("banner_logo", "[bold #B8E8FF]██████╗  ██████╗ ███████╗███████╗██╗██████╗  ██████╗ ███╗   ██╗       █████╗  ██████╗ ███████╗███╗   ██╗████████╗[/]\n[bold #97D6FF]██╔══██╗██╔═══██╗██╔════╝██╔════╝██║██╔══██╗██╔═══██╗████╗  ██║      ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝[/]\n[#75C1F6]██████╔╝██║   ██║███████╗█████╗  ██║██║  ██║██║   ██║██╔██╗ ██║█████╗███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║[/]\n[#4FA2E0]██╔═══╝ ██║   ██║╚════██║██╔══╝  ██║██║  ██║██║   ██║██║╚██╗██║╚════╝██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║[/]\n[#2E7CC7]██║     ╚██████╔╝███████║███████╗██║██████╔╝╚██████╔╝██║ ╚████║      ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║[/]\n[#1B4F95]╚═╝      ╚═════╝ ╚══════╝╚══════╝╚═╝╚═════╝  ╚═════╝ ╚═╝  ╚═══╝      ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝[/]");
-        data.insert("banner_hero", "[#2A6FB9]≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈[/]\n[#5DB8F5]≋≋≋≋≋≋≋≋≋≋≋≋≋≋≋[/]\n[#5DB8F5]≋≋≋≋≋≋Ψ≋≋≋≋≋≋≋[/]\n[#A9DFFF]≋≋≋≋≋≋≋≋≋≋≋≋≋≋≋[/]\n[#A9DFFF]≋≋≋≋≋≋≋≋≋≋≋≋≋≋≋[/]\n[#5DB8F5]≋≋≋≋≋≋≋≋≋≋≋≋≋≋≋[/]\n[#2A6FB9]≋≋≋≋≋≋≋≋≋≋≋≋≋≋≋[/]\n[#2A6FB9]≋≋≋≋≋≋≋≋≋≋≋≋≋≋≋[/]\n[#153C73]≋≋≋≋≋≋≋≋≋≋≋≋≋≋≋[/]\n[#153C73]≋≋≋≋≋≋≋≋≋≋≋≋≋≋≋[/]\n[#5DB8F5]≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈[/]\n[#A9DFFF]≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈[/]\n[dim #153C73]deep waters hold[/]");
-        skins.insert("poseidon", data);
+        let mut c = HashMap::new();
+        c.insert("banner_border", "#2A6FB9"); c.insert("banner_title", "#A9DFFF");
+        c.insert("banner_accent", "#5DB8F5"); c.insert("banner_dim", "#153C73");
+        c.insert("banner_text", "#EAF7FF"); c.insert("ui_accent", "#5DB8F5");
+        c.insert("ui_label", "#A9DFFF"); c.insert("ui_ok", "#4caf50");
+        c.insert("ui_error", "#ef5350"); c.insert("ui_warn", "#ffa726");
+        c.insert("prompt", "#EAF7FF"); c.insert("input_rule", "#2A6FB9");
+        c.insert("response_border", "#5DB8F5"); c.insert("session_label", "#A9DFFF");
+        c.insert("session_border", "#496884");
+        let mut sp = HashMap::new();
+        sp.insert("waiting_faces", vi(vec!["(≈)", "(Ψ)", "(∿)", "(◌)", "(◠)"]));
+        sp.insert("thinking_faces", vi(vec!["(Ψ)", "(∿)", "(≈)", "(⌁)", "(◌)"]));
+        sp.insert("thinking_verbs", vi(vec!["charting currents", "sounding the depth", "reading foam lines", "steering the trident", "tracking undertow", "plotting sea lanes", "calling the swell", "measuring pressure"]));
+        sp.insert("wings", vv(vec![vec!["⟪≈", "≈⟫"], vec!["⟪Ψ", "Ψ⟫"], vec!["⟪∿", "∿⟫"], vec!["⟪◌", "◌⟫"]]));
+        let logo = "[bold #B8E8FF]██████╗  ██████╗ ███████╗███████╗██╗██████╗  ██████╗ ███╗   ██╗       █████╗  ██████╗ ███████╗███╗   ██╗████████╗[/]\n[bold #97D6FF]██╔══██╗██╔═══██╗██╔════╝██╔════╝██║██╔══██╗██╔═══██╗████╗  ██║      ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝[/]\n[#75C1F6]██████╔╝██║   ██║███████╗█████╗  ██║██║  ██║██║   ██║██╔██╗ ██║█████╗███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║[/]\n[#4FA2E0]██╔═══╝ ██║   ██║╚════██║██╔══╝  ██║██║  ██║██║   ██║██║╚██╗██║╚════╝██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║[/]\n[#2E7CC7]██║     ╚██████╔╝███████║███████╗██║██████╔╝╚██████╔╝██║ ╚████║      ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║[/]\n[#1B4F95]╚═╝      ╚═════╝ ╚══════╝╚══════╝╚═╝╚═════╝  ╚═════╝ ╚═╝  ╚═══╝      ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝[/]";
+        let hero = "[#2A6FB9]≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈[/]\n[#5DB8F5]≋≋≋≋≋≋≋≋≋≋≋≋≋≋≋[/]\n[#5DB8F5]≋≋≋≋≋≋Ψ≋≋≋≋≋≋≋[/]\n[#A9DFFF]≋≋≋≋≋≋≋≋≋≋≋≋≋≋≋[/]\n[#A9DFFF]≋≋≋≋≋≋≋≋≋≋≋≋≋≋≋[/]\n[#5DB8F5]≋≋≋≋≋≋≋≋≋≋≋≋≋≋≋[/]\n[#2A6FB9]≋≋≋≋≋≋≋≋≋≋≋≋≋≋≋[/]\n[#2A6FB9]≋≋≋≋≋≋≋≋≋≋≋≋≋≋≋[/]\n[#153C73]≋≋≋≋≋≋≋≋≋≋≋≋≋≋≋[/]\n[#153C73]≋≋≋≋≋≋≋≋≋≋≋≋≋≋≋[/]\n[#5DB8F5]≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈[/]\n[#A9DFFF]≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈[/]\n[dim #153C73]deep waters hold[/]";
+        skins.insert("poseidon", skin_data!("poseidon", "Ocean-god theme — deep blue and seafoam", c, sp, vd(), "│", logo, hero));
     }
 
     // --- sisyphus ---
     {
-        let mut colors = HashMap::new();
-        colors.insert("banner_border", "#B7B7B7"); colors.insert("banner_title", "#F5F5F5");
-        colors.insert("banner_accent", "#E7E7E7"); colors.insert("banner_dim", "#4A4A4A");
-        colors.insert("banner_text", "#D3D3D3"); colors.insert("ui_accent", "#E7E7E7");
-        colors.insert("ui_label", "#D3D3D3"); colors.insert("ui_ok", "#919191");
-        colors.insert("ui_error", "#E7E7E7"); colors.insert("ui_warn", "#B7B7B7");
-        colors.insert("prompt", "#F5F5F5"); colors.insert("input_rule", "#656565");
-        colors.insert("response_border", "#B7B7B7"); colors.insert("session_label", "#919191");
-        colors.insert("session_border", "#656565");
-        let mut spinner = HashMap::new();
-        spinner.insert("waiting_faces", serde_yaml::to_value(vec!["(◉)", "(◌)", "(◬)", "(⬤)", "(::)"]).unwrap());
-        spinner.insert("thinking_faces", serde_yaml::to_value(vec!["(◉)", "(◬)", "(◌)", "(○)", "(●)"]).unwrap());
-        spinner.insert("thinking_verbs", serde_yaml::to_value(vec!["finding traction", "measuring the grade", "resetting the boulder", "counting the ascent", "testing leverage", "setting the shoulder", "pushing uphill", "enduring the loop"]).unwrap());
-        spinner.insert("wings", serde_yaml::to_value(vec![vec!["⟪◉", "◉⟫"], vec!["⟪◬", "◬⟫"], vec!["⟪◌", "◌⟫"], vec!["⟪⬤", "⬤⟫"]]).unwrap());
-        let mut data = SkinData::new();
-        data.insert("name", "sisyphus".into()); data.insert("description", "Sisyphean theme — austere grayscale with persistence".into());
-        data.insert("colors", serde_yaml::to_value(colors).unwrap());
-        data.insert("spinner", serde_yaml::to_value(spinner).unwrap());
-        data.insert("branding", serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
-        data.insert("tool_prefix", "│".into());
-        data.insert("banner_logo", "[bold #F5F5F5]███████╗██╗███████╗██╗   ██╗██████╗ ██╗  ██╗██╗   ██╗███████╗       █████╗  ██████╗ ███████╗███╗   ██╗████████╗[/]\n[bold #E7E7E7]██╔════╝██║██╔════╝╚██╗ ██╔╝██╔══██╗██║  ██║██║   ██║██╔════╝      ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝[/]\n[#D7D7D7]███████╗██║███████╗ ╚████╔╝ ██████╔╝███████║██║   ██║███████╗█████╗███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║[/]\n[#BFBFBF]╚════██║██║╚════██║  ╚██╔╝  ██╔═══╝ ██╔══██║██║   ██║╚════██║╚════╝██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║[/]\n[#8F8F8F]███████║██║███████║   ██║   ██║     ██║  ██║╚██████╔╝███████║      ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║[/]\n[#626262]╚══════╝╚═╝╚══════╝   ╚═╝   ╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚══════╝      ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝[/]");
-        data.insert("banner_hero", "[#B7B7B7]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#D3D3D3]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#E7E7E7]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#F5F5F5]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#E7E7E7]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#D3D3D3]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#B7B7B7]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#919191]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#656565]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#656565]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#4A4A4A]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#4A4A4A]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#656565]━━━━━━━━━━━━━━━━━━━━━━[/]\n[dim #4A4A4A]the boulder[/]");
-        skins.insert("sisyphus", data);
+        let mut c = HashMap::new();
+        c.insert("banner_border", "#B7B7B7"); c.insert("banner_title", "#F5F5F5");
+        c.insert("banner_accent", "#E7E7E7"); c.insert("banner_dim", "#4A4A4A");
+        c.insert("banner_text", "#D3D3D3"); c.insert("ui_accent", "#E7E7E7");
+        c.insert("ui_label", "#D3D3D3"); c.insert("ui_ok", "#919191");
+        c.insert("ui_error", "#E7E7E7"); c.insert("ui_warn", "#B7B7B7");
+        c.insert("prompt", "#F5F5F5"); c.insert("input_rule", "#656565");
+        c.insert("response_border", "#B7B7B7"); c.insert("session_label", "#919191");
+        c.insert("session_border", "#656565");
+        let mut sp = HashMap::new();
+        sp.insert("waiting_faces", vi(vec!["(◉)", "(◌)", "(◬)", "(⬤)", "(::)"]));
+        sp.insert("thinking_faces", vi(vec!["(◉)", "(◬)", "(◌)", "(○)", "(●)"]));
+        sp.insert("thinking_verbs", vi(vec!["finding traction", "measuring the grade", "resetting the boulder", "counting the ascent", "testing leverage", "setting the shoulder", "pushing uphill", "enduring the loop"]));
+        sp.insert("wings", vv(vec![vec!["⟪◉", "◉⟫"], vec!["⟪◬", "◬⟫"], vec!["⟪◌", "◌⟫"], vec!["⟪⬤", "⬤⟫"]]));
+        let logo = "[bold #F5F5F5]███████╗██╗███████╗██╗   ██╗██████╗ ██╗  ██╗██╗   ██╗███████╗       █████╗  ██████╗ ███████╗███╗   ██╗████████╗[/]\n[bold #E7E7E7]██╔════╝██║██╔════╝╚██╗ ██╔╝██╔══██╗██║  ██║██║   ██║██╔════╝      ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝[/]\n[#D7D7D7]███████╗██║███████╗ ╚████╔╝ ██████╔╝███████║██║   ██║███████╗█████╗███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║[/]\n[#BFBFBF]╚════██║██║╚════██║  ╚██╔╝  ██╔═══╝ ██╔══██║██║   ██║╚════██║╚════╝██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║[/]\n[#8F8F8F]███████║██║███████║   ██║   ██║     ██║  ██║╚██████╔╝███████║      ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║[/]\n[#626262]╚══════╝╚═╝╚══════╝   ╚═╝   ╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚══════╝      ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝[/]";
+        let hero = "[#B7B7B7]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#D3D3D3]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#E7E7E7]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#F5F5F5]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#E7E7E7]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#D3D3D3]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#B7B7B7]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#919191]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#656565]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#656565]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#4A4A4A]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#4A4A4A]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#656565]━━━━━━━━━━━━━━━━━━━━━━[/]\n[dim #4A4A4A]the boulder[/]";
+        skins.insert("sisyphus", skin_data!("sisyphus", "Sisyphean theme — austere grayscale with persistence", c, sp, vd(), "│", logo, hero));
     }
 
     // --- charizard ---
     {
-        let mut colors = HashMap::new();
-        colors.insert("banner_border", "#C75B1D"); colors.insert("banner_title", "#FFD39A");
-        colors.insert("banner_accent", "#F29C38"); colors.insert("banner_dim", "#7A3511");
-        colors.insert("banner_text", "#FFF0D4"); colors.insert("ui_accent", "#F29C38");
-        colors.insert("ui_label", "#FFD39A"); colors.insert("ui_ok", "#4caf50");
-        colors.insert("ui_error", "#ef5350"); colors.insert("ui_warn", "#ffa726");
-        colors.insert("prompt", "#FFF0D4"); colors.insert("input_rule", "#C75B1D");
-        colors.insert("response_border", "#F29C38"); colors.insert("session_label", "#FFD39A");
-        colors.insert("session_border", "#6C4724");
-        let mut spinner = HashMap::new();
-        spinner.insert("waiting_faces", serde_yaml::to_value(vec!["(✦)", "(▲)", "(◇)", "(<>)", "(🔥)"]).unwrap());
-        spinner.insert("thinking_faces", serde_yaml::to_value(vec!["(✦)", "(▲)", "(◇)", "(⌁)", "(🔥)"]).unwrap());
-        spinner.insert("thinking_verbs", serde_yaml::to_value(vec!["banking into the draft", "measuring burn", "reading the updraft", "tracking ember fall", "setting wing angle", "holding the flame core", "plotting a hot landing", "coiling for lift"]).unwrap());
-        spinner.insert("wings", serde_yaml::to_value(vec![vec!["⟪✦", "✦⟫"], vec!["⟪▲", "▲⟫"], vec!["⟪◌", "◌⟫"], vec!["⟪◇", "◇⟫"]]).unwrap());
-        let mut data = SkinData::new();
-        data.insert("name", "charizard".into()); data.insert("description", "Volcanic theme — burnt orange and ember".into());
-        data.insert("colors", serde_yaml::to_value(colors).unwrap());
-        data.insert("spinner", serde_yaml::to_value(spinner).unwrap());
-        data.insert("branding", serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
-        data.insert("tool_prefix", "│".into());
-        data.insert("banner_logo", "[bold #FFF0D4] ██████╗██╗  ██╗ █████╗ ██████╗ ██╗███████╗ █████╗ ██████╗ ██████╗        █████╗  ██████╗ ███████╗███╗   ██╗████████╗[/]\n[bold #FFD39A]██╔════╝██║  ██║██╔══██╗██╔══██╗██║╚══███╔╝██╔══██╗██╔══██╗██╔══██╗      ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝[/]\n[#F29C38]██║     ███████║███████║██████╔╝██║  ███╔╝ ███████║██████╔╝██║  ██║█████╗███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║[/]\n[#E2832B]██║     ██╔══██║██╔══██║██╔══██╗██║ ███╔╝  ██╔══██║██╔══██╗██║  ██║╚════╝██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║[/]\n[#C75B1D]╚██████╗██║  ██║██║  ██║██║  ██║██║███████╗██║  ██║██║  ██║██████╔╝      ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║[/]\n[#7A3511] ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝       ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝[/]");
-        data.insert("banner_hero", "[#FFD39A]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#F29C38]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#F29C38]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#E2832B]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#E2832B]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#C75B1D]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#C75B1D]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#7A3511]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#7A3511]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#C75B1D]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#F29C38]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#F29C38]━━━━━━━━━━━━━━━━━━━━━━[/]\n[dim #7A3511]tail flame lit[/]");
-        skins.insert("charizard", data);
+        let mut c = HashMap::new();
+        c.insert("banner_border", "#C75B1D"); c.insert("banner_title", "#FFD39A");
+        c.insert("banner_accent", "#F29C38"); c.insert("banner_dim", "#7A3511");
+        c.insert("banner_text", "#FFF0D4"); c.insert("ui_accent", "#F29C38");
+        c.insert("ui_label", "#FFD39A"); c.insert("ui_ok", "#4caf50");
+        c.insert("ui_error", "#ef5350"); c.insert("ui_warn", "#ffa726");
+        c.insert("prompt", "#FFF0D4"); c.insert("input_rule", "#C75B1D");
+        c.insert("response_border", "#F29C38"); c.insert("session_label", "#FFD39A");
+        c.insert("session_border", "#6C4724");
+        let mut sp = HashMap::new();
+        sp.insert("waiting_faces", vi(vec!["(✦)", "(▲)", "(◇)", "(<>)", "(🔥)"]));
+        sp.insert("thinking_faces", vi(vec!["(✦)", "(▲)", "(◇)", "(⌁)", "(🔥)"]));
+        sp.insert("thinking_verbs", vi(vec!["banking into the draft", "measuring burn", "reading the updraft", "tracking ember fall", "setting wing angle", "holding the flame core", "plotting a hot landing", "coiling for lift"]));
+        sp.insert("wings", vv(vec![vec!["⟪✦", "✦⟫"], vec!["⟪▲", "▲⟫"], vec!["⟪◌", "◌⟫"], vec!["⟪◇", "◇⟫"]]));
+        let logo = "[bold #FFF0D4] ██████╗██╗  ██╗ █████╗ ██████╗ ██╗███████╗ █████╗ ██████╗ ██████╗        █████╗  ██████╗ ███████╗███╗   ██╗████████╗[/]\n[bold #FFD39A]██╔════╝██║  ██║██╔══██╗██╔══██╗██║╚══███╔╝██╔══██╗██╔══██╗██╔══██╗      ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝[/]\n[#F29C38]██║     ███████║███████║██████╔╝██║  ███╔╝ ███████║██████╔╝██║  ██║█████╗███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║[/]\n[#E2832B]██║     ██╔══██║██╔══██║██╔══██╗██║ ███╔╝  ██╔══██║██╔══██╗██║  ██║╚════╝██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║[/]\n[#C75B1D]╚██████╗██║  ██║██║  ██║██║  ██║██║███████╗██║  ██║██║  ██║██████╔╝      ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║[/]\n[#7A3511] ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝       ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝[/]";
+        let hero = "[#FFD39A]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#F29C38]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#F29C38]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#E2832B]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#E2832B]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#C75B1D]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#C75B1D]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#7A3511]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#7A3511]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#C75B1D]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#F29C38]━━━━━━━━━━━━━━━━━━━━━━[/]\n[#F29C38]━━━━━━━━━━━━━━━━━━━━━━[/]\n[dim #7A3511]tail flame lit[/]";
+        skins.insert("charizard", skin_data!("charizard", "Volcanic theme — burnt orange and ember", c, sp, vd(), "│", logo, hero));
     }
 
     skins
 }
 
 static BUILTIN_SKINS: Lazy<HashMap<&'static str, SkinData>> = Lazy::new(make_builtin_skins);
-
-// =============================================================================
-// Skin management
-// =============================================================================
 
 static ACTIVE_SKIN_NAME: Lazy<RwLock<String>> = Lazy::new(|| RwLock::new(String::from("default")));
 
@@ -291,40 +255,43 @@ fn skins_dir() -> PathBuf { get_hermes_home().join("skins") }
 
 fn load_skin_data_from_yaml(path: &PathBuf) -> Option<SkinData> {
     let content = fs::read_to_string(path).ok()?;
-    let data: SkinData = serde_yaml::from_str(&content).ok()?;
-    if data.get("name").is_some() { Some(data) } else { None }
+    serde_yaml::from_str(&content).ok()
 }
 
 fn build_skin_config(data: &SkinData) -> SkinConfig {
     let default_data = BUILTIN_SKINS.get("default").unwrap();
 
-    let default_colors: HashMap<String, String> = default_data.get("colors").and_then(|v| serde_yaml::from_value(v.clone()).ok()).unwrap_or_default();
+    let default_colors: HashMap<String, String> = default_data.get("colors")
+        .and_then(|v: &YamlValue| serde_yaml::from_value(v.clone()).ok()).unwrap_or_default();
     let mut colors: HashMap<String, String> = default_colors;
     if let Some(new_colors) = data.get("colors") {
         if let Ok(c) = serde_yaml::from_value::<HashMap<String, String>>(new_colors.clone()) { colors.extend(c); }
     }
 
-    let default_spinner: HashMap<String, serde_yaml::Value> = default_data.get("spinner").and_then(|v| serde_yaml::from_value(v.clone()).ok()).unwrap_or_default();
-    let mut spinner: HashMap<String, serde_yaml::Value> = default_spinner;
+    let default_spinner: HashMap<String, YamlValue> = default_data.get("spinner")
+        .and_then(|v: &YamlValue| serde_yaml::from_value(v.clone()).ok()).unwrap_or_default();
+    let mut spinner: HashMap<String, YamlValue> = default_spinner;
     if let Some(new_spinner) = data.get("spinner") {
-        if let Ok(s) = serde_yaml::from_value(new_spinner.clone()) { spinner.extend(s); }
+        if let Ok(s) = serde_yaml::from_value::<HashMap<String, YamlValue>>(new_spinner.clone()) { spinner.extend(s); }
     }
 
-    let default_branding: HashMap<String, String> = default_data.get("branding").and_then(|v| serde_yaml::from_value(v.clone()).ok()).unwrap_or_default();
+    let default_branding: HashMap<String, String> = default_data.get("branding")
+        .and_then(|v: &YamlValue| serde_yaml::from_value(v.clone()).ok()).unwrap_or_default();
     let mut branding: HashMap<String, String> = default_branding;
     if let Some(new_branding) = data.get("branding") {
         if let Ok(b) = serde_yaml::from_value::<HashMap<String, String>>(new_branding.clone()) { branding.extend(b); }
     }
 
-    let default_tool_prefix = default_data.get("tool_prefix").and_then(|v| v.as_str()).unwrap_or("┊");
-    let tool_prefix = data.get("tool_prefix").and_then(|v| v.as_str()).unwrap_or(default_tool_prefix);
+    let default_tool_prefix = default_data.get("tool_prefix").and_then(|v: &YamlValue| v.as_str()).unwrap_or("┊");
+    let tool_prefix = data.get("tool_prefix").and_then(|v: &YamlValue| v.as_str()).unwrap_or(default_tool_prefix);
 
-    let tool_emojis: HashMap<String, String> = data.get("tool_emojis").and_then(|v| serde_yaml::from_value(v.clone()).ok()).unwrap_or_default();
+    let tool_emojis: HashMap<String, String> = data.get("tool_emojis")
+        .and_then(|v: &YamlValue| serde_yaml::from_value(v.clone()).ok()).unwrap_or_default();
 
-    let name = data.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
-    let description = data.get("description").and_then(|v| v.as_str()).unwrap_or("");
-    let banner_logo = data.get("banner_logo").and_then(|v| v.as_str()).unwrap_or("");
-    let banner_hero = data.get("banner_hero").and_then(|v| v.as_str()).unwrap_or("");
+    let name = data.get("name").and_then(|v: &YamlValue| v.as_str()).unwrap_or("unknown");
+    let description = data.get("description").and_then(|v: &YamlValue| v.as_str()).unwrap_or("");
+    let banner_logo = data.get("banner_logo").and_then(|v: &YamlValue| v.as_str()).unwrap_or("");
+    let banner_hero = data.get("banner_hero").and_then(|v: &YamlValue| v.as_str()).unwrap_or("");
 
     SkinConfig {
         name: name.to_string(), description: description.to_string(), colors, spinner, branding,
@@ -340,10 +307,6 @@ fn do_load_skin(name: &str) -> SkinConfig {
     if let Some(data) = BUILTIN_SKINS.get(name) { return build_skin_config(data); }
     build_skin_config(BUILTIN_SKINS.get("default").unwrap())
 }
-
-// =============================================================================
-// PyO3 module
-// =============================================================================
 
 #[pymodule]
 fn skin_engine_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -364,7 +327,7 @@ fn skin_engine_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
 fn list_skins() -> Vec<HashMap<String, String>> {
     let mut result = Vec::new();
     for (name, data) in BUILTIN_SKINS.iter() {
-        let description = data.get("description").and_then(|v| v.as_str()).unwrap_or("");
+        let description = data.get("description").and_then(|v: &YamlValue| v.as_str()).unwrap_or("");
         let mut map = HashMap::new();
         map.insert("name".to_string(), name.to_string());
         map.insert("description".to_string(), description.to_string());
@@ -379,11 +342,11 @@ fn list_skins() -> Vec<HashMap<String, String>> {
             user_skins.sort_by_key(|e| e.path());
             for entry in user_skins {
                 if let Some(data) = load_skin_data_from_yaml(&entry.path()) {
-                    let skin_name = data.get("name").and_then(|v| v.as_str())
-                        .unwrap_or_else(|| entry.path().file_stem().and_then(|s| s.to_str()).unwrap_or("unknown"))
-                        .to_string();
+                    let skin_name = data.get("name").and_then(|v: &YamlValue| v.as_str())
+                        .map(str::to_string)
+                        .unwrap_or_else(|| entry.path().file_stem().and_then(|s| s.to_str()).unwrap_or("unknown").to_string());
                     if result.iter().any(|r| r.get("name") == Some(&skin_name)) { continue; }
-                    let description = data.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let description = data.get("description").and_then(|v: &YamlValue| v.as_str()).unwrap_or("").to_string();
                     let mut map = HashMap::new();
                     map.insert("name".to_string(), skin_name);
                     map.insert("description".to_string(), description);
@@ -402,20 +365,24 @@ fn list_skins() -> Vec<HashMap<String, String>> {
 #[pyfunction] fn get_active_skin_name() -> String { ACTIVE_SKIN_NAME.read().unwrap().clone() }
 
 #[pyfunction]
-fn init_skin_from_config(py: Python<'_>, config: &Bound<'_, PyDict>) -> PyResult<()> {
+fn init_skin_from_config(_py: Python<'_>, config: &Bound<'_, PyDict>) -> PyResult<()> {
     let skin_name = config.get_item("display")
-        .and_then(|d| d.and_then(|v| v.downcast::<PyDict>().ok()))
-        .and_then(|d| d.get_item("skin"))
-        .and_then(|s| s.and_then(|v| v.extract::<String>().ok()))
+        .ok().flatten()
+        .and_then(|d| d.cast::<PyDict>().ok())
+        .and_then(|py_dict| {
+            py_dict.get_item("skin")
+                .ok().flatten()
+                .and_then(|v| v.extract::<String>().ok())
+        })
         .unwrap_or_else(|| "default".to_string());
     let name = skin_name.trim().to_string();
     if !name.is_empty() { set_active_skin(name); } else { set_active_skin("default".to_string()); }
     Ok(())
 }
 
-#[pyfunction] fn get_active_prompt_symbol() -> String { let name = ACTIVE_SKIN_NAME.read().unwrap().clone(); do_load_skin(&name).get_branding("prompt_symbol", "❯ ") }
-#[pyfunction] fn get_active_help_header() -> String { let name = ACTIVE_SKIN_NAME.read().unwrap().clone(); do_load_skin(&name).get_branding("help_header", "(^_^)? Available Commands") }
-#[pyfunction] fn get_active_goodbye() -> String { let name = ACTIVE_SKIN_NAME.read().unwrap().clone(); do_load_skin(&name).get_branding("goodbye", "Goodbye! ⚕") }
+#[pyfunction] fn get_active_prompt_symbol() -> String { let name = ACTIVE_SKIN_NAME.read().unwrap().clone(); do_load_skin(&name).get_branding_key("prompt_symbol", "❯ ") }
+#[pyfunction] fn get_active_help_header() -> String { let name = ACTIVE_SKIN_NAME.read().unwrap().clone(); do_load_skin(&name).get_branding_key("help_header", "(^_^)? Available Commands") }
+#[pyfunction] fn get_active_goodbye() -> String { let name = ACTIVE_SKIN_NAME.read().unwrap().clone(); do_load_skin(&name).get_branding_key("goodbye", "Goodbye! ⚕") }
 
 #[pyfunction]
 fn get_prompt_toolkit_style_overrides() -> HashMap<String, String> {

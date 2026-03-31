@@ -245,7 +245,7 @@ pub async fn compress(
     previous_summary: Option<&str>,
     compression_count: usize,
     quiet: bool,
-) -> Option<Vec<Value>> {
+) -> Option<(Vec<Value>, Option<String>)> {
     let threshold_tokens = (context_length as f64 * threshold_percent) as usize;
     let tail_token_budget = (context_length as f64 * summary_target_ratio * threshold_percent) as usize;
     let n_messages = messages.len();
@@ -400,7 +400,7 @@ pub async fn compress(
         );
     }
 
-    Some(compressed)
+    Some((compressed, summary))
 }
 
 // ---------------------------------------------------------------------------

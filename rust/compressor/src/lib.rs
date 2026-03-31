@@ -230,7 +230,7 @@ fn compress_async(
     previous_summary: Option<String>,
     compression_count: usize,
     quiet: bool,
-) -> PyResult<Option<Vec<Py<PyAny>>>> {
+) -> PyResult<(Option<Vec<Py<PyAny>>>, Option<String>)> {
     let json_msgs: Vec<Value> = messages.iter().map(|d| dict_to_json(d)).collect();
 
     let result = std::thread::scope(|s| {
@@ -257,10 +257,12 @@ fn compress_async(
         .unwrap()
     });
 
-    match result {
-        Some(compressed) => Ok(Some(json_msgs_to_py(py, compressed))),
-        None => Ok(None),
-    }
+        match result {
+            Some((compressed, summary_text)) => {
+                Ok((Some(json_msgs_to_py(py, compressed)), summary_text))
+            }
+            None => Ok((None, None)),
+        }
 }
 
 // ---------------------------------------------------------------------------
@@ -422,8 +424,11 @@ impl PyContextCompressor {
         });
 
         match result {
-            Some(compressed) => {
+            Some((compressed, summary_text)) => {
                 self.compression_count += 1;
+                if let Some(s) = summary_text {
+                    self.previous_summary = Some(s);
+                }
                 Ok(Some(json_msgs_to_py(py, compressed)))
             }
             None => Ok(None),

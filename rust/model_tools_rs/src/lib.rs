@@ -1,7 +1,7 @@
 use lazy_static::lazy_static;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
-use pyo3::types::{PyAnyMethods, PyDict, PyList, PyListMethods, PyModuleMethods, PySet};
+use pyo3::types::{PyAnyMethods, PyDict, PyList, PyListMethods, PyModuleMethods, PyNone, PySet};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, atomic::{AtomicBool, Ordering}, mpsc::channel};
 
@@ -582,6 +582,11 @@ fn handle_function_call(
         let sandbox = enabled_tools.or(last_resolved_tool_names.clone()).unwrap_or_default();
         kwargs.set_item("enabled_tools", PyList::new(py, &sandbox)?)?;
     } else if let Some(ref ut) = user_task {
+        kwargs.set_item("user_task", ut)?;
+    } else {
+        kwargs.set_item("user_task", py.None())?;
+    }
+
     // Call Python dispatch synchronously while GIL is held.
     // The Python registry.dispatch() is CPU-bound Python code — it does not
     // block waiting for the GIL from another thread, so no deadlock risk here.
