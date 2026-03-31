@@ -437,13 +437,13 @@ print(json.dumps({{'ok': True, 'results': results}}))
         return None
 
 
-# ── 4. _hermes_state_rust vs python sqlite3 ────────────────────────────────────
+# ── 4. _hermes_state_rs vs python sqlite3 ────────────────────────────────────
 
 _HERMES_STATE_RUST_SCRIPT = """
 import sys, os, json, time, pathlib
 sys.path.insert(0, '/root/.hermes/hermes-agent-ferris-fork')
 os.environ['HERMES_HOME'] = '/tmp/hermes_bench_rust'
-import _hermes_state_rust as hsr
+import _hermes_state_rs as hsr
 
 db_path = pathlib.Path('/tmp/hermes_bench_rust/bench_session.db')
 db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -533,30 +533,30 @@ print(json.dumps({'ok': True, 'times': times}))
 """
 
 
-def bench_hermes_state_rust(runs=50, warmup=10):
-    """_hermes_state_rust (rusqlite/SQLite FTS5)."""
+def bench_hermes_state_rs(runs=50, warmup=10):
+    """_hermes_state_rs (rusqlite/SQLite FTS5)."""
     script = _HERMES_STATE_RUST_SCRIPT.replace("WARMUP", str(warmup)).replace("RUNS", str(runs))
     out, err, rc, _ = run_script(script, timeout=30)
     if rc != 0:
-        print(f"    [_hermes_state_rust] rc={rc} err={err[:200]}")
+        print(f"    [_hermes_state_rs] rc={rc} err={err[:200]}")
         return None
     try:
         data = json.loads(out)
         times = data.get("times", [])
         if not times:
-            print(f"    [_hermes_state_rust] no times: {out[:200]}")
+            print(f"    [_hermes_state_rs] no times: {out[:200]}")
             return None
         return (
             statistics.mean(times), statistics.median(times), min(times),
             max(times), pct(times, 95), stdev(times), times,
         )
     except (json.JSONDecodeError, KeyError):
-        print(f"    [_hermes_state_rust] bad output: {out[:200]}")
+        print(f"    [_hermes_state_rs] bad output: {out[:200]}")
         return None
 
 
 def bench_sqlite3_fts_python(runs=50, warmup=10):
-    """Pure Python sqlite3 + FTS5 — same query as _hermes_state_rust."""
+    """Pure Python sqlite3 + FTS5 — same query as _hermes_state_rs."""
     script = _SQLITE3_FTS_SCRIPT.replace("WARMUP", str(warmup)).replace("RUNS", str(runs))
     return bench_subprocess(script, runs=runs, warmup=warmup)
 
@@ -684,7 +684,7 @@ def main():
 
     # ── 4. SessionDB FTS ────────────────────────────────────────────────────────
     section("4. SessionDB FTS — _hermes_state_rs (rusqlite) vs python sqlite3")
-    sdb_rust = bench_hermes_state_rust(runs=50, warmup=10)
+    sdb_rust = bench_hermes_state_rs(runs=50, warmup=10)
     sdb_py = bench_sqlite3_fts_python(runs=50, warmup=10)
 
     if sdb_rust:

@@ -129,7 +129,7 @@ def _try_load_retry_rs():
             _sys.path.insert(0, venv_site)
         import importlib
         importlib.invalidate_caches()
-        mod = importlib.import_module("_retry_state_machine_rust")
+        mod = importlib.import_module("_retry_state_machine_rs")
         # Verify the module has the expected entry point
         if not hasattr(mod, "rs_evaluate"):
             raise ImportError(
@@ -167,16 +167,16 @@ def _try_load_tool_dispatch_rs():
         import importlib as _importlib
 
         _importlib.invalidate_caches()
-        mod = _importlib.import_module("_tool_dispatch_rust")
+        mod = _importlib.import_module("_tool_dispatch_rs")
         # Verify the module has the expected entry points
         if not hasattr(mod, "rs_should_parallelize"):
             raise ImportError(
-                f"_tool_dispatch_rust loaded from {getattr(mod, '__file__', '?')} "
+                f"_tool_dispatch_rs loaded from {getattr(mod, '__file__', '?')} "
                 "but has no 'rs_should_parallelize' attribute"
             )
         if not hasattr(mod, "rs_run_concurrent_tool_batch"):
             raise ImportError(
-                f"_tool_dispatch_rust loaded from {getattr(mod, '__file__', '?')} "
+                f"_tool_dispatch_rs loaded from {getattr(mod, '__file__', '?')} "
                 "but has no 'rs_run_concurrent_tool_batch' attribute"
             )
         _tool_dispatch_rs = mod

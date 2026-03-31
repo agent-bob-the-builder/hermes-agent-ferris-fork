@@ -12,3 +12,4 @@
 {"ts": 1774937176.6191916, "results": {"get_tool_definitions_rust": {"mean_ms": 0.143, "p95_ms": 0.216}, "get_tool_definitions_python": {"mean_ms": 482.119, "p95_ms": 568.877}, "prompt_builder_rust": {"build_mean_ms": 0.001}}}
 {"ts": 1774937316.754636, "results": {"get_tool_definitions_python": {"mean_ms": 530.987, "p95_ms": 628.225}}}
 {"ts": 1774938115.92481, "results": {"get_tool_definitions_rust": {"mean_ms": 0.153, "p95_ms": 0.214}, "get_tool_definitions_python": {"mean_ms": 479.648, "p95_ms": 510.364}, "sessiondb_rust": {"mean_ms": 1.046, "p95_ms": 1.363}, "sessiondb_python": {"mean_ms": 50.027, "p95_ms": 63.76}}}
+{"ts": 1774938265.0407245, "results": {"get_tool_definitions_rust": {"mean_ms": 0.159, "p95_ms": 0.228}, "get_tool_definitions_python": {"mean_ms": 493.217, "p95_ms": 528.9}, "sessiondb_rust": {"mean_ms": 1.037, "p95_ms": 1.279}, "sessiondb_python": {"mean_ms": 49.637, "p95_ms": 57.413}}}

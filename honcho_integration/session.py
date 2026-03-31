@@ -93,7 +93,7 @@ class HonchoSessionManager:
         # the Python SDK's httpx dependency.  Zero-cost when Honcho is absent.
         self._using_rust = False
         try:
-            import _honcho_http_rust as _rs  # noqa: F401
+            import _honcho_http_rs as _rs  # noqa: F401
             self._using_rust = True
             logger.debug("honcho_http_rs Rust backend available")
         except ImportError:
@@ -298,7 +298,7 @@ class HonchoSessionManager:
         # Rust HTTP path — available when base_url is configured and rust loaded.
         # This only handles the /api/sync write; context() still uses Python SDK.
         if self._using_rust and self._config and self._config.base_url:
-            import _honcho_http_rust as _rs
+            import _honcho_http_rs as _rs
             try:
                 for msg in new_messages:
                     role = "user" if msg["role"] == "user" else "assistant"
