@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 use pyo3::prelude::*;
 use std::collections::HashMap;
 use lazy_static::lazy_static;
@@ -392,26 +393,31 @@ fn _strategy_block_anchor(content: &str, pattern: &str) -> Vec<Match> {
     let candidate_count = potential_matches.len();
     let threshold = if candidate_count == 1 { 0.10 } else { 0.30 };
 
-    let mut matches = Vec::new();
     let content_len = content.len();
 
-    for &i in &potential_matches {
-        let similarity: f64;
-        if pattern_line_count <= 2 {
-            similarity = 1.0;
-        } else {
-            let content_middle: String = norm_content_lines[i + 1..i + pattern_line_count - 1]
-                .join("\n");
-            let pattern_middle: String = pattern_lines[1..pattern_line_count - 1].join("\n");
-            similarity = lcs_similarity(&content_middle, &pattern_middle);
-        }
+    // Parallel: each potential match position is independent
+    let matches: Vec<(usize, usize)> = potential_matches
+        .par_iter()
+        .filter_map(|&i| {
+            let similarity: f64;
+            if pattern_line_count <= 2 {
+                similarity = 1.0;
+            } else {
+                let content_middle: String = norm_content_lines[i + 1..i + pattern_line_count - 1]
+                    .join("\n");
+                let pattern_middle: String = pattern_lines[1..pattern_line_count - 1].join("\n");
+                similarity = lcs_similarity(&content_middle, &pattern_middle);
+            }
 
-        if similarity >= threshold {
-            let (start_pos, end_pos) =
-                _calculate_line_positions(&orig_content_lines, i, i + pattern_line_count, content_len);
-            matches.push((start_pos, end_pos));
-        }
-    }
+            if similarity >= threshold {
+                let (start_pos, end_pos) =
+                    _calculate_line_positions(&orig_content_lines, i, i + pattern_line_count, content_len);
+                Some((start_pos, end_pos))
+            } else {
+                None
+            }
+        })
+        .collect();
 
     matches
 }
@@ -424,28 +430,31 @@ fn _strategy_context_aware(content: &str, pattern: &str) -> Vec<Match> {
         return vec![];
     }
 
-    let mut matches = Vec::new();
     let pattern_line_count = pattern_lines.len();
     let content_len = content.len();
     let orig_content_lines: Vec<String> = content.split('\n').map(|s| s.to_string()).collect();
 
-    for i in 0..content_lines.len().saturating_sub(pattern_line_count) + 1 {
-        let block_lines: Vec<&str> = content_lines[i..i + pattern_line_count].to_vec();
+    // Parallel: each window position is independent
+    let matches: Vec<(usize, usize)> = (0..content_lines.len().saturating_sub(pattern_line_count) + 1)
+        .into_par_iter()
+        .filter_map(|i| {
+            let block_lines: Vec<&str> = content_lines[i..i + pattern_line_count].to_vec();
 
-        let mut high_similarity_count = 0;
-        for (p_line, c_line) in pattern_lines.iter().zip(block_lines.iter()) {
-            let sim = lcs_similarity(p_line.trim(), c_line.trim());
-            if sim >= 0.80 {
-                high_similarity_count += 1;
+            let high_similarity_count = pattern_lines
+                .iter()
+                .zip(block_lines.iter())
+                .filter(|(p, c)| lcs_similarity(p.trim(), c.trim()) >= 0.80)
+                .count();
+
+            if high_similarity_count as f64 >= pattern_lines.len() as f64 * 0.5 {
+                let (start_pos, end_pos) =
+                    _calculate_line_positions(&orig_content_lines, i, i + pattern_line_count, content_len);
+                Some((start_pos, end_pos))
+            } else {
+                None
             }
-        }
-
-        if high_similarity_count as f64 >= pattern_lines.len() as f64 * 0.5 {
-            let (start_pos, end_pos) =
-                _calculate_line_positions(&orig_content_lines, i, i + pattern_line_count, content_len);
-            matches.push((start_pos, end_pos));
-        }
-    }
+        })
+        .collect();
 
     matches
 }

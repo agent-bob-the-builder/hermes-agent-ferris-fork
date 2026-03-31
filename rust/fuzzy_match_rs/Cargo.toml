@@ -12,5 +12,6 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = { workspace = true }
+rayon = { workspace = true }
 lazy_static = { workspace = true }
 regex = { workspace = true }

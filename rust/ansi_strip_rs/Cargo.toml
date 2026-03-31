@@ -9,6 +9,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 pyo3.workspace = true
+rayon = { workspace = true }
 regex.workspace = true
 once_cell.workspace = true
 

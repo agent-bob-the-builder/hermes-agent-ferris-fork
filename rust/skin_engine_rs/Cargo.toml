@@ -12,7 +12,7 @@ name = "skin_engine_rs"
 
 [dependencies]
 pyo3 = { workspace = true, features = ["serde"] }
-serde = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 lazy_static.workspace = true
 once_cell.workspace = true

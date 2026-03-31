@@ -6,6 +6,7 @@
 //!   3. Protect tail by token budget (~20K recent tokens)
 //!   4. Summarize middle turns via LLM call
 //!   5. On re-compression, iteratively update the previous summary
+use rayon::prelude::*;
 use serde_json::{json, Value};
 use std::collections::HashSet;
 
@@ -157,9 +158,9 @@ pub fn align_boundary_backward(messages: &[Value], mut idx: usize) -> usize {
 /// Fix orphaned tool_call / tool_result pairs after compression.
 /// Mirrors `_sanitize_tool_pairs` in Python.
 pub fn sanitize_tool_pairs(messages: &mut Vec<Value>) {
-    // Collect surviving call IDs from assistant tool_calls
+    // Collect surviving call IDs from assistant tool_calls — parallel pass
     let surviving_call_ids: HashSet<String> = messages
-        .iter()
+        .par_iter()
         .filter(|m| m.get("role").and_then(|v| v.as_str()) == Some("assistant"))
         .flat_map(|m| {
             m.get("tool_calls")
@@ -175,9 +176,9 @@ pub fn sanitize_tool_pairs(messages: &mut Vec<Value>) {
         })
         .collect();
 
-    // Collect call IDs present in tool results
+    // Collect call IDs present in tool results — parallel pass
     let result_call_ids: HashSet<String> = messages
-        .iter()
+        .par_iter()
         .filter(|m| m.get("role").and_then(|v| v.as_str()) == Some("tool"))
         .filter_map(|m| m.get("tool_call_id").and_then(|v| v.as_str()))
         .map(|s| s.to_string())
@@ -186,16 +187,21 @@ pub fn sanitize_tool_pairs(messages: &mut Vec<Value>) {
     let orphaned_results: HashSet<String> = result_call_ids.difference(&surviving_call_ids).cloned().collect();
     let missing_results: HashSet<String> = surviving_call_ids.difference(&result_call_ids).cloned().collect();
 
-    // 1. Remove orphaned tool results
+    // 1. Remove orphaned tool results — parallel partition + collect
     if !orphaned_results.is_empty() {
         let before = messages.len();
-        messages.retain(|m| {
-            !(m.get("role").and_then(|v| v.as_str()) == Some("tool")
-                && m.get("tool_call_id")
-                    .and_then(|v| v.as_str())
-                    .map(|s| orphaned_results.contains(s))
-                    .unwrap_or(false))
-        });
+        let orphaned_ref = &orphaned_results;
+        let pruned: Vec<&Value> = messages
+            .par_iter()
+            .filter(|m| {
+                !(m.get("role").and_then(|v| v.as_str()) == Some("tool")
+                    && m.get("tool_call_id")
+                        .and_then(|v| v.as_str())
+                        .map(|s| orphaned_ref.contains(s))
+                        .unwrap_or(false))
+            })
+            .collect();
+        messages.retain(|m| pruned.contains(&m));
         let removed = before - messages.len();
         if removed > 0 {
             eprintln!("Compression sanitizer: removed {} orphaned tool result(s)", removed);
