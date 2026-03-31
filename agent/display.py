@@ -76,7 +76,7 @@ def get_skin_tool_prefix() -> str:
     return "┊"
 
 
-def get_tool_emoji(tool_name: str, default: str = "⚡") -> str:
+def get_tool_emoji(tool_name: str, default: str = "🔨") -> str:
     """Get the display emoji for a tool.
 
     Resolution order:

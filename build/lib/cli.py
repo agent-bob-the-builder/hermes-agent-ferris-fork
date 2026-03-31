@@ -4772,7 +4772,7 @@ class HermesCLI:
         self._close_reasoning_box()
 
         from agent.display import get_tool_emoji
-        emoji = get_tool_emoji(tool_name, default="⚡")
+        emoji = get_tool_emoji(tool_name, default="🔨")
         _cprint(f"  ┊ {emoji} preparing {tool_name}…")
 
     # ====================================================================

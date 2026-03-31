@@ -5059,7 +5059,7 @@ class GatewayRunner:
             
             # Build progress message with primary argument preview
             from agent.display import get_tool_emoji
-            emoji = get_tool_emoji(tool_name, default="⚙️")
+            emoji = get_tool_emoji(tool_name, default="🔨")
             
             # Verbose mode: show detailed arguments
             if progress_mode == "verbose" and args:
