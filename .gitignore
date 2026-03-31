@@ -58,6 +58,11 @@ mini-swe-agent/
 # Nix
 .direnv/
 result
+*.so
+*.abi3.so
+build/
+dist/
+*.whl
 *.bak
 */target
 bench*.py

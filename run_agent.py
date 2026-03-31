@@ -45,18 +45,18 @@ def _try_load_rust_pb():
     try:
         import sys as _sys
         venv_site = _sys.prefix + "/lib/python3.11/site-packages"
-        # Prepend venv site-packages so _prompt_builder_rust is found before
+        # Prepend venv site-packages so _prompt_builder_rs is found before
         # any stale .so in the project root or cwd.
         if venv_site not in _sys.path:
             _sys.path.insert(0, venv_site)
         import importlib
         importlib.invalidate_caches()
-        mod = importlib.import_module("_prompt_builder_rust")
+        mod = importlib.import_module("_prompt_builder_rs")
         # Sanity-check: stale .so files from the project root may shadow the
         # package and lack the `build` fn.
         if not hasattr(mod, "build"):
             raise ImportError(
-                f"_prompt_builder_rust loaded from {getattr(mod, '__file__', '?')} "
+                f"_prompt_builder_rs loaded from {getattr(mod, '__file__', '?')} "
                 "but has no 'build' attribute — stale .so in sys.path?"
             )
         _rust_pb = mod

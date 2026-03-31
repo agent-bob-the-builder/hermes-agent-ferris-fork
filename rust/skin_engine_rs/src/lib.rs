@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::RwLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[pyclass]
+#[pyclass(from_py_object)]
 pub struct SkinConfig {
     name: String,
     description: String,

@@ -19,11 +19,11 @@ _rust = None
 def _get_rust():
     global _rust
     if _rust is None:
-        import _model_tools_rust as _model_tools_rust_module
+        import _model_tools_rs as _model_tools_rs_module
 
         class _RustRegistry:
             def __getattr__(self, name: str):
-                return getattr(_model_tools_rust_module, name)
+                return getattr(_model_tools_rs_module, name)
 
         _rust = _RustRegistry()
     return _rust

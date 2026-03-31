@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # Try to import the Rust extension; fall back gracefully for environments
 # that haven't built it yet (e.g. tests, fresh clone).
 try:
-    from hermes_state_rs import (
+    from _hermes_state_rs import (
         append_message as _rs_append_message,
         create_session as _rs_create_session,
         delete_session as _rs_delete_session,
@@ -55,7 +55,7 @@ try:
 except ImportError:
     _RUST_AVAILABLE = False
     logger.warning(
-        "_hermes_state_rust not available — hermes_state.py will use the "
+        "_hermes_state_rs not available — hermes_state.py will use the "
         "sqlite3 fallback. Run `make rust` or `./install.sh` to enable the "
         "Rust backend."
     )

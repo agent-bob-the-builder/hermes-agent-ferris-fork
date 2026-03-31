@@ -1,10 +1,10 @@
 [package]
-name = "prompt_builder_rs"
+name = "_prompt_builder_rs"
 version.workspace = true
 edition.workspace = true
 
 [lib]
-name = "prompt_builder_rs"
+name = "_prompt_builder_rs"
 crate-type = ["cdylib"]
 
 [dependencies]
@@ -14,4 +14,4 @@ serde_json.workspace = true
 once_cell.workspace = true
 
 [package.metadata.maturin]
-name = "prompt_builder_rs"
+name = "_prompt_builder_rs"

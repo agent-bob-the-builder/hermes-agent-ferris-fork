@@ -1,10 +1,10 @@
 [package]
-name = "skin_engine_rs"
+name = "_skin_engine_rs"
 version.workspace = true
 edition.workspace = true
 
 [lib]
-name = "skin_engine_rs"
+name = "_skin_engine_rs"
 crate-type = ["cdylib"]
 
 [profile.dev]

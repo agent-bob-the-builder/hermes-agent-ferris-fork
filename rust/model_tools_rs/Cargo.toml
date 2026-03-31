@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [lib]
-name = "_model_tools_rust"
+name = "_model_tools_rs"
 crate-type = ["cdylib"]
 
 [profile.dev]
@@ -21,4 +21,4 @@ name = "bm_get_tool_definitions"
 harness = false
 
 [package.metadata.maturin]
-name = "_model_tools_rust"
+name = "_model_tools_rs"
