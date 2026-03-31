@@ -167,16 +167,16 @@ def _try_load_tool_dispatch_rs():
         import importlib as _importlib
 
         _importlib.invalidate_caches()
-        mod = _importlib.import_module("_tool_dispatch_rs")
+        mod = _importlib.import_module("_tool_dispatch_rust")
         # Verify the module has the expected entry points
         if not hasattr(mod, "rs_should_parallelize"):
             raise ImportError(
-                f"_tool_dispatch_rs loaded from {getattr(mod, '__file__', '?')} "
+                f"_tool_dispatch_rust loaded from {getattr(mod, '__file__', '?')} "
                 "but has no 'rs_should_parallelize' attribute"
             )
         if not hasattr(mod, "rs_run_concurrent_tool_batch"):
             raise ImportError(
-                f"_tool_dispatch_rs loaded from {getattr(mod, '__file__', '?')} "
+                f"_tool_dispatch_rust loaded from {getattr(mod, '__file__', '?')} "
                 "but has no 'rs_run_concurrent_tool_batch' attribute"
             )
         _tool_dispatch_rs = mod
@@ -261,48 +261,8 @@ def _rs_evaluate_retry(
 
 
 # ---------------------------------------------------------------------------------
-# Rust tool dispatcher — lazy-loaded from venv on first use.
-# Replaces Python's _should_parallelize_tool_batch + concurrent execution with
-# a Rayon-based parallel executor via tool_dispatch_rs.
-# Falls back to pure-Python path on any error.
-def _rs_should_parallelize(tool_calls_json: str) -> bool:
-    """Rust path for _should_parallelize_tool_batch — returns True if batch is safe to parallelize."""
-    mod = _try_load_tool_dispatch_rs()
-    if mod is None:
-        return False
-    try:
-        return mod.rs_should_parallelize(tool_calls_json)
-    except Exception as _e:
-        logger.debug("Rust rs_should_parallelize failed (%s), falling back to Python", _e)
-        return False
-
-
-def _rs_run_concurrent_tool_batch(
-    tool_calls_json: str,
-    invoke_py_closure,
-    task_id: str,
-) -> list[dict]:
-    """Rust path for concurrent tool execution via Rayon.
-
-    Returns a list of dicts with keys:
-        index, content, tool_call_id, duration_secs, is_error
-
-    Falls back to [] (empty) on any error — callers handle graceful degradation.
-    """
-    mod = _try_load_tool_dispatch_rs()
-    if mod is None:
-        return []
-    try:
-        result_json = mod.rs_run_concurrent_tool_batch(
-            tool_calls_json,
-            invoke_py_closure,
-            task_id,
-        )
-        import json as _json
-        return _json.loads(result_json)
-    except Exception as _e:
-        logger.debug("Rust rs_run_concurrent_tool_batch failed (%s), falling back to Python", _e)
-        return []
+# End of Rust tool dispatcher section
+# ---------------------------------------------------------------------------------
 
 
 import os
