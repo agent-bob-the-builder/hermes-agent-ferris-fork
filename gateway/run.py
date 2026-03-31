@@ -1852,6 +1852,11 @@ class GatewayRunner:
                 uid.strip() for uid in global_allowlist.split(",") if uid.strip()
             )
 
+        # "*" in any allowlist means allow everyone (consistent with
+        # SIGNAL_GROUP_ALLOWED_USERS precedent)
+        if "*" in allowed_ids:
+            return True
+
         check_ids = {user_id}
         if "@" in user_id:
             check_ids.add(user_id.split("@")[0])
