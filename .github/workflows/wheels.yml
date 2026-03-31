@@ -1,0 +1,91 @@
+name: Wheels
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: wheels-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Linux manylinux wheel ──────────────────────────────────────────────────
+  linux-wheels:
+    runs-on: ubuntu-latest
+    container: quay.io/pypa/manylinux_2_34_x86_64:latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Install maturin
+        run: pip install maturin
+
+      - name: Build combined Linux wheel
+        run: |
+          maturin build \
+            --release \
+            --manifest-path rust/Cargo.toml \
+            --out dist \
+            --interpreter python3.11
+
+      - name: Show built wheels
+        run: ls -lh dist/*.whl || ls -lh dist/
+
+      - name: Upload Linux wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-wheels
+          path: dist/*.whl
+          retention-days: 5
+
+  # ── macOS wheel ───────────────────────────────────────────────────────────
+  macos-wheels:
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14   # ARM64 (Apple Silicon)
+          - runner: macos-13   # x86_64 (Intel)
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Install maturin
+        run: pip3 install maturin
+
+      - name: Build macOS wheel
+        env:
+          # Prevent "linker ... not found" for missing libclang on macOS
+          MACOSX_DEPLOYMENT_TARGET: "14.0"
+        run: |
+          maturin build \
+            --release \
+            --manifest-path rust/Cargo.toml \
+            --out dist \
+            --interpreter python3.11
+
+      - name: Show built wheels
+        run: ls -lh dist/*.whl || ls -lh dist/
+
+      - name: Upload macOS wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-wheels-${{ matrix.runner }}
+          path: dist/*.whl
+          retention-days: 5
