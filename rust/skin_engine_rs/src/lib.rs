@@ -333,7 +333,7 @@ fn do_load_skin(name: &str) -> SkinConfig {
 }
 
 #[pymodule]
-fn _skin_engine_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _skin_engine_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(list_skins, m)?)?;
     m.add_function(wrap_pyfunction!(load_skin, m)?)?;
     m.add_function(wrap_pyfunction!(get_active_skin, m)?)?;

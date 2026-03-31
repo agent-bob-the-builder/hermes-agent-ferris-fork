@@ -212,7 +212,7 @@ fn rs_save_observation(
 }
 
 #[pymodule]
-fn _honcho_http_rust(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _honcho_http_rs(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(rs_prefetch, module)?)?;
     module.add_function(wrap_pyfunction!(rs_sync, module)?)?;
     module.add_function(wrap_pyfunction!(rs_save_observation, module)?)?;

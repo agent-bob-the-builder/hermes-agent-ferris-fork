@@ -3,17 +3,17 @@ name = "hermes_state_rs"
 version.workspace = true
 edition.workspace = true
 
+[package.metadata.maturin]
+name = "_hermes_state_rs"
+
 [lib]
 name = "_hermes_state_rs"
 crate-type = ["cdylib"]
 
-[profile.dev]
-opt-level = 0
-
 [dependencies]
-pyo3 = { workspace = true }
+pyo3.workspace = true
 rusqlite = { version = "0.39", features = ["bundled"] }
-serde = { workspace = true }
+serde.workspace = true
 serde_json.workspace = true
 lazy_static.workspace = true
 once_cell.workspace = true

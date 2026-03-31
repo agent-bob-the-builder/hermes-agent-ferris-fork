@@ -1,7 +1,10 @@
 [package]
-name = "retry_state_machine_rs"
+name = "_retry_state_machine_rs"
 version.workspace = true
 edition.workspace = true
+
+[package.metadata.maturin]
+name = "_retry_state_machine_rs"
 
 [lib]
 name = "_retry_state_machine_rs"

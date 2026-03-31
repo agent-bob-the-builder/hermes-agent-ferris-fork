@@ -3,12 +3,32 @@
 version = 4
 
 [[package]]
+name = "_model_tools_rs"
+version = "0.1.0"
+dependencies = [
+ "lazy_static",
+ "pyo3",
+ "rayon",
+ "serde_json",
+]
+
+[[package]]
 name = "_prompt_builder_rs"
 version = "0.1.0"
 dependencies = [
  "once_cell",
  "pyo3",
  "regex",
+ "serde_json",
+]
+
+[[package]]
+name = "_retry_state_machine_rs"
+version = "0.1.0"
+dependencies = [
+ "once_cell",
+ "pyo3",
+ "serde",
  "serde_json",
 ]
 
@@ -723,16 +743,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "model_tools_rs"
-version = "0.1.0"
-dependencies = [
- "lazy_static",
- "pyo3",
- "rayon",
- "serde_json",
-]
-
-[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1137,16 +1147,6 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "webpki-roots",
-]
-
-[[package]]
-name = "retry_state_machine_rs"
-version = "0.1.0"
-dependencies = [
- "once_cell",
- "pyo3",
- "serde",
- "serde_json",
 ]
 
 [[package]]

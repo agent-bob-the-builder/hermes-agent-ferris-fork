@@ -13,6 +13,19 @@ from typing import Awaitable, Callable
 
 from agent.model_metadata import estimate_tokens_rough
 
+try:
+    from context_refs_rs import (
+        parse_context_references as _parse_context_references_rs,
+        remove_reference_tokens as _remove_reference_tokens_rs,
+        estimate_tokens_rough as _estimate_tokens_rough_rs,
+    )
+    _HAS_CONTEXT_REFS_RS = True
+except ImportError:
+    _parse_context_references_rs = None
+    _remove_reference_tokens_rs = None
+    _estimate_tokens_rough_rs = None
+    _HAS_CONTEXT_REFS_RS = False
+
 REFERENCE_PATTERN = re.compile(
     r"(?<![\w/])@(?:(?P<simple>diff|staged)\b|(?P<kind>file|folder|git|url):(?P<value>\S+))"
 )
@@ -59,10 +72,19 @@ class ContextReferenceResult:
 
 
 def parse_context_references(message: str) -> list[ContextReference]:
-    refs: list[ContextReference] = []
     if not message:
+        return []
+
+    if _HAS_CONTEXT_REFS_RS:
+        raw_results = _parse_context_references_rs(message)
+        # Convert the dicts back to ContextReference dataclasses
+        refs = [ContextReference(raw=r['raw'], kind=r['kind'], target=r['target'],
+                                 start=r['start'], end=r['end'],
+                                 line_start=r.get('line_start'), line_end=r.get('line_end'))
+                for r in raw_results]
         return refs
 
+    refs: list[ContextReference] = []
     for match in REFERENCE_PATTERN.finditer(message):
         simple = match.group("simple")
         if simple:
@@ -377,6 +399,12 @@ def _strip_trailing_punctuation(value: str) -> str:
 
 
 def _remove_reference_tokens(message: str, refs: list[ContextReference]) -> str:
+    if _HAS_CONTEXT_REFS_RS:
+        refs_json = json.dumps([{'raw': r.raw, 'kind': r.kind, 'target': r.target,
+                                 'start': r.start, 'end': r.end,
+                                 'line_start': r.line_start, 'line_end': r.line_end} for r in refs])
+        return _remove_reference_tokens_rs(message, refs_json)
+
     pieces: list[str] = []
     cursor = 0
     for ref in refs:

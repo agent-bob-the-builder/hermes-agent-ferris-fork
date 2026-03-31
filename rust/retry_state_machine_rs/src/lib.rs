@@ -601,7 +601,7 @@ fn rs_make_state() -> String {
 }
 
 #[pymodule]
-fn _retry_state_machine_rust(module: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _retry_state_machine_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(rs_evaluate, module)?)?;
     module.add_function(wrap_pyfunction!(rs_make_state, module)?)?;
     module.add(

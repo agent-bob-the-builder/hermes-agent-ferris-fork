@@ -1339,7 +1339,7 @@ fn clear_skills_system_prompt_cache_py(clear_snapshot: Option<bool>) -> () {
 // ---------------------------------------------------------------------------
 
 #[pymodule]
-fn _prompt_builder_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _prompt_builder_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(build, m)?)?;
     m.add_function(wrap_pyfunction!(strip_yaml_frontmatter_py, m)?)?;
     m.add_function(wrap_pyfunction!(truncate_content_py, m)?)?;

@@ -1247,7 +1247,7 @@ fn prune_sessions(older_than_days: i64, source: Option<String>) -> PyResult<i64>
 // ── Module definition ────────────────────────────────────────────────────────
 
 #[pymodule]
-fn _hermes_state_rust(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _hermes_state_rs(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(init, module)?)?;
     module.add_function(wrap_pyfunction!(is_initialized, module)?)?;
     module.add_function(wrap_pyfunction!(create_session, module)?)?;

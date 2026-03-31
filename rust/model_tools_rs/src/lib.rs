@@ -612,10 +612,12 @@ fn rs_dispatch(
     } else {
         kwargs.set_item("user_task", py.None())?;
     }
-    // Call the Python handler and convert result to JSON string
-    let result = handler.call(py, (function_args.bind(py),), Some(&kwargs))?;
-    // str() on Bound<PyString> returns &str; to_string() makes it owned
-    let result_str = result.bind(py).str()?.to_string();
+    // Parse JSON args — Python dispatch() deserializes before calling handlers
+    let json_mod = PyModule::import(py, "json")?;
+    let args_dict: Bound<'_, PyAny> = json_mod.call_method1("loads", (function_args.bind(py),))?;
+    let result = handler.call(py, (args_dict,), Some(&kwargs))?;
+    // into_bound converts Py<PyAny> -> Bound<PyAny>, then str() -> extract
+    let result_str: String = result.into_bound(py).str()?.extract()?;
     Ok(Some(result_str))
 }
 
@@ -904,7 +906,7 @@ fn sanitize_api_messages(messages_json: &str) -> PyResult<Option<String>> {
 }
 
 #[pymodule]
-fn _model_tools_rust(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _model_tools_rs(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(initialize, module)?)?;
     module.add_function(wrap_pyfunction!(get_tool_definitions, module)?)?;
     module.add_function(wrap_pyfunction!(handle_function_call, module)?)?;

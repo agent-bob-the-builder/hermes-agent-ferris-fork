@@ -108,6 +108,92 @@ def _try_load_rust_loop():
         return None
 
 
+# ---------------------------------------------------------------------------------
+# Rust retry state machine — lazy-loaded from venv on first use.
+# Provides rs_evaluate() which replaces the complex Python retry/fallback/
+# compression state machine with a Rust-native implementation.
+# Falls back to pure-Python path on any error.
+# ---------------------------------------------------------------------------------
+_retry_rs_loader_failed = False
+_retry_rs = None
+
+
+def _try_load_retry_rs():
+    global _retry_rs_loader_failed, _retry_rs
+    if _retry_rs is not None or _retry_rs_loader_failed:
+        return _retry_rs
+    try:
+        import sys as _sys
+        venv_site = _sys.prefix + "/lib/python3.11/site-packages"
+        if venv_site not in _sys.path:
+            _sys.path.insert(0, venv_site)
+        import importlib
+        importlib.invalidate_caches()
+        mod = importlib.import_module("_retry_state_machine_rs")
+        # Verify the module has the expected entry point
+        if not hasattr(mod, "rs_evaluate"):
+            raise ImportError(
+                f"_retry_state_machine_rs loaded from {getattr(mod, '__file__', '?')} "
+                "but has no 'rs_evaluate' attribute"
+            )
+        _retry_rs = mod
+        logger.debug("Rust retry state machine loaded successfully")
+        return _retry_rs
+    except Exception as _e:
+        _retry_rs_loader_failed = True
+        logger.debug("Rust retry state machine unavailable (%s), using Python path", _e)
+        return None
+
+
+def _rs_evaluate_retry(
+    mode: str,
+    finish_reason: str,
+    response_json: str,
+    messages_json: str,
+    state_json: str,
+    fallback_chain_json: str,
+    tool_calls_json: str,
+) -> dict | None:
+    """
+    Python-friendly wrapper around Rust rs_evaluate().
+
+    Returns a dict parsed from the Rust MachineResult JSON on success,
+    or None if the Rust module is unavailable (Python path is used instead).
+
+    Parameters:
+        mode: "chat_completions" | "codex_responses" | "anthropic_messages"
+        finish_reason: API finish_reason string
+        response_json: Full API response serialized as JSON string
+        messages_json: Current messages array serialized as JSON string
+        state_json: MachineState serialized as JSON string
+        fallback_chain_json: List[{provider, model}] serialized as JSON string
+        tool_calls_json: Tool calls array serialized as JSON string
+
+    Returns:
+        dict with keys like {"type": "Command", "action": ...} or
+        {"type": "Done", "final_response_json": ..., "tool_calls_present": bool}
+        or {"type": "Failed", "error": ..., "messages_json": ..., "partial": bool}
+        or None if Rust is unavailable.
+    """
+    mod = _try_load_retry_rs()
+    if mod is None:
+        return None
+    try:
+        result_str = mod.rs_evaluate(
+            mode,
+            finish_reason,
+            response_json,
+            messages_json,
+            state_json,
+            fallback_chain_json,
+            tool_calls_json,
+        )
+        return json.loads(result_str)
+    except Exception as _e:
+        logger.debug("Rust rs_evaluate failed (%s), using Python path", _e)
+        return None
+
+
 import os
 import random
 import re
