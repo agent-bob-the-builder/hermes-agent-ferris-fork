@@ -651,7 +651,7 @@ def init_skin_from_config(config: dict) -> None:
 # functions delegate to it. The pure-Python implementations above remain as
 # fallbacks for environments where the Rust extension hasn't been built.
 try:
-    from skin_engine_rs import (
+    from _skin_engine_rust import (
         get_active_skin as _rust_get_active_skin,
         set_active_skin as _rust_set_active_skin,
         load_skin as _rust_load_skin,
