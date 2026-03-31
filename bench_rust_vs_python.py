@@ -161,29 +161,30 @@ print(json.dumps({{'ok': True, 'count': len(defs), 'times': results}}))
 def bench_get_tool_definitions_python(runs=10, warmup=2):
     """
     PURE Python model_tools.get_tool_definitions — fresh subprocess.
-    Rust is never loaded. Fairest possible baseline.
+    HERMES_USE_RUST=0 disables the Rust backend before _ensure_rust_backend()
+    is called, so the Python fallback path is exercised for every call.
     """
-    script = """
+    script = f"""
 import sys, os, json, time
 sys.path.insert(0, '/root/.hermes/hermes-agent-ferris-fork')
 os.environ['HERMES_HOME'] = '/tmp/hermes_bench_home'
 os.environ['HERMES_USE_RUST'] = '0'
 
 import model_tools as mt
-mt._use_rust = False
-mt._rust = None
+# Verify Rust is disabled
+assert not mt._use_rust, "Rust backend should be disabled"
 
 results = []
-for _ in range(2):
+for _ in range({warmup}):
     mt.get_tool_definitions(enabled_toolsets=['file'], quiet_mode=True)
 
-for _ in range(10):
+for _ in range({runs}):
     mt._get_definitions_cache.clear()
     t0 = time.perf_counter()
     defs = mt.get_tool_definitions(enabled_toolsets=['file'], quiet_mode=True)
     dt = (time.perf_counter() - t0) * 1000
     results.append(dt)
-print(json.dumps({'ok': True, 'count': len(defs), 'times': results}))
+print(json.dumps({{'ok': True, 'count': len(defs), 'times': results}}))
 """
     return bench_subprocess(script, runs=runs, warmup=warmup)
 

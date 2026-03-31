@@ -8,7 +8,7 @@ name = "_tool_dispatch_rs"
 crate-type = ["cdylib"]
 
 [package.metadata.maturin]
-name = "_tool_dispatch_rs"
+name = "tool_dispatch_rs"
 
 [dependencies]
 pyo3.workspace = true

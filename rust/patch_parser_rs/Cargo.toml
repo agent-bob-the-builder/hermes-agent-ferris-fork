@@ -3,13 +3,15 @@ name = "patch_parser_rs"
 version = "0.1.0"
 edition = "2021"
 
+[package.metadata.maturin]
+name = "patch_parser_rs"
+
+[lib]
+name = "_patch_parser_rs"
+crate-type = ["cdylib"]
+
 [dependencies]
 pyo3 = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
-lazy_static = { workspace = true }
+serde_json.workspace = true
 regex = { workspace = true }
-
-[lib]
-name = "patch_parser_rs"
-crate-type = ["cdylib"]

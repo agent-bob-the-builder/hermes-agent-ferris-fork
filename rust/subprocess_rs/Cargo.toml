@@ -1,15 +1,16 @@
 [package]
 name = "subprocess_rs"
-version.workspace = true
-edition.workspace = true
+version = "0.1.0"
+edition = "2021"
+
+[package.metadata.maturin]
+name = "subprocess_rs"
 
 [lib]
-name = "subprocess_rs"
+name = "_subprocess_rs"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3.workspace = true
+pyo3 = { workspace = true }
 serde = { workspace = true }
 serde_json.workspace = true
-once_cell.workspace = true
-libc = "0.2"

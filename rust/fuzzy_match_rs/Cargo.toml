@@ -3,14 +3,14 @@ name = "fuzzy_match_rs"
 version = "0.1.0"
 edition = "2021"
 
+[package.metadata.maturin]
+name = "fuzzy_match_rs"
+
+[lib]
+name = "_fuzzy_match_rs"
+crate-type = ["cdylib"]
+
 [dependencies]
 pyo3 = { workspace = true }
 lazy_static = { workspace = true }
 regex = { workspace = true }
-
-[lib]
-name = "fuzzy_match_rs"
-crate-type = ["cdylib"]
-
-[package.metadata.maturin]
-name = "fuzzy_match_rs"

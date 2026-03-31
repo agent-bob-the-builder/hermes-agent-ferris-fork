@@ -4,7 +4,6 @@ members = [
     "run_agent_loop_rs",
     "ansi_strip_rs",
     "compressor",
-    "context_refs_rs",
     "file_ops_rs",
     "fuzzy_match_rs",
     "hermes_state_rs",

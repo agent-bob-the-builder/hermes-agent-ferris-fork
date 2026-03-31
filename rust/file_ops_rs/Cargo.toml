@@ -3,8 +3,11 @@ name = "file_ops_rs"
 version.workspace = true
 edition = "2021"
 
-[lib]
+[package.metadata.maturin]
 name = "file_ops_rs"
+
+[lib]
+name = "_file_ops_rs"
 crate-type = ["cdylib"]
 
 [dependencies]

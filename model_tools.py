@@ -301,6 +301,11 @@ _use_rust = False  # True when Rust backend is available and initialized
 
 def _ensure_rust_backend():
     global _rust
+    # HERMES_USE_RUST=0 disables the Rust backend entirely — used by benchmarks
+    # to measure pure Python fallback performance without Rust interference.
+    if os.environ.get("HERMES_USE_RUST", "1") == "0":
+        _rust = False
+        return False
     if _rust is not None:
         return _rust or False
     try:
