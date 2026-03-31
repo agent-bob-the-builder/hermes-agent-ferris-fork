@@ -38,7 +38,7 @@ impl SkinConfig {
     #[getter]
     fn colors(&self) -> HashMap<String, String> { self.colors.clone() }
     #[getter]
-    fn branding(&self) -> HashMap<String, String> { self.branding.clone() }
+    fn branding_dict(&self) -> HashMap<String, String> { self.branding.clone() }
     #[getter]
     fn tool_prefix(&self) -> String { self.tool_prefix.clone() }
     #[getter]
@@ -50,7 +50,11 @@ impl SkinConfig {
     fn get_color(&self, key: &str, fallback: &str) -> String {
         self.colors.get(key).cloned().unwrap_or_else(|| fallback.to_string())
     }
-    fn get_branding_key(&self, key: &str, fallback: &str) -> String {
+    fn _get_branding_key(&self, key: &str, fallback: &str) -> String {
+        self.branding.get(key).cloned().unwrap_or_else(|| fallback.to_string())
+    }
+    #[pyo3(name = "get_branding")]
+    fn py_get_branding(&self, key: &str, fallback: &str) -> String {
         self.branding.get(key).cloned().unwrap_or_else(|| fallback.to_string())
     }
     fn get_spinner_list(&self, key: &str) -> Vec<String> {
@@ -379,9 +383,9 @@ fn init_skin_from_config(_py: Python<'_>, config: &Bound<'_, PyDict>) -> PyResul
     Ok(())
 }
 
-#[pyfunction] fn get_active_prompt_symbol() -> String { let name = ACTIVE_SKIN_NAME.read().unwrap().clone(); do_load_skin(&name).get_branding_key("prompt_symbol", "❯ ") }
-#[pyfunction] fn get_active_help_header() -> String { let name = ACTIVE_SKIN_NAME.read().unwrap().clone(); do_load_skin(&name).get_branding_key("help_header", "(^_^)? Available Commands") }
-#[pyfunction] fn get_active_goodbye() -> String { let name = ACTIVE_SKIN_NAME.read().unwrap().clone(); do_load_skin(&name).get_branding_key("goodbye", "Goodbye! ⚕") }
+#[pyfunction] fn get_active_prompt_symbol() -> String { let name = ACTIVE_SKIN_NAME.read().unwrap().clone(); do_load_skin(&name)._get_branding_key("prompt_symbol", "❯ ") }
+#[pyfunction] fn get_active_help_header() -> String { let name = ACTIVE_SKIN_NAME.read().unwrap().clone(); do_load_skin(&name)._get_branding_key("help_header", "(^_^)? Available Commands") }
+#[pyfunction] fn get_active_goodbye() -> String { let name = ACTIVE_SKIN_NAME.read().unwrap().clone(); do_load_skin(&name)._get_branding_key("goodbye", "Goodbye! ⚕") }
 
 #[pyfunction]
 fn get_prompt_toolkit_style_overrides() -> HashMap<String, String> {

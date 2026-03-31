@@ -644,81 +644,39 @@ def init_skin_from_config(config: dict) -> None:
 # =============================================================================
 
 
-def get_active_prompt_symbol(fallback: str = "❯ ") -> str:
-    """Get the interactive prompt symbol from the active skin."""
-    try:
-        return get_active_skin().get_branding("prompt_symbol", fallback)
-    except Exception:
-        return fallback
+# =============================================================================
+# Rust acceleration (_skin_engine_rust)
+# =============================================================================
+# Lazy import — Rust module is built by install.sh. If it exists, all skin
+# functions delegate to it. The pure-Python implementations above remain as
+# fallbacks for environments where the Rust extension hasn't been built.
+try:
+    from _skin_engine_rust import (
+        get_active_skin as _rust_get_active_skin,
+        set_active_skin as _rust_set_active_skin,
+        load_skin as _rust_load_skin,
+        list_skins as _rust_list_skins,
+        get_active_skin_name as _rust_get_active_skin_name,
+        init_skin_from_config as _rust_init_skin_from_config,
+        get_active_prompt_symbol as _rust_get_active_prompt_symbol,
+        get_active_help_header as _rust_get_active_help_header,
+        get_active_goodbye as _rust_get_active_goodbye,
+        get_prompt_toolkit_style_overrides as _rust_get_prompt_toolkit_style_overrides,
+    )
+    _SKIN_ENGINE_RS_AVAILABLE = True
+except ImportError:
+    _SKIN_ENGINE_RS_AVAILABLE = False
 
-
-
-def get_active_help_header(fallback: str = "(^_^)? Available Commands") -> str:
-    """Get the /help header from the active skin."""
-    try:
-        return get_active_skin().get_branding("help_header", fallback)
-    except Exception:
-        return fallback
-
-
-
-def get_active_goodbye(fallback: str = "Goodbye! ⚕") -> str:
-    """Get the goodbye line from the active skin."""
-    try:
-        return get_active_skin().get_branding("goodbye", fallback)
-    except Exception:
-        return fallback
-
-
-
-def get_prompt_toolkit_style_overrides() -> Dict[str, str]:
-    """Return prompt_toolkit style overrides derived from the active skin.
-
-    These are layered on top of the CLI's base TUI style so /skin can refresh
-    the live prompt_toolkit UI immediately without rebuilding the app.
-    """
-    try:
-        skin = get_active_skin()
-    except Exception:
-        return {}
-
-    prompt = skin.get_color("prompt", "#FFF8DC")
-    input_rule = skin.get_color("input_rule", "#CD7F32")
-    title = skin.get_color("banner_title", "#FFD700")
-    text = skin.get_color("banner_text", prompt)
-    dim = skin.get_color("banner_dim", "#555555")
-    label = skin.get_color("ui_label", title)
-    warn = skin.get_color("ui_warn", "#FF8C00")
-    error = skin.get_color("ui_error", "#FF6B6B")
-
-    return {
-        "input-area": prompt,
-        "placeholder": f"{dim} italic",
-        "prompt": prompt,
-        "prompt-working": f"{dim} italic",
-        "hint": f"{dim} italic",
-        "input-rule": input_rule,
-        "image-badge": f"{label} bold",
-        "completion-menu": f"bg:#1a1a2e {text}",
-        "completion-menu.completion": f"bg:#1a1a2e {text}",
-        "completion-menu.completion.current": f"bg:#333355 {title}",
-        "completion-menu.meta.completion": f"bg:#1a1a2e {dim}",
-        "completion-menu.meta.completion.current": f"bg:#333355 {label}",
-        "clarify-border": input_rule,
-        "clarify-title": f"{title} bold",
-        "clarify-question": f"{text} bold",
-        "clarify-choice": dim,
-        "clarify-selected": f"{title} bold",
-        "clarify-active-other": f"{title} italic",
-        "clarify-countdown": input_rule,
-        "sudo-prompt": f"{error} bold",
-        "sudo-border": input_rule,
-        "sudo-title": f"{error} bold",
-        "sudo-text": text,
-        "approval-border": input_rule,
-        "approval-title": f"{warn} bold",
-        "approval-desc": f"{text} bold",
-        "approval-cmd": f"{dim} italic",
-        "approval-choice": dim,
-        "approval-selected": f"{title} bold",
-    }
+# Re-export Rust versions as the canonical implementations when available.
+if _SKIN_ENGINE_RS_AVAILABLE:
+    get_active_skin = _rust_get_active_skin
+    set_active_skin = _rust_set_active_skin
+    load_skin = _rust_load_skin
+    list_skins = _rust_list_skins
+    get_active_skin_name = _rust_get_active_skin_name
+    init_skin_from_config = _rust_init_skin_from_config
+    get_active_prompt_symbol = _rust_get_active_prompt_symbol
+    get_active_help_header = _rust_get_active_help_header
+    get_active_goodbye = _rust_get_active_goodbye
+    get_prompt_toolkit_style_overrides = _rust_get_prompt_toolkit_style_overrides
+# else: the pure-Python implementations above remain in place
