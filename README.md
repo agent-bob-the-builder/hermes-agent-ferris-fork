@@ -12,7 +12,7 @@ Eight PyO3 extension crates replace hot-path Python code — no visible behaviou
 
 | Crate | Hot path | Status |
 |---|---|---|
-| `rust_compressor` | `ContextCompressor.compress()` | Production ✓ |
+| `compressor_rs` | `ContextCompressor.compress()` | Production ✓ |
 | `model_tools_rs` | Tool registry + message sanitization | Production ✓ |
 | `prompt_builder_rs` | System prompt assembly | Production ✓ |
 | `skin_engine_rs` | Skin/theme loading and config | Production ✓ |
@@ -28,7 +28,7 @@ All wired crates are **transparent fallbacks**: if a crate is missing or fails t
 ```
 AIAgent (run_agent.py)
 ├── context_compressor.py
-│   └── rust_compressor.compress_async()      [Production ✓]
+│   └── compressor_rs.compress_async()      [Production ✓]
 ├── model_tools.py + tools/registry_rs.py
 │   └── _model_tools_rust.sanitize()          [Production ✓]
 ├── hermes_state.py
@@ -48,7 +48,7 @@ graph TD
     SHE["hermes_cli/skin_engine.py<br/>init_skin_from_config()"]
 
     PB_RS["prompt_builder_rs<br/>_prompt_builder_rust.build()"]
-    CO_RS["rust_compressor<br/>rust_compressor.so<br/>token_count() + compress()"]
+    CO_RS["compressor_rs<br/>compressor_rs.so<br/>token_count() + compress()"]
     MT_RS["model_tools_rs<br/>_model_tools_rust.so<br/>sanitize()"]
     HS_RS["hermes_state_rs<br/>_hermes_state_rust.so<br/>SQLite + FTS5"]
     SK_RS["skin_engine_rs<br/>_skin_engine_rust.so<br/>load + parse"]

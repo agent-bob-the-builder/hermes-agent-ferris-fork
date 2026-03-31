@@ -26,9 +26,9 @@ logger = logging.getLogger(__name__)
 
 # Rust compressor (optional — fast-path in compress())
 try:
-    import rust_compressor
+    import compressor_rs
 except Exception:
-    rust_compressor = None
+    compressor_rs = None
 
 _force_python = False  # test override — set True to force Python path
 
@@ -577,9 +577,9 @@ Write only the summary body. Do not include any preamble or prefix."""
         """
 
         # Rust fast-path
-        if rust_compressor is not None and not _force_python:
+        if compressor_rs is not None and not _force_python:
             try:
-                result, summary_text = rust_compressor.compress_async(
+                result, summary_text = compressor_rs.compress_async(
                     messages,
                     self.model,
                     self.context_length,
@@ -734,10 +734,10 @@ Write only the summary body. Do not include any preamble or prefix."""
 
         Returns None if the Rust compressor is unavailable.
         """
-        if rust_compressor is None:
+        if compressor_rs is None:
             return None
         try:
-            job_id = rust_compressor.compress_start(
+            job_id = compressor_rs.compress_start(
                 messages,
                 self.model,
                 self.context_length,
@@ -767,10 +767,10 @@ Write only the summary body. Do not include any preamble or prefix."""
             (2, None, error_message)  — failed
             (3, None, None)           — cancelled / not found
         """
-        if rust_compressor is None:
+        if compressor_rs is None:
             return (3, None, None)
         try:
-            status, result, summary = rust_compressor.compress_check(job_id)
+            status, result, summary = compressor_rs.compress_check(job_id)
             # Clear current_job_id once the job is no longer running
             if status != 0 and self.current_job_id == job_id:
                 self.current_job_id = None
@@ -786,10 +786,10 @@ Write only the summary body. Do not include any preamble or prefix."""
         Returns True if the job was cancelled, False if it was not found
         or already completed.
         """
-        if rust_compressor is None:
+        if compressor_rs is None:
             return False
         try:
-            result = rust_compressor.compress_cancel(job_id)
+            result = compressor_rs.compress_cancel(job_id)
             if result and self.current_job_id == job_id:
                 self.current_job_id = None
             return result

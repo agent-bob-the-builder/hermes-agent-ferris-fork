@@ -234,7 +234,7 @@ else:
     print(f"[build] WARN: maturin --version failed: {result.stderr.strip()}", flush=True)
 
 crates = [
-    ("rust/compressor/Cargo.toml",        "rust_compressor"),
+    ("rust/compressor/Cargo.toml",        "compressor_rs"),
     ("rust/model_tools_rs/Cargo.toml",     "_model_tools_rust"),
     ("rust/prompt_builder_rs/Cargo.toml",  "_prompt_builder_rust"),
     ("rust/skin_engine_rs/Cargo.toml",    "_skin_engine_rust"),
@@ -278,28 +278,55 @@ with tempfile.TemporaryDirectory() as tmpdir:
 
         with zipfile.ZipFile(os.path.join(out, whl)) as z:
             log(f"  wheel contains {len(z.namelist())} files")
+
+            # Two extraction patterns:
+            #   1. Flat .so at wheel root:  compressor_rs/compressor_rs.abi3.so
+            #   2. Package dir with nested .so:  _hermes_state_rust/_hermes_state_rust.abi3.so
+            #
+            # Strategy: find the .so file anywhere in the wheel, then
+            # extract it to site-packages/{module}.{ext}.so (flat, not a dir).
+            so_file = None
+            so_dir_prefix = None
             for f in z.namelist():
                 if f.endswith(".so") and module in f:
-                    dest = os.path.join(site, module)
-                    log(f"  extracting {f} -> {dest}")
-                    shutil.rmtree(dest, ignore_errors=True)
-                    z.extract(f, site)
-                    extracted = os.path.join(site, f)
-                    if os.path.isdir(extracted):
-                        os.rename(extracted, dest)
-                    log(f"  installed {module}")
+                    so_file = f
+                    # If the .so is inside a subdirectory (pattern 2), record the prefix
+                    if "/" in f and not f.startswith(f"{module}/"):
+                        so_dir_prefix = f.rsplit("/", 1)[0] + "/"
                     break
-            else:
+
+            if so_file is None:
                 print(f"[build] WARN: no .so file for {module} in wheel", file=sys.stderr)
                 print(f"[build] Files in wheel: {[f for f in z.namelist() if module in f]}", file=sys.stderr)
+                continue
+
+            log(f"  found {so_file}")
+
+            # Remove any existing package dir or .so for this module
+            dest_so = os.path.join(site, f"{module}.abi3.so")
+            dest_dir = os.path.join(site, module)
+            shutil.rmtree(dest_dir, ignore_errors=True)
+            if os.path.exists(dest_so):
+                os.remove(dest_so)
+
+            # Extract the .so (may be inside a subdir — extract it directly)
+            z.extract(so_file, site)
+            extracted = os.path.join(site, so_file)
+
+            if extracted != dest_so:
+                # Move to flat name so Python can import it as {module}
+                os.rename(extracted, dest_so)
+                log(f"  installed {module} -> {dest_so}")
+            else:
+                log(f"  installed {module}")
 
 log("All crates built successfully")
 
 # Verify all extensions load
 log("Verifying extensions...")
 result = subprocess.run([venv_python, "-c",
-    "import rust_compressor, _model_tools_rust, _prompt_builder_rust, _skin_engine_rust, _hermes_state_rust, fuzzy_match_rs, subprocess_rs, file_ops_rs; "
-    "print('rust_compressor ok'); "
+    "import compressor_rs, _model_tools_rust, _prompt_builder_rust, _skin_engine_rust, _hermes_state_rust, fuzzy_match_rs, subprocess_rs, file_ops_rs; "
+    "print('compressor_rs ok'); "
     "print('_model_tools_rust ok'); "
     "print('_prompt_builder_rust ok'); "
     "print('_skin_engine_rust ok'); "

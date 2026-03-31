@@ -1,0 +1,15 @@
+[package]
+name = "subprocess_rs"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "subprocess_rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3.workspace = true
+serde = { workspace = true }
+serde_json.workspace = true
+once_cell.workspace = true
+libc = "0.2"

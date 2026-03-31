@@ -33,6 +33,12 @@ import re
 from typing import Tuple, Optional, List, Callable
 from difflib import SequenceMatcher
 
+# Rust accelerator — pure-Rust 8-strategy chain, no Python fallback loop
+try:
+    import _fuzzy_match_rs as _rust_fuzzy
+except Exception:
+    _rust_fuzzy = None
+
 UNICODE_MAP = {
     "\u201c": '"', "\u201d": '"',  # smart double quotes
     "\u2018": "'", "\u2019": "'",  # smart single quotes
@@ -68,6 +74,15 @@ def fuzzy_find_and_replace(content: str, old_string: str, new_string: str,
     
     if old_string == new_string:
         return content, 0, "old_string and new_string are identical"
+    
+    # Try Rust first (pure-Rust 8-strategy chain, zero Python overhead per call)
+    if _rust_fuzzy is not None:
+        try:
+            result = _rust_fuzzy.fuzzy_find_and_replace(content, old_string, new_string, replace_all)
+            return result[0], int(result[1]), result[2]
+        except Exception:
+            # Fall through to Python on any error
+            pass
     
     # Try each matching strategy in order
     strategies: List[Tuple[str, Callable]] = [

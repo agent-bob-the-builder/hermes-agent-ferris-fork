@@ -23,7 +23,7 @@ from hermes_constants import OPENROUTER_MODELS_URL
 # ---------------------------------------------------------------------------
 _rust_tokenizer = None
 try:
-    import rust_compressor as _rust_tokenizer
+    import compressor_rs as _rust_tokenizer
 except Exception:
     _rust_tokenizer = None
 

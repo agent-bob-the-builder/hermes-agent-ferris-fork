@@ -23,7 +23,7 @@ from hermes_constants import OPENROUTER_MODELS_URL
 # ---------------------------------------------------------------------------
 _rust_tokenizer = None
 try:
-    import rust_compressor as _rust_tokenizer
+    import compressor_rs as _rust_tokenizer
 except Exception:
     _rust_tokenizer = None
 
@@ -915,7 +915,7 @@ def estimate_tokens_rough(text: str) -> int:
 def estimate_messages_tokens_rough(messages: List[Dict[str, Any]]) -> int:
     """Rough token estimate for a message list (pre-flight only).
     
-    Uses rust_compressor.estimate_messages_tokens_from_json when available,
+    Uses compressor_rs.estimate_messages_tokens_from_json when available,
     which avoids per-message Python object overhead by passing a single
     JSON string to Rust for parsing.
     """

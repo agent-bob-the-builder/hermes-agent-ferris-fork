@@ -684,7 +684,7 @@ fn compress_cancel(job_id: usize) -> PyResult<bool> {
 }
 
 #[pymodule]
-fn rust_compressor(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn compressor_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(prune_old_tool_results, m)?)?;
     m.add_function(wrap_pyfunction!(align_boundary_forward, m)?)?;
     m.add_function(wrap_pyfunction!(align_boundary_backward, m)?)?;

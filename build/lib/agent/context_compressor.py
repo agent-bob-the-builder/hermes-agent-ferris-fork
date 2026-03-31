@@ -26,9 +26,9 @@ logger = logging.getLogger(__name__)
 
 # Rust compressor (optional — fast-path in compress())
 try:
-    import rust_compressor
+    import compressor_rs
 except Exception:
-    rust_compressor = None
+    compressor_rs = None
 
 _force_python = False  # test override — set True to force Python path
 
@@ -565,9 +565,9 @@ Write only the summary body. Do not include any preamble or prefix."""
         """
 
         # Rust fast-path
-        if rust_compressor is not None and not _force_python:
+        if compressor_rs is not None and not _force_python:
             try:
-                result, summary_text = rust_compressor.compress_async(
+                result, summary_text = compressor_rs.compress_async(
                     messages,
                     self.model,
                     self.context_length,
