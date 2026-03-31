@@ -1,10 +1,10 @@
 [package]
-name = "skin_engine_rs"
+name = "hermes_state_rs"
 version.workspace = true
 edition.workspace = true
 
 [lib]
-name = "_skin_engine_rust"
+name = "_hermes_state_rust"
 crate-type = ["cdylib"]
 
 [profile.dev]
@@ -12,10 +12,10 @@ opt-level = 0
 
 [dependencies]
 pyo3 = { workspace = true, features = ["serde"] }
+rusqlite = { version = "0.39", features = ["bundled"] }
 serde = { workspace = true }
 serde_json.workspace = true
 lazy_static.workspace = true
 once_cell.workspace = true
 regex.workspace = true
-serde_yaml = "0.9"
-dirs = "5"
+rand.workspace = true

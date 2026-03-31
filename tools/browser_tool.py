@@ -63,6 +63,8 @@ import threading
 import time
 # lazy: only imported when _resolve_cdp_endpoint is actually called
 # import requests  — deferred to function body
+# Module-level placeholder so mock.patch("tools.browser_tool.requests.get") works.
+requests = None  # type: ignore[assignment, misc]
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 from agent.auxiliary_client import call_llm
