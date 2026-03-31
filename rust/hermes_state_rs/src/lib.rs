@@ -2,7 +2,7 @@
 
 use pyo3::exceptions::{PyException, PyRuntimeError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList, PyStringMethods};
+use pyo3::types::{PyDict, PyList, PyString};
 use rand::Rng;
 use regex::Regex;
 use rusqlite::{types::FromSql, Connection, OpenFlags};
@@ -240,39 +240,36 @@ where
     use rand::Rng;
     let mut rng = rand::thread_rng();
 
+    // Try to acquire the write lock with retries
     for attempt in 0..WRITE_MAX_RETRIES {
-        if let Err(e) = state.conn.execute_batch("BEGIN IMMEDIATE") {
-            if attempt < WRITE_MAX_RETRIES - 1 {
-                std::thread::sleep(std::time::Duration::from_millis(
-                    rng.gen_range(WRITE_RETRY_MIN_MS..WRITE_RETRY_MAX_MS) as u64,
-                ));
-                continue;
-            }
-            return Err(format!("BEGIN IMMEDIATE: {}", e));
-        }
-
-        match f(&state.conn) {
-            Ok(result) => {
-                if let Err(e) = state.conn.execute_batch("COMMIT") {
-                    let _ = state.conn.execute_batch("ROLLBACK");
-                    return Err(format!("COMMIT: {}", e));
-                }
-                return Ok(result);
-            }
+        match state.conn.execute_batch("BEGIN IMMEDIATE") {
+            Ok(()) => break,
             Err(e) => {
-                let _ = state.conn.execute_batch("ROLLBACK");
                 if attempt < WRITE_MAX_RETRIES - 1 {
                     std::thread::sleep(std::time::Duration::from_millis(
                         rng.gen_range(WRITE_RETRY_MIN_MS..WRITE_RETRY_MAX_MS) as u64,
                     ));
                     continue;
                 }
-                return Err(e);
+                return Err(format!("BEGIN IMMEDIATE: {}", e));
             }
         }
     }
 
-    Err("exhausted retries".to_string())
+    // Execute the write function (only called once)
+    match f(&state.conn) {
+        Ok(result) => {
+            if let Err(e) = state.conn.execute_batch("COMMIT") {
+                let _ = state.conn.execute_batch("ROLLBACK");
+                return Err(format!("COMMIT: {}", e));
+            }
+            Ok(result)
+        }
+        Err(e) => {
+            let _ = state.conn.execute_batch("ROLLBACK");
+            Err(e)
+        }
+    }
 }
 
 // ── Sanitization ────────────────────────────────────────────────────────────
@@ -312,12 +309,11 @@ fn sanitize_title(title: &str) -> Option<String> {
 }
 
 fn sanitize_fts5_query(query: &str) -> String {
-    let mut quoted: Vec<&str> = Vec::new();
-    let step1 =
-        RE_FTS_QUOTED.replace_all(query, |caps: &regex::Captures| {
-            quoted.push(&caps[0]);
-            format!("\x00Q{}\x00", quoted.len() - 1)
-        });
+    let mut quoted: Vec<String> = Vec::new();
+    let step1 = RE_FTS_QUOTED.replace_all(query, |caps: &regex::Captures| {
+        quoted.push(caps[0].to_string());
+        format!("\x00Q{}\x00", quoted.len() - 1)
+    });
     let step2 = RE_FTS_SPECIAL.replace_all(&step1, " ");
     let step3 = {
         let s = RE_FTS_STARS.replace_all(&step2, "*");
@@ -531,8 +527,7 @@ fn append_message(
         let num_tool_calls: i64 = tool_calls
             .as_ref()
             .and_then(|s| json_parse(s).ok())
-            .and_then(|v| v.as_array())
-            .map(|arr| arr.len() as i64)
+            .and_then(|v| v.as_array().map(|a| a.len() as i64))
             .unwrap_or(0);
 
         let msg_id = execute_write(state, |conn| {
@@ -586,7 +581,7 @@ fn get_messages(py: Python<'_>, session_id: String) -> PyResult<Py<PyAny>> {
     with_state(|state| {
         let mut stmt = state.conn.prepare(
             "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, reasoning, reasoning_details, codex_reasoning_items FROM messages WHERE session_id=?1 ORDER BY timestamp, id",
-        )?;
+        ).map_err(|e| PyException::new_err(e.to_string()))?;
         let rows_iter = stmt.query_map(rusqlite::params![session_id], |row| {
             let mut vals: Vec<JsonValue> = Vec::with_capacity(MSG_COLS.len());
             for i in 0..MSG_COLS.len() {
@@ -614,7 +609,7 @@ fn get_messages(py: Python<'_>, session_id: String) -> PyResult<Py<PyAny>> {
                 vals.push(json_val);
             }
             Ok(vals)
-        })?;
+        }).map_err(|e| PyException::new_err(e.to_string()))?;
 
         let list = PyList::empty(py);
         for row in rows_iter {
@@ -637,7 +632,7 @@ fn get_messages_as_conversation(
     with_state(|state| {
         let mut stmt = state.conn.prepare(
             "SELECT role, content, tool_call_id, tool_calls, tool_name, reasoning, reasoning_details, codex_reasoning_items FROM messages WHERE session_id=?1 ORDER BY timestamp, id",
-        )?;
+        ).map_err(|e| PyException::new_err(e.to_string()))?;
         let rows_iter = stmt.query_map(rusqlite::params![session_id], |row| {
             Ok((
                 row.get::<_, String>(0)?,
@@ -649,7 +644,7 @@ fn get_messages_as_conversation(
                 row.get::<_, Option<String>>(6)?,
                 row.get::<_, Option<String>>(7)?,
             ))
-        })?;
+        }).map_err(|e| PyException::new_err(e.to_string()))?;
 
         let list = PyList::empty(py);
         for row in rows_iter {
@@ -731,7 +726,7 @@ fn search_messages(
         if let Some(ref es) = exclude_sources {
             let start = params.len() + 1;
             let ph: Vec<String> = (0..es.len()).map(|i| format!("?{}", start + i)).collect();
-            clauses.push(format!("s.source NOT IN ({})", ph.join(",")));
+            clauses.push(format!("s.source NOT IN ({})", ph.join(", ")));
             for e in es {
                 params.push(Box::new(e.clone()));
             }
@@ -753,7 +748,7 @@ fn search_messages(
 
         let params_refs: Vec<&dyn rusqlite::ToSql> =
             params.iter().map(|b| b.as_ref()).collect();
-        let mut stmt = state.conn.prepare(&sql)?;
+        let mut stmt = state.conn.prepare(&sql).map_err(|e| PyException::new_err(e.to_string()))?;
         let rows_iter = stmt.query_map(params_refs.as_slice(), |r| {
             Ok((
                 r.get::<_, i64>(0)?,
@@ -766,7 +761,7 @@ fn search_messages(
                 r.get::<_, Option<String>>(7)?,
                 r.get::<_, f64>(8)?,
             ))
-        })?;
+        }).map_err(|e| PyException::new_err(e.to_string()))?;
 
         let mut results: Vec<JsonValue> = Vec::new();
         for row in rows_iter {
@@ -800,14 +795,14 @@ fn search_messages(
                 let id_val = obj.get("id").and_then(|v| v.as_i64()).unwrap_or(0);
                 let mut ctx_stmt = state.conn.prepare(
                     "SELECT role, content FROM messages WHERE session_id=?1 AND id >= ?2 AND id <= ?3 ORDER BY id",
-                )?;
+                ).map_err(|e| PyException::new_err(e.to_string()))?;
                 let ctx_iter =
                     ctx_stmt.query_map(rusqlite::params![sid, id_val - 1, id_val + 1], |r| {
                         Ok((
                             r.get::<_, String>(0)?,
                             r.get::<_, Option<String>>(1)?.unwrap_or_default(),
                         ))
-                    })?;
+                    }).map_err(|e| PyException::new_err(e.to_string()))?;
                 let context: Vec<JsonValue> = ctx_iter
                     .filter_map(|r| r.ok())
                     .map(|(role, content)| serde_json::json!({"role": role, "content": content }))
@@ -829,12 +824,18 @@ fn search_messages(
 #[pyfunction]
 fn get_session(py: Python<'_>, session_id: String) -> PyResult<Py<PyAny>> {
     with_state(|state| {
-        let mut stmt = state.conn.prepare("SELECT * FROM sessions WHERE id = ?1")?;
-        let mut rows = stmt.query(rusqlite::params![session_id])?;
-        if let Some(row) = rows.next()? {
+        let mut stmt = state.conn.prepare("SELECT * FROM sessions WHERE id = ?1")
+            .map_err(|e| PyException::new_err(e.to_string()))?;
+        let col_count = stmt.column_count();
+        let col_names: Vec<String> = (0..col_count)
+            .map(|i| stmt.column_name(i).unwrap_or("").to_string())
+            .collect();
+        let mut rows = stmt.query(rusqlite::params![session_id])
+            .map_err(|e| PyException::new_err(e.to_string()))?;
+        if let Some(row) = rows.next().map_err(|e| PyException::new_err(e.to_string()))? {
             let dict = PyDict::new(py);
-            for i in 0..row.column_count() {
-                let name = row.column_name(i).unwrap_or("");
+            for i in 0..col_count {
+                let name = &col_names[i];
                 let rv = row.get_ref_unwrap(i);
                 let v = match rv {
                     rusqlite::types::ValueRef::Null => JsonValue::Null,
@@ -851,7 +852,7 @@ fn get_session(py: Python<'_>, session_id: String) -> PyResult<Py<PyAny>> {
                         JsonValue::String(format!("<blob {} bytes>", b.len()))
                     }
                 };
-                dict.set_item(name, val_to_py(py, &v))?;
+                dict.set_item(name.as_str(), val_to_py(py, &v))?;
             }
             Ok(dict.into_any().unbind())
         } else {
@@ -879,18 +880,18 @@ fn list_sessions_rich(
     offset: i64,
 ) -> PyResult<Py<PyAny>> {
     with_state(|state| {
-        let mut clauses = Vec::new();
+        let mut clauses: Vec<String> = Vec::new();
         let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
         if let Some(ref s) = source {
-            clauses.push("s.source = ?");
+            clauses.push("s.source = ?".to_string());
             params.push(Box::new(s.clone()));
         }
         if let Some(ref es) = exclude_sources {
             let start = params.len() + 1;
             let ph: Vec<String> =
                 (0..es.len()).map(|i| format!("?{}", start + i)).collect();
-            clauses.push(format!("s.source NOT IN ({})", ph.join(",")));
+            clauses.push(format!("s.source NOT IN ({})", ph.join(", ")));
             for e in es {
                 params.push(Box::new(e.clone()));
             }
@@ -912,10 +913,11 @@ fn list_sessions_rich(
         let params_refs: Vec<&dyn rusqlite::ToSql> =
             params.iter().map(|b| b.as_ref()).collect();
 
-        let mut stmt = state.conn.prepare(&sql)?;
+        let mut stmt = state.conn.prepare(&sql).map_err(|e| PyException::new_err(e.to_string()))?;
+        let col_count = stmt.column_count();
         let rows_iter = stmt.query_map(params_refs.as_slice(), |row| {
             let mut vals: Vec<JsonValue> = Vec::new();
-            for i in 0..row.column_count() {
+            for i in 0..col_count {
                 let rv = row.get_ref_unwrap(i);
                 vals.push(match rv {
                     rusqlite::types::ValueRef::Null => JsonValue::Null,
@@ -946,7 +948,7 @@ fn list_sessions_rich(
                 })
                 .unwrap_or_default();
             Ok((vals, preview_raw))
-        })?;
+        }).map_err(|e| PyException::new_err(e.to_string()))?;
 
         let list = PyList::empty(py);
         for row in rows_iter {
@@ -976,18 +978,20 @@ fn resolve_session_id(py: Python<'_>, session_id_or_prefix: String) -> PyResult<
             )
             .unwrap_or(false);
         if exists {
-            return Ok(PyStringMethods::new(py, &session_id_or_prefix).into_any().unbind());
+            return Ok(PyString::new(py, &session_id_or_prefix).into_any().unbind());
         }
         let escaped =
             RE_SESSION_PREFIX_ESCAPE.replace_all(&session_id_or_prefix, "\\$1");
         let mut stmt = state.conn.prepare(
             "SELECT id FROM sessions WHERE id LIKE ?1 ORDER BY started_at DESC LIMIT 2",
-        )?;
+        ).map_err(|e| PyException::new_err(e.to_string()))?;
         let mut rows = stmt
-            .query(rusqlite::params![format!("{}%", escaped)])?;
-        if let Some(row) = rows.next()? {
-            let id: String = row.get(0)?;
-            Ok(PyStringMethods::new(py, &id).into_any().unbind())
+            .query(rusqlite::params![format!("{}%", escaped)])
+            .map_err(|e| PyException::new_err(e.to_string()))?;
+        if let Some(row) = rows.next().map_err(|e| PyException::new_err(e.to_string()))? {
+            let id: String = row.get(0)
+                .map_err(|e| PyException::new_err(e.to_string()))?;
+            Ok(PyString::new(py, &id).into_any().unbind())
         } else {
             Ok(py.None())
         }
@@ -1006,7 +1010,7 @@ fn set_session_title(session_id: String, title: String) -> PyResult<bool> {
 
     with_state(|state| {
         execute_write(state, |conn| {
-            if let Some(ref t) = title {
+            if let Some(ref t) = Some(&title) {
                 let conflict: Option<String> = conn
                     .query_row(
                         "SELECT id FROM sessions WHERE title = ?1 AND id != ?2",
@@ -1042,7 +1046,7 @@ fn get_session_title(py: Python<'_>, session_id: String) -> PyResult<Py<PyAny>> 
             )
             .ok();
         match title {
-            Some(t) => Ok(PyStringMethods::new(py, &t).into_any().unbind()),
+            Some(t) => Ok(PyString::new(py, &t).into_any().unbind()),
             None => Ok(py.None()),
         }
     })
@@ -1051,12 +1055,18 @@ fn get_session_title(py: Python<'_>, session_id: String) -> PyResult<Py<PyAny>> 
 #[pyfunction]
 fn get_session_by_title(py: Python<'_>, title: String) -> PyResult<Py<PyAny>> {
     with_state(|state| {
-        let mut stmt = state.conn.prepare("SELECT * FROM sessions WHERE title = ?1")?;
-        let mut rows = stmt.query(rusqlite::params![title])?;
-        if let Some(row) = rows.next()? {
+        let mut stmt = state.conn.prepare("SELECT * FROM sessions WHERE title = ?1")
+            .map_err(|e| PyException::new_err(e.to_string()))?;
+        let col_count = stmt.column_count();
+        let col_names: Vec<String> = (0..col_count)
+            .map(|i| stmt.column_name(i).unwrap_or("").to_string())
+            .collect();
+        let mut rows = stmt.query(rusqlite::params![title])
+            .map_err(|e| PyException::new_err(e.to_string()))?;
+        if let Some(row) = rows.next().map_err(|e| PyException::new_err(e.to_string()))? {
             let dict = PyDict::new(py);
-            for i in 0..row.column_count() {
-                let name = row.column_name(i).unwrap_or("");
+            for i in 0..col_count {
+                let name = &col_names[i];
                 let rv = row.get_ref_unwrap(i);
                 let v = match rv {
                     rusqlite::types::ValueRef::Null => JsonValue::Null,
@@ -1073,7 +1083,7 @@ fn get_session_by_title(py: Python<'_>, title: String) -> PyResult<Py<PyAny>> {
                         JsonValue::String(format!("<blob {} bytes>", b.len()))
                     }
                 };
-                dict.set_item(name, val_to_py(py, &v))?;
+                dict.set_item(name.as_str(), val_to_py(py, &v))?;
             }
             Ok(dict.into_any().unbind())
         } else {
@@ -1098,11 +1108,11 @@ fn get_next_title_in_lineage(
         let escaped = RE_SESSION_PREFIX_ESCAPE.replace_all(&base, "\\$1");
         let mut stmt = state.conn.prepare(
             "SELECT title FROM sessions WHERE (title = ?1 OR title LIKE ?2) AND id != ?3 ORDER BY title",
-        )?;
+        ).map_err(|e| PyException::new_err(e.to_string()))?;
         let rows_iter = stmt.query_map(
             rusqlite::params![base, format!("{} #%%", escaped), session_id],
             |r| r.get::<_, String>(0),
-        )?;
+        ).map_err(|e| PyException::new_err(e.to_string()))?;
 
         let existing: Vec<String> = rows_iter.filter_map(|r| r.ok()).collect();
         let mut max_num = 1;
@@ -1131,12 +1141,13 @@ fn session_count(source: Option<String>) -> PyResult<i64> {
             state.conn.query_row(
                 "SELECT COUNT(*) FROM sessions WHERE source = ?1",
                 rusqlite::params![s],
-                |r| r.get(0),
-            )?
+                |r| r.get::<_, i64>(0),
+            ).map_err(|e| PyException::new_err(e.to_string()))?
         } else {
             state
                 .conn
-                .query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))?
+                .query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get::<_, i64>(0))
+                .map_err(|e| PyException::new_err(e.to_string()))?
         };
         Ok(count)
     })
@@ -1149,12 +1160,13 @@ fn message_count(session_id: Option<String>) -> PyResult<i64> {
             state.conn.query_row(
                 "SELECT COUNT(*) FROM messages WHERE session_id = ?1",
                 rusqlite::params![sid],
-                |r| r.get(0),
-            )?
+                |r| r.get::<_, i64>(0),
+            ).map_err(|e| PyException::new_err(e.to_string()))?
         } else {
             state
                 .conn
-                .query_row("SELECT COUNT(*) FROM messages", [], |r| r.get(0))?
+                .query_row("SELECT COUNT(*) FROM messages", [], |r| r.get::<_, i64>(0))
+                .map_err(|e| PyException::new_err(e.to_string()))?
         };
         Ok(count)
     })
@@ -1201,17 +1213,17 @@ fn prune_sessions(older_than_days: i64, source: Option<String>) -> PyResult<i64>
             let sids: Vec<String> = if let Some(ref s) = source {
                 let mut stmt = conn.prepare(
                     "SELECT id FROM sessions WHERE started_at < ?1 AND ended_at IS NOT NULL AND source = ?2",
-                )?;
-                stmt.query_map(rusqlite::params![cutoff, s], |r| r.get::<_, String>(0))?
-                    .filter_map(|r| r.ok())
-                    .collect()
+                ).map_err(|e| e.to_string())?;
+                let iter = stmt.query_map(rusqlite::params![cutoff, s], |r| r.get::<_, String>(0))
+                    .map_err(|e| e.to_string())?;
+                iter.filter_map(|r| r.ok()).collect()
             } else {
                 let mut stmt = conn.prepare(
                     "SELECT id FROM sessions WHERE started_at < ?1 AND ended_at IS NOT NULL",
-                )?;
-                stmt.query_map(rusqlite::params![cutoff], |r| r.get::<_, String>(0))?
-                    .filter_map(|r| r.ok())
-                    .collect()
+                ).map_err(|e| e.to_string())?;
+                let iter = stmt.query_map(rusqlite::params![cutoff], |r| r.get::<_, String>(0))
+                    .map_err(|e| e.to_string())?;
+                iter.filter_map(|r| r.ok()).collect()
             };
 
             for sid in &sids {
