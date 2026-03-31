@@ -1,7 +1,29 @@
 #!/bin/bash
-# hermes CLI wrapper — auto-sets HERMES_DIR based on symlink location, then
-# delegates to the hermes-agent venv Python.
-REAL_SCRIPT="$(readlink -f "${BASH_SOURCE[0]}")"
-HERMES_DIR="$(cd "$(dirname "${REAL_SCRIPT}")" && pwd)"
+# hermes CLI wrapper — resolves HERMES_DIR via symlink, falls back to known
+# paths, then delegates to the hermes-agent venv Python.
+set -euo pipefail
+
+# (1) Resolve BASH_SOURCE[0] through symlinks to get the real script path.
+_real="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+_where="$(cd "$(dirname "$_real")" && pwd)"
+
+# (2) If _where looks like a hermes dir, use it directly.
+#     Otherwise try known install locations.
+if [[ -f "$_where/pyproject.toml" || -f "$_where/setup.py" || -f "$_where/rust/Cargo.toml" ]]; then
+    HERMES_DIR="$_where"
+elif [[ -d "$HOME/.hermes/hermes-agent-ferris-fork" && \
+        -f "$HOME/.hermes/hermes-agent-ferris-fork/pyproject.toml" ]]; then
+    HERMES_DIR="$HOME/.hermes/hermes-agent-ferris-fork"
+elif [[ -d "$HOME/.local/hermes" && \
+        -f "$HOME/.local/hermes/pyproject.toml" ]]; then
+    HERMES_DIR="$HOME/.local/hermes"
+else
+    # Dead end — point at _where anyway so the exec fails with a clear error
+    HERMES_DIR="$_where"
+fi
+
+# (3) Ensure ~/.local/bin is on PATH so subsequent hermes calls work without hash -r
+export PATH="$HOME/.local/bin:$PATH"
 export HERMES_DIR
-exec "$HERMES_DIR/.venv/bin/python3" "$HERMES_DIR/hermes_cli/main.py" "$@"
+
+exec "$HERMES_DIR/venv/bin/python3" "$HERMES_DIR/cli.py" "$@"
