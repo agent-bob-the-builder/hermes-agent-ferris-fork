@@ -9,25 +9,38 @@
 //! - `async fn sync(...)`       → Write conversation turn
 //! - `async fn save_observation(...)` → User observation
 //!
-//! Python calls are synchronous, so we wrap async reqwest with a
-//! tokio runtime via `Python::attach` for GIL-safe GIL acquisition.
+//! A single static `tokio::Runtime` and `reqwest::Client` are shared across all
+//! calls — created once at startup, reused every time. Python sync wrappers
+//! call `RUNTIME.block_on(...)` to execute the async functions without
+//! spawning a new runtime per call.
 
+use once_cell::sync::Lazy;
 use pyo3::prelude::*;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::time::Duration;
+use tokio::runtime::Runtime;
 
-// ─── HTTP client (single reqwest instance) ────────────────────────────────────
+// ─── Static shared runtime and client ────────────────────────────────────────
+//
+// Both are created lazily on first use. The Runtime owns background worker
+// threads; blocking on it from Python sync code (via RUNTIME.block_on) is
+// safe because the GIL is held by PyO3 during the call — no other Python code
+// can run on this thread while we block, so the event-loop thread won't be
+// starved by the GIL.
 
-static CLIENT: once_cell::sync::Lazy<Client> = once_cell::sync::Lazy::new(|| {
+static RUNTIME: Lazy<Runtime> = Lazy::new(|| {
+    Runtime::new().expect("failed to create tokio runtime for honcho_http_rs")
+});
+
+static CLIENT: Lazy<Client> = Lazy::new(|| {
     Client::builder()
         .timeout(Duration::from_secs(10))
         .build()
         .expect("reqwest Client must be built")
 });
 
-// ─── Serialized types ────────────────────────────────────────────────────────
+// ─── Serialized types ───────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
 struct SyncRequest<'a> {
@@ -46,7 +59,7 @@ struct ObservationRequest<'a> {
 #[derive(Debug, Deserialize)]
 struct PrefetchResponse {
     #[serde(flatten)]
-    _extra: Value,
+    _extra: serde_json::Value,
     context: Option<String>,
 }
 
@@ -54,13 +67,14 @@ struct PrefetchResponse {
 struct SyncResponse {
     ok: bool,
     #[serde(flatten)]
-    _extra: Value,
+    _extra: serde_json::Value,
 }
 
-// ─── Core async functions ────────────────────────────────────────────────────
+// ─── Core async functions ───────────────────────────────────────────────────
 
 /// GET {base_url}/api/recall — Honcho recall lookup.
 async fn prefetch_async(
+    client: &Client,
     base_url: &str,
     api_key: &str,
     peer_name: &str,
@@ -68,7 +82,7 @@ async fn prefetch_async(
     query: &str,
 ) -> Result<Option<String>, String> {
     let url = format!("{}/api/recall", base_url.trim_end_matches('/'));
-    let resp = CLIENT
+    let resp = client
         .get(&url)
         .header("Authorization", format!("Bearer {}", api_key))
         .header("X-Peer", peer_name)
@@ -83,16 +97,17 @@ async fn prefetch_async(
         return Err(format!("prefetch HTTP {}: {}", status_code, body));
     }
 
-    let body: PrefetchResponse = resp
-        .json()
-        .await
-        .map_err(|e| format!("prefetch parse failed: {}", e))?;
+    let body: PrefetchResponse =
+        resp.json()
+            .await
+            .map_err(|e| format!("prefetch parse failed: {}", e))?;
 
     Ok(body.context)
 }
 
 /// POST {base_url}/api/sync — Write conversation turn.
 async fn sync_async(
+    client: &Client,
     base_url: &str,
     api_key: &str,
     peer_name: &str,
@@ -101,7 +116,7 @@ async fn sync_async(
     assistant_response: &str,
 ) -> Result<bool, String> {
     let url = format!("{}/api/sync", base_url.trim_end_matches('/'));
-    let resp = CLIENT
+    let resp = client
         .post(&url)
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
@@ -121,23 +136,24 @@ async fn sync_async(
         return Err(format!("sync HTTP {}: {}", status_code, body));
     }
 
-    let body: SyncResponse = resp
-        .json()
-        .await
-        .map_err(|e| format!("sync parse failed: {}", e))?;
+    let body: SyncResponse =
+        resp.json()
+            .await
+            .map_err(|e| format!("sync parse failed: {}", e))?;
 
     Ok(body.ok)
 }
 
 /// POST {base_url}/api/observation — Save a user observation.
 async fn save_observation_async(
+    client: &Client,
     base_url: &str,
     api_key: &str,
     peer_name: &str,
     observation: &str,
 ) -> Result<bool, String> {
     let url = format!("{}/api/observation", base_url.trim_end_matches('/'));
-    let resp = CLIENT
+    let resp = client
         .post(&url)
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
@@ -158,7 +174,7 @@ async fn save_observation_async(
     Ok(true)
 }
 
-// ─── PyO3 sync wrappers (block_on per call) ───────────────────────────────────
+// ─── PyO3 sync wrappers — block_on the shared runtime ────────────────────────
 
 fn to_pyerr<E: std::fmt::Display>(e: E) -> PyErr {
     pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
@@ -172,9 +188,19 @@ fn rs_prefetch(
     session_key: &str,
     query: &str,
 ) -> PyResult<Option<String>> {
-    // Each call gets its own runtime — Honcho calls are infrequent.
-    let rt = tokio::runtime::Runtime::new().map_err(to_pyerr)?;
-    rt.block_on(prefetch_async(base_url, api_key, peer_name, session_key, query))
+    // SAFETY: The GIL is held during this call. RUNTIME.block_on will block the
+    // current thread (not the async worker threads) while waiting for the HTTP
+    // response. Since the GIL is held, no other Python code can interleave on
+    // this thread — safe for Python sync wrappers.
+    RUNTIME
+        .block_on(prefetch_async(
+            &CLIENT,
+            base_url,
+            api_key,
+            peer_name,
+            session_key,
+            query,
+        ))
         .map_err(to_pyerr)
 }
 
@@ -187,16 +213,17 @@ fn rs_sync(
     user_message: &str,
     assistant_response: &str,
 ) -> PyResult<bool> {
-    let rt = tokio::runtime::Runtime::new().map_err(to_pyerr)?;
-    rt.block_on(sync_async(
-        base_url,
-        api_key,
-        peer_name,
-        session_key,
-        user_message,
-        assistant_response,
-    ))
-    .map_err(to_pyerr)
+    RUNTIME
+        .block_on(sync_async(
+            &CLIENT,
+            base_url,
+            api_key,
+            peer_name,
+            session_key,
+            user_message,
+            assistant_response,
+        ))
+        .map_err(to_pyerr)
 }
 
 #[pyfunction]
@@ -206,8 +233,14 @@ fn rs_save_observation(
     peer_name: &str,
     observation: &str,
 ) -> PyResult<bool> {
-    let rt = tokio::runtime::Runtime::new().map_err(to_pyerr)?;
-    rt.block_on(save_observation_async(base_url, api_key, peer_name, observation))
+    RUNTIME
+        .block_on(save_observation_async(
+            &CLIENT,
+            base_url,
+            api_key,
+            peer_name,
+            observation,
+        ))
         .map_err(to_pyerr)
 }
 
@@ -218,7 +251,7 @@ fn _honcho_http_rs(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()
     module.add_function(wrap_pyfunction!(rs_save_observation, module)?)?;
     module.add(
         "__doc__",
-        "Async reqwest HTTP client for Honcho API — Rust backend.",
+        "Async reqwest HTTP client for Honcho API — Rust backend with shared runtime.",
     )?;
     Ok(())
 }

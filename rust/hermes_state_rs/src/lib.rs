@@ -1,5 +1,6 @@
 //! Hermes State — Rust-native SQLite SessionDB with FTS5
 
+use once_cell::sync::Lazy;
 use pyo3::exceptions::{PyException, PyRuntimeError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyString};
@@ -7,11 +8,17 @@ use regex::Regex;
 use rusqlite::{Connection, OpenFlags};
 use serde_json::Value as JsonValue;
 use std::sync::Mutex;
+use tokio::runtime::Runtime;
 
 const SCHEMA_VERSION: i32 = 6;
 const WRITE_MAX_RETRIES: u32 = 15;
 const WRITE_RETRY_MIN_MS: f64 = 20.0;
 const WRITE_RETRY_MAX_MS: f64 = 150.0;
+
+/// Tokio runtime for async write operations.
+static RUNTIME: Lazy<Runtime> = Lazy::new(|| {
+    Runtime::new().expect("failed to create tokio runtime for hermes_state_rs")
+});
 
 static STATE: Mutex<Option<RustState>> = Mutex::new(None);
 
@@ -231,22 +238,31 @@ fn run_migrations(conn: &rusqlite::Connection, mut current_version: i32) -> Resu
 
 // ── Write transaction with jitter retry ─────────────────────────────────────
 
-fn execute_write<F, T>(state: &RustState, f: F) -> Result<T, String>
+// ── Write transaction with jitter retry (async) ───────────────────────────────
+//
+// Runs on the tokio blocking thread pool so std::thread::sleep does not
+// block the async event loop. Called from Python sync wrappers via
+// RUNTIME.block_on() — the GIL is held for the entire block_on call, so
+// no other Python code interleaves on this thread.
+
+async fn execute_write_async<F, T>(conn: Arc<rusqlite::Connection>, f: F) -> Result<T, String>
 where
-    F: FnOnce(&rusqlite::Connection) -> Result<T, String>,
+    F: FnOnce(&rusqlite::Connection) -> Result<T, String> + Send,
+    T: Send,
 {
     use rand::Rng;
+    use tokio::time::sleep;
+
     let mut rng = rand::thread_rng();
 
-    // Try to acquire the write lock with retries
+    // Try to acquire the write lock with async jitter retries
     for attempt in 0..WRITE_MAX_RETRIES {
-        match state.conn.execute_batch("BEGIN IMMEDIATE") {
+        match conn.execute_batch("BEGIN IMMEDIATE") {
             Ok(()) => break,
             Err(e) => {
                 if attempt < WRITE_MAX_RETRIES - 1 {
-                    std::thread::sleep(std::time::Duration::from_millis(
-                        rng.gen_range(WRITE_RETRY_MIN_MS..WRITE_RETRY_MAX_MS) as u64,
-                    ));
+                    let delay_ms = rng.gen_range(WRITE_RETRY_MIN_MS..WRITE_RETRY_MAX_MS) as u64;
+                    sleep(std::time::Duration::from_millis(delay_ms)).await;
                     continue;
                 }
                 return Err(format!("BEGIN IMMEDIATE: {}", e));
@@ -254,20 +270,31 @@ where
         }
     }
 
-    // Execute the write function (only called once)
-    match f(&state.conn) {
+    // Execute the write function
+    match f(&conn) {
         Ok(result) => {
-            if let Err(e) = state.conn.execute_batch("COMMIT") {
-                let _ = state.conn.execute_batch("ROLLBACK");
+            if let Err(e) = conn.execute_batch("COMMIT") {
+                let _ = conn.execute_batch("ROLLBACK");
                 return Err(format!("COMMIT: {}", e));
             }
             Ok(result)
         }
         Err(e) => {
-            let _ = state.conn.execute_batch("ROLLBACK");
+            let _ = conn.execute_batch("ROLLBACK");
             Err(e)
         }
     }
+}
+
+/// Synchronous wrapper for use in Python sync wrappers.
+/// Blocks on the shared tokio runtime — safe because the GIL is held.
+fn execute_write<F, T>(state: &RustState, f: F) -> Result<T, String>
+where
+    F: FnOnce(&rusqlite::Connection) -> Result<T, String> + Send + 'static,
+    T: Send + 'static,
+{
+    let conn = Arc::clone(&state.conn);
+    RUNTIME.block_on(execute_write_async(conn, f))
 }
 
 // ── Sanitization ────────────────────────────────────────────────────────────
