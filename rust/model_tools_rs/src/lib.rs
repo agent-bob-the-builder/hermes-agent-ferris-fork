@@ -1,9 +1,9 @@
 use lazy_static::lazy_static;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
-use pyo3::types::{PyAnyMethods, PyDict, PyList, PyListMethods, PyModuleMethods, PyNone, PySet};
+use pyo3::types::{PyAnyMethods, PyDict, PyList, PyListMethods, PyModuleMethods, PySet};
 use std::collections::{HashMap, HashSet};
-use std::sync::{Mutex, atomic::{AtomicBool, Ordering}, mpsc::channel};
+use std::sync::{Mutex, atomic::{AtomicBool, Ordering}};
 
 // Legacy toolset mapping
 fn legacy_toolset_map() -> HashMap<&'static str, Vec<&'static str>> {
@@ -612,7 +612,6 @@ fn handle_function_call(
 // Called from Python after MCP/plugin discovery so the Rust backend picks up any new tools.
 // -------------------------------------------------------------------------------------------------
 
-use std::thread;
 
 #[pyfunction]
 fn refresh_toolset_cache(py: Python<'_>) -> PyResult<()> {
