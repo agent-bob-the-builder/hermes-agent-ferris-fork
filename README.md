@@ -8,27 +8,28 @@ A performance oriented Rust fork of [Hermes Agent](https://github.com/NousResear
 
 ## What & Why
 
-15 PyO3 extension crates replace hot-path Python code — no visible behaviour change, but meaningfully faster on every agent turn. All are wired into the agent loop with transparent Python fallbacks.
+16 PyO3 extension crates replace hot-path Python code — no visible behaviour change, but meaningfully faster on every agent turn. All wired crates use transparent Python fallbacks; unwired crates (`tool_dispatch_rs`, `context_refs_rs`) are built and available but not yet integrated.
 
 | Crate | Hot path | Status |
 |---|---|---|
-| `compressor_rs` | `ContextCompressor.compress()` | Production ✓ |
-| `model_tools_rs` | Tool registry + message sanitization | Production ✓ |
-| `prompt_builder_rs` | System prompt assembly | Production ✓ |
-| `skin_engine_rs` | Skin/theme loading and config | Production ✓ |
-| `hermes_state_rs` | SQLite SessionDB + FTS5 search | Production ✓ |
-| `file_ops_rs` | Binary detection, line numbering, path expansion, shell escaping, unified diff, fuzzy file search | Production ✓ |
-| `fuzzy_match_rs` | 8-strategy fuzzy find-and-replace | Production ✓ |
-| `patch_parser_rs` | V4A patch format parsing | Production ✓ |
-| `ansi_strip_rs` | Strip ANSI escape sequences | Production ✓ |
-| `redact_rs` | Sensitive data redaction | Production ✓ |
-| `subprocess_rs` | Subprocess orchestration | Production ✓ |
-| `run_agent_loop_rs` | Core agent loop | Production ✓ |
-| `tool_dispatch_rs` | Tool dispatch routing | Production ✓ |
-| `retry_state_machine_rs` | Retry with exponential back-off | Production ✓ |
-| `honcho_http_rs` | Honcho HTTP client | Production ✓ |
+| `compressor_rs` | `ContextCompressor.compress()` | Wired ✓ |
+| `model_tools_rs` | Tool registry + message sanitization | Wired ✓ |
+| `prompt_builder_rs` | System prompt assembly | Wired ✓ |
+| `skin_engine_rs` | Skin/theme loading and config | Wired ✓ |
+| `hermes_state_rs` | SQLite SessionDB + FTS5 search | Wired ✓ |
+| `file_ops_rs` | Binary detection, line numbering, path expansion, shell escaping, unified diff, fuzzy file search | Wired ✓ |
+| `fuzzy_match_rs` | 8-strategy fuzzy find-and-replace | Wired ✓ |
+| `patch_parser_rs` | V4A patch format parsing | Wired ✓ |
+| `ansi_strip_rs` | Strip ANSI escape sequences | Wired ✓ |
+| `redact_rs` | Sensitive data redaction | Wired ✓ |
+| `subprocess_rs` | Subprocess orchestration | Wired ✓ |
+| `run_agent_loop_rs` | Core agent loop | Wired ✓ |
+| `tool_dispatch_rs` | Tool dispatch routing | Built, not wired |
+| `retry_state_machine_rs` | Retry with exponential back-off | Wired ✓ |
+| `honcho_http_rs` | Honcho HTTP client | Wired ✓ |
+| `context_refs_rs` | Context reference tracking | Built, not wired |
 
-All crates are **transparent fallbacks**: if a crate is missing or fails to load, the Python implementation runs instead with no visible difference.
+Wired crates have **transparent Python fallbacks** — if a crate is missing or fails to load, the Python implementation runs instead with no visible difference. `tool_dispatch_rs` and `context_refs_rs` are built but not yet wired to any Python call site.
 
 **Wiring map:**
 
@@ -71,7 +72,7 @@ graph TD
     FOP["tools/file_operations.py<br/>ShellFileOperations"]
     FUZ["tools/fuzzy_match.py<br/>fuzzy_find_and_replace()"]
     PAT["tools/patch_parser.py<br/>parse_v4a_patch()"]
-    RET["agent/trajectory.py<br/>retry_state_machine_rs"]
+    HON["honcho_integration/session.py<br/>_honcho_http_rust"]
 
     PB_RS["prompt_builder_rs"]
     CO_RS["compressor_rs"]
@@ -81,41 +82,41 @@ graph TD
     FO_RS["file_ops_rs"]
     FM_RS["fuzzy_match_rs"]
     PP_RS["patch_parser_rs"]
-    RT_RS["retry_state_machine_rs"]
+    HH_RS["honcho_http_rs"]
 
     RA -->|"prompt assembly"| PCP
     RA -->|"tool registry"| MTP
     RA -->|"context compression"| CCP
     RA -->|"session / search"| SST
     RA -->|"skin loading"| SHE
-    RA -->|"retry / trajectory"| RET
+    RA -->|"honcho session"| HON
 
-    PCP -->|"production ✓"| PB_RS
+    PCP -->|"wired ✓"| PB_RS
     PCP -.->|"fallback"| PCP
 
-    CCP -->|"production ✓"| CO_RS
+    CCP -->|"wired ✓"| CO_RS
     CCP -.->|"fallback"| CCP
 
-    MTP -->|"production ✓"| MT_RS
+    MTP -->|"wired ✓"| MT_RS
     MTP -.->|"fallback"| MTP
 
-    SST -->|"production ✓"| HS_RS
+    SST -->|"wired ✓"| HS_RS
     SST -.->|"fallback"| SST
 
-    SHE -->|"production ✓"| SK_RS
+    SHE -->|"wired ✓"| SK_RS
     SHE -.->|"fallback"| SHE
 
-    FOP -->|"production ✓"| FO_RS
+    FOP -->|"wired ✓"| FO_RS
     FOP -.->|"fallback"| FOP
 
-    FUZ -->|"production ✓"| FM_RS
+    FUZ -->|"wired ✓"| FM_RS
     FUZ -.->|"fallback"| FUZ
 
-    PAT -->|"production ✓"| PP_RS
+    PAT -->|"wired ✓"| PP_RS
     PAT -.->|"fallback"| PAT
 
-    RET -->|"production ✓"| RT_RS
-    RET -.->|"fallback"| RET
+    HON -->|"wired ✓"| HH_RS
+    HON -.->|"fallback"| HON
 
     style PB_RS fill:#de5347,color:#fff
     style CO_RS fill:#de5347,color:#fff
@@ -125,7 +126,7 @@ graph TD
     style FO_RS fill:#de5347,color:#fff
     style FM_RS fill:#de5347,color:#fff
     style PP_RS fill:#de5347,color:#fff
-    style RT_RS fill:#de5347,color:#fff
+    style HH_RS fill:#de5347,color:#fff
 ```
 
 ---
