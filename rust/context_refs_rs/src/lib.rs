@@ -11,24 +11,27 @@
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use regex::Regex;
+use std::sync::LazyLock;
 
 // ---------------------------------------------------------------------------
-// Regex patterns — compiled once at static init
+// Regex patterns — compiled once at static init via LazyLock
 // ---------------------------------------------------------------------------
 
-// Matches @diff, @staged, @file:..., @folder:..., @git:..., @url:...
-static REFERENCE_RE: Regex = Regex::new(
-    r"(?<![\w/])(?:@(?P<simple>diff|staged)\b|(?P<kind>file|folder|git|url):(?P<value>\S+))"
-).unwrap();
+static REFERENCE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?<![\w/])(?:@(?P<simple>diff|staged)\b|(?P<kind>file|folder|git|url):(?P<value>\S+))").unwrap()
+});
 
-// Range suffix on file refs: path:123 or path:123-456
-static FILE_RANGE_RE: Regex = Regex::new(
-    r"^(?P<path>.+?):(?P<start>\d+)(?:-(?P<end>\d+))?$"
-).unwrap();
+static FILE_RANGE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(?P<path>.+?):(?P<start>\d+)(?:-(?P<end>\d+))?$").unwrap()
+});
 
-// Whitespace normalisation after token removal
-static WHITESPACE_COLLAPSE_RE: Regex = Regex::new(r"\s{2,}").unwrap();
-static TRAILING_PUNCT_RE: Regex = Regex::new(r"\s+([,.;!?])").unwrap();
+static WHITESPACE_COLLAPSE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\s{2,}").unwrap()
+});
+
+static TRAILING_PUNCT_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\s+([,.;!?])").unwrap()
+});
 
 // Trailing punctuation characters to strip from reference targets.
 const TRAILING_PUNCT_CHARS: &str = ",.;!?";
@@ -58,41 +61,6 @@ fn strip_trailing_punctuation(value: &str) -> String {
     s.to_string()
 }
 
-/// Build a Python dict for a simple @diff / @staged reference.
-fn build_simple_ref(py: Python<'_>, raw_text: &str, simple_kind: &str, start: usize, end: usize) -> Py<PyAny> {
-    let dict = PyDict::new(py);
-    dict.set_item("raw", raw_text).unwrap();
-    dict.set_item("kind", simple_kind).unwrap();
-    dict.set_item("target", "").unwrap();
-    dict.set_item("start", start as i64).unwrap();
-    dict.set_item("end", end as i64).unwrap();
-    dict.set_item("line_start", py.None()).unwrap();
-    dict.set_item("line_end", py.None()).unwrap();
-    dict.into_any().unbind()
-}
-
-/// Build a Python dict for a typed @kind:value reference.
-fn build_typed_ref(
-    py: Python<'_>,
-    raw_text: &str,
-    kind: &str,
-    target: &str,
-    start: usize,
-    end: usize,
-    line_start: Option<i64>,
-    line_end: Option<i64>,
-) -> Py<PyAny> {
-    let dict = PyDict::new(py);
-    dict.set_item("raw", raw_text).unwrap();
-    dict.set_item("kind", kind).unwrap();
-    dict.set_item("target", target).unwrap();
-    dict.set_item("start", start as i64).unwrap();
-    dict.set_item("end", end as i64).unwrap();
-    dict.set_item("line_start", line_start.map(|v| v as i64).unwrap_or(py.None())).unwrap();
-    dict.set_item("line_end", line_end.map(|v| v as i64).unwrap_or(py.None())).unwrap();
-    dict.into_any().unbind()
-}
-
 // ---------------------------------------------------------------------------
 // Python-callable functions
 // ---------------------------------------------------------------------------
@@ -102,9 +70,7 @@ fn build_typed_ref(
 /// Returns a list of dicts with keys: raw, kind, target, start, end,
 /// line_start, line_end.
 #[pyfunction]
-fn parse_context_references(message: &str) -> PyResult<Vec<Py<PyAny>>> {
-    let py = Python::acquire_gil();
-    let py = py.python();
+fn parse_context_references(py: Python<'_>, message: &str) -> PyResult<Vec<Py<PyAny>>> {
     let mut results: Vec<Py<PyAny>> = Vec::new();
 
     for caps in REFERENCE_RE.captures_iter(message) {
@@ -114,8 +80,15 @@ fn parse_context_references(message: &str) -> PyResult<Vec<Py<PyAny>>> {
         let raw_text = m.as_str();
 
         if let Some(simple_match) = caps.name("simple") {
-            let dict = build_simple_ref(py, raw_text, simple_match.as_str(), start, end);
-            results.push(dict);
+            let dict = PyDict::new(py);
+            dict.set_item("raw", raw_text).unwrap();
+            dict.set_item("kind", simple_match.as_str()).unwrap();
+            dict.set_item("target", "").unwrap();
+            dict.set_item("start", start as i64).unwrap();
+            dict.set_item("end", end as i64).unwrap();
+            dict.set_item("line_start", py.None()).unwrap();
+            dict.set_item("line_end", py.None()).unwrap();
+            results.push(dict.into_any().unbind());
             continue;
         }
 
@@ -132,15 +105,36 @@ fn parse_context_references(message: &str) -> PyResult<Vec<Py<PyAny>>> {
                 let line_end: i64 = range_caps.name("end")
                     .map(|m| m.as_str().parse::<i64>().unwrap_or(line_start))
                     .unwrap_or(line_start);
-                let dict = build_typed_ref(py, raw_text, kind, path, start, end, Some(line_start), Some(line_end));
-                results.push(dict);
+                let dict = PyDict::new(py);
+                dict.set_item("raw", raw_text).unwrap();
+                dict.set_item("kind", kind).unwrap();
+                dict.set_item("target", path).unwrap();
+                dict.set_item("start", start as i64).unwrap();
+                dict.set_item("end", end as i64).unwrap();
+                dict.set_item("line_start", line_start).unwrap();
+                dict.set_item("line_end", line_end).unwrap();
+                results.push(dict.into_any().unbind());
             } else {
-                let dict = build_typed_ref(py, raw_text, kind, &stripped, start, end, None, None);
-                results.push(dict);
+                let dict = PyDict::new(py);
+                dict.set_item("raw", raw_text).unwrap();
+                dict.set_item("kind", kind).unwrap();
+                dict.set_item("target", &*stripped).unwrap();
+                dict.set_item("start", start as i64).unwrap();
+                dict.set_item("end", end as i64).unwrap();
+                dict.set_item("line_start", py.None()).unwrap();
+                dict.set_item("line_end", py.None()).unwrap();
+                results.push(dict.into_any().unbind());
             }
         } else {
-            let dict = build_typed_ref(py, raw_text, kind, &stripped, start, end, None, None);
-            results.push(dict);
+            let dict = PyDict::new(py);
+            dict.set_item("raw", raw_text).unwrap();
+            dict.set_item("kind", kind).unwrap();
+            dict.set_item("target", &*stripped).unwrap();
+            dict.set_item("start", start as i64).unwrap();
+            dict.set_item("end", end as i64).unwrap();
+            dict.set_item("line_start", py.None()).unwrap();
+            dict.set_item("line_end", py.None()).unwrap();
+            results.push(dict.into_any().unbind());
         }
     }
 

@@ -542,7 +542,63 @@ fn get_tool_definitions(
 }
 
 // -------------------------------------------------------------------------------------------------
-// handle_function_call
+// rs_dispatch — O(1) HashMap lookup + direct Python handler invocation.
+// Bypasses registry.dispatch() to avoid deadlock risk. Returns None if the tool
+// isn't cached, is async, or has no handler — caller falls back to Python dispatch.
+// Returns Py<PyAny> so Python side handles JSON extraction.
+// -------------------------------------------------------------------------------------------------
+
+#[pyfunction(signature = (function_name, function_args, task_id=None, user_task=None, enabled_tools=None, last_resolved_tool_names=None, honcho_manager=None, honcho_session_key=None))]
+fn rs_dispatch(
+    py: Python<'_>,
+    function_name: String,
+    function_args: Py<PyAny>,
+    task_id: Option<String>,
+    user_task: Option<String>,
+    enabled_tools: Option<Vec<String>>,
+    last_resolved_tool_names: Option<Vec<String>>,
+    honcho_manager: Option<Py<PyAny>>,
+    honcho_session_key: Option<String>,
+) -> PyResult<Option<Py<PyAny>>> {
+    let registry = RUST_TOOL_REGISTRY.lock().unwrap();
+    let entry = match registry.get(&function_name) {
+        Some(e) => e,
+        None => return Ok(None),
+    };
+    if entry.is_async {
+        return Ok(None);
+    }
+    let handler = match entry.handler.as_ref() {
+        Some(h) => h,
+        None => return Ok(None),
+    };
+    drop(registry);
+
+    let kwargs = PyDict::new(py);
+    if let Some(ref tid) = task_id {
+        kwargs.set_item("task_id", tid)?;
+    }
+    if let Some(ref manager) = honcho_manager {
+        kwargs.set_item("honcho_manager", manager.bind(py))?;
+    }
+    if let Some(ref sk) = honcho_session_key {
+        kwargs.set_item("honcho_session_key", sk)?;
+    }
+    if function_name == "execute_code" {
+        let sandbox = enabled_tools.or(last_resolved_tool_names.clone()).unwrap_or_default();
+        kwargs.set_item("enabled_tools", PyList::new(py, &sandbox)?)?;
+    } else if let Some(ref ut) = user_task {
+        kwargs.set_item("user_task", ut)?;
+    } else {
+        kwargs.set_item("user_task", py.None())?;
+    }
+
+    let result = handler.call(py, (function_args.bind(py),), Some(&kwargs))?;
+    Ok(Some(result))
+}
+
+// -------------------------------------------------------------------------------------------------
+// handle_function_call — tries rs_dispatch first, falls back to registry.dispatch()
 // -------------------------------------------------------------------------------------------------
 
 #[pyfunction(signature = (function_name, function_args, task_id=None, user_task=None, enabled_tools=None, last_resolved_tool_names=None, honcho_manager=None, honcho_session_key=None))]
@@ -567,44 +623,55 @@ fn handle_function_call(
         )));
     }
 
-    // Build kwargs while GIL is held (safe)
-    let kwargs = PyDict::new(py);
-    if let Some(ref tid) = task_id {
-        kwargs.set_item("task_id", tid)?;
-    }
-    if let Some(ref manager) = honcho_manager {
-        kwargs.set_item("honcho_manager", manager.bind(py))?;
-    }
-    if let Some(ref sk) = honcho_session_key {
-        kwargs.set_item("honcho_session_key", sk)?;
-    }
-    if function_name == "execute_code" {
-        let sandbox = enabled_tools.or(last_resolved_tool_names.clone()).unwrap_or_default();
-        kwargs.set_item("enabled_tools", PyList::new(py, &sandbox)?)?;
-    } else if let Some(ref ut) = user_task {
-        kwargs.set_item("user_task", ut)?;
-    } else {
-        kwargs.set_item("user_task", py.None())?;
-    }
+    let function_args_cloned = function_args.clone_ref(py);
+    let enabled_tools_cloned = enabled_tools.clone();
+    let rust_result = rs_dispatch(
+        py,
+        function_name.clone(),
+        function_args,
+        task_id,
+        user_task,
+        enabled_tools_cloned,
+        last_resolved_tool_names,
+        honcho_manager,
+        honcho_session_key,
+    );
 
-    // Call Python dispatch synchronously while GIL is held.
-    // The Python registry.dispatch() is CPU-bound Python code — it does not
-    // block waiting for the GIL from another thread, so no deadlock risk here.
-    let registry = get_cached_registry(py)?;
-    let result = registry.call_method(
-        "dispatch",
-        (function_name.as_str(), function_args.bind(py)),
-        Some(&kwargs),
-    )?;
-
-    result.extract::<String>().map_err(|err| {
-        logger_call(
-            py,
-            "error",
-            &format!("Error executing {}: {}", function_name, err),
-        );
-        err
-    })
+    match rust_result {
+        Ok(Some(result)) => {
+            let s: &str = result.borrow(py).str()?.extract()?;
+            Ok(s.to_string())
+        }
+        Ok(None) | Err(_) => {
+            let kwargs = PyDict::new(py);
+            if let Some(ref tid) = task_id {
+                kwargs.set_item("task_id", tid)?;
+            }
+            if let Some(ref manager) = honcho_manager {
+                kwargs.set_item("honcho_manager", manager.bind(py))?;
+            }
+            if let Some(ref sk) = honcho_session_key {
+                kwargs.set_item("honcho_session_key", sk)?;
+            }
+            if function_name == "execute_code" {
+                let sandbox = enabled_tools.or(last_resolved_tool_names.clone()).unwrap_or_default();
+                kwargs.set_item("enabled_tools", PyList::new(py, &sandbox)?)?;
+            } else if let Some(ref ut) = user_task {
+                kwargs.set_item("user_task", ut)?;
+            } else {
+                kwargs.set_item("user_task", py.None())?;
+            }
+            let function_args_bound = function_args_cloned.bind(py);
+            let registry = get_cached_registry(py)?;
+            let result = registry.call_method(
+                "dispatch",
+                (function_name.as_str(), function_args_bound),
+                Some(&kwargs),
+            )?;
+            let s: &str = result.borrow(py).str()?.extract()?;
+            Ok(s.to_string())
+        }
+    }
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -807,6 +874,7 @@ fn _model_tools_rust(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<(
     module.add_function(wrap_pyfunction!(initialize, module)?)?;
     module.add_function(wrap_pyfunction!(get_tool_definitions, module)?)?;
     module.add_function(wrap_pyfunction!(handle_function_call, module)?)?;
+    module.add_function(wrap_pyfunction!(rs_dispatch, module)?)?;
     module.add_function(wrap_pyfunction!(get_tool_to_toolset_map, module)?)?;
     module.add_function(wrap_pyfunction!(get_toolset_requirements, module)?)?;
     module.add_function(wrap_pyfunction!(get_all_tool_names, module)?)?;
