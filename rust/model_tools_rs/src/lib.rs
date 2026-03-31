@@ -612,10 +612,11 @@ fn rs_dispatch(
     } else {
         kwargs.set_item("user_task", py.None())?;
     }
-
-    // Call the Python handler and return the raw Py result
+    // Call the Python handler and convert result to JSON string
     let result = handler.call(py, (function_args.bind(py),), Some(&kwargs))?;
-    Ok(Some(result))
+    // str() on Bound<PyString> returns &str; to_string() makes it owned
+    let result_str = result.bind(py).str()?.to_string();
+    Ok(Some(result_str))
 }
 
 // -------------------------------------------------------------------------------------------------
