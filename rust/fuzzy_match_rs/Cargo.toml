@@ -1,0 +1,12 @@
+[package]
+name = "fuzzy_match_rs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pyo3 = { workspace = true }
+lazy_static = { workspace = true }
+regex = { workspace = true }
+
+[lib]
+crate-type = ["cdylib"]

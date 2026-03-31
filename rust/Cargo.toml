@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "compressor",
+    "fuzzy_match_rs",
     "hermes_state_rs",
     "model_tools_rs",
     "prompt_builder_rs",
