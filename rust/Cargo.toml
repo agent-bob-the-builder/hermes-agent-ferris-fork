@@ -1,8 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
+    "run_agent_loop_rs",
     "ansi_strip_rs",
     "compressor",
+    "context_refs_rs",
     "file_ops_rs",
     "fuzzy_match_rs",
     "hermes_state_rs",
@@ -12,7 +14,6 @@ members = [
     "prompt_builder_rs",
     "redact_rs",
     "retry_state_machine_rs",
-    "run_agent_loop_rs",
     "skin_engine_rs",
     "subprocess_rs",
     "tool_dispatch_rs",

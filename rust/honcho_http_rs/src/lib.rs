@@ -77,9 +77,10 @@ async fn prefetch_async(
         .await
         .map_err(|e| format!("prefetch request failed: {}", e))?;
 
+    let status_code = resp.status().as_u16();
     if !resp.status().is_success() {
         let body = resp.text().await.unwrap_or_default();
-        return Err(format!("prefetch HTTP {}: {}", resp.status().as_u16(), body));
+        return Err(format!("prefetch HTTP {}: {}", status_code, body));
     }
 
     let body: PrefetchResponse = resp
@@ -114,9 +115,10 @@ async fn sync_async(
         .await
         .map_err(|e| format!("sync request failed: {}", e))?;
 
+    let status_code = resp.status().as_u16();
     if !resp.status().is_success() {
         let body = resp.text().await.unwrap_or_default();
-        return Err(format!("sync HTTP {}: {}", resp.status().as_u16(), body));
+        return Err(format!("sync HTTP {}: {}", status_code, body));
     }
 
     let body: SyncResponse = resp
@@ -147,9 +149,10 @@ async fn save_observation_async(
         .await
         .map_err(|e| format!("observation request failed: {}", e))?;
 
+    let status_code = resp.status().as_u16();
     if !resp.status().is_success() {
         let body = resp.text().await.unwrap_or_default();
-        return Err(format!("observation HTTP {}: {}", resp.status().as_u16(), body));
+        return Err(format!("observation HTTP {}: {}", status_code, body));
     }
 
     Ok(true)

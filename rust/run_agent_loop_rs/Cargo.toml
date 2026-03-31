@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [lib]
-name = "_run_agent_loop_rust"
+name = "run_agent_loop_rs"
 crate-type = ["cdylib"]
 
 [dependencies]

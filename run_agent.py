@@ -70,6 +70,48 @@ def _try_load_rust_pb():
         _rust_pb_loader_failed = True
         logger.debug("Rust prompt builder unavailable (%s), using Python path", _e)
         return None
+
+
+# ---------------------------------------------------------------------------------
+# Rust agent loop — lazy-loaded from venv on first use.
+# When run_agent_loop_rs is available, run_conversation delegates to rs_run_loop()
+# instead of the Python main loop. Falls back to Python on any error.
+# ---------------------------------------------------------------------------------
+_rust_loop_loader_failed = False
+_rust_loop = None
+
+
+def _try_load_rust_loop():
+    global _rust_loop_loader_failed, _rust_loop
+    if _rust_loop is not None or _rust_loop_loader_failed:
+        return _rust_loop
+    try:
+        import sys as _sys
+        venv_site = _sys.prefix + "/lib/python3.11/site-packages"
+        _rust_loop_dir = venv_site + "/run_agent_loop_rs"
+        if _rust_loop_dir not in _sys.path:
+            _sys.path.insert(0, _rust_loop_dir)
+        if venv_site not in _sys.path:
+            _sys.path.insert(0, venv_site)
+        import importlib as _importlib
+
+        _importlib.invalidate_caches()
+        mod = _importlib.import_module("run_agent_loop_rs")
+        # Verify the module has the expected entry point
+        if not hasattr(mod, "rs_run_loop"):
+            raise ImportError(
+                f"run_agent_loop_rs loaded from {getattr(mod, '__file__', '?')} "
+                "but has no 'rs_run_loop' attribute"
+            )
+        _rust_loop = mod
+        logger.debug("Rust agent loop loaded successfully")
+        return _rust_loop
+    except Exception as _e:
+        _rust_loop_loader_failed = True
+        logger.debug("Rust agent loop unavailable (%s), using Python path", _e)
+        return None
+
+
 import os
 import random
 import re
@@ -2306,7 +2348,173 @@ class AIAgent:
         self._interrupt_requested = False
         self._interrupt_message = None
         _set_interrupt(False)
-    
+
+    # ── Rust loop bridge ────────────────────────────────────────────────────
+
+    def _rust_interrupt_check_fn(self) -> bool:
+        """Python callable for Rust loop: returns True if interrupt is pending."""
+        return self._interrupt_requested
+
+    def _rust_on_status_fn(self, status_msg: str) -> None:
+        """Python callable for Rust loop: emits a status update."""
+        self._emit_status(status_msg)
+
+    def _rust_api_call_fn(self, api_messages_json: str) -> str:
+        """
+        Python callable for Rust loop: runs the full API call.
+
+        Serialises AIAgent state into api_kwargs, calls
+        _interruptible_streaming_api_call or _interruptible_api_call, and
+        returns the response serialised as JSON.
+        """
+        import json as _json
+
+        api_messages = _json.loads(api_messages_json)
+
+        # Build kwargs for this API mode
+        api_kwargs = self._build_api_kwargs(api_messages)
+
+        # Choose streaming vs non-streaming path
+        use_streaming = self._has_stream_consumers()
+        if not use_streaming:
+            from unittest.mock import Mock
+            use_streaming = not isinstance(getattr(self, "client", None), Mock)
+
+        def stop_spinner():
+            pass  # Rust loop has no spinner to stop
+
+        if use_streaming:
+            response = self._interruptible_streaming_api_call(
+                api_kwargs, on_first_delta=stop_spinner
+            )
+        else:
+            response = self._interruptible_api_call(api_kwargs)
+
+        # Normalise response to a JSON-serialisable dict
+        if hasattr(response, "_raw_response") and hasattr(response, "model"):
+            # Raw HTTP response — extract fields that matter for parsing
+            resp_dict = {}
+            resp_dict["model"] = getattr(response, "model", None)
+            resp_dict["id"] = getattr(response, "id", None)
+            if hasattr(response, "choices") and response.choices:
+                first = response.choices[0]
+                resp_dict["choices"] = [{
+                    "finish_reason": getattr(first, "finish_reason", None),
+                    "message": {
+                        "role": getattr(first.message, "role", None) if hasattr(first, "message") else None,
+                        "content": getattr(first.message, "content", None) if hasattr(first, "message") else None,
+                        "tool_calls": [
+                            {
+                                "id": tc.id,
+                                "function": {
+                                    "name": tc.function.name,
+                                    "arguments": tc.function.arguments,
+                                },
+                            }
+                            for tc in (getattr(first.message, "tool_calls", None) or [])
+                            if tc
+                        ] if hasattr(first.message, "tool_calls") and first.message.tool_calls else [],
+                    },
+                }]
+            if hasattr(response, "usage") and response.usage:
+                u = response.usage
+                resp_dict["usage"] = {
+                    "prompt_tokens": getattr(u, "prompt_tokens", 0) or 0,
+                    "completion_tokens": getattr(u, "completion_tokens", 0) or 0,
+                    "total_tokens": getattr(u, "total_tokens", 0) or 0,
+                }
+            return _json.dumps(resp_dict)
+
+        # Already a plain dict/object — return as JSON
+        return _json.dumps(response, default=str)
+
+    def _try_rust_loop(
+        self,
+        user_message: str,
+        conversation_history: Optional[List[Dict[str, Any]]],
+        system_message: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Attempt to run the conversation via the Rust loop driver.
+
+        Returns None if the Rust loop is unavailable or returns an error,
+        in which case the caller should fall back to the Python loop.
+
+        Returns the LoopResult dict on success.
+        """
+        import json as _json
+
+        mod = _try_load_rust_loop()
+        if mod is None:
+            return None
+
+        try:
+            # Build config JSON from current AIAgent state
+            config = {
+                "model": self.model or "unknown",
+                "max_iterations": self.max_iterations,
+                "base_url": self.base_url or "",
+                "api_key": self.api_key or "",
+                "api_mode": self.api_mode or "chat_completions",
+                "provider": self.provider or "unknown",
+                "reasoning_config": self.reasoning_config,
+                "max_tokens": self.max_tokens,
+                "enabled_toolsets": None,
+                "disabled_toolsets": None,
+                "save_trajectories": self.save_trajectories,
+                "verbose_logging": self.verbose_logging,
+                "quiet_mode": self.quiet_mode,
+                "platform": getattr(self, "platform", None),
+                "session_id": self.session_id or "default",
+                "fallback_chain": [
+                    {"provider": fb.provider, "model": fb.model}
+                    for fb in getattr(self, "_fallback_chain", [])
+                    if fb
+                ],
+                "budget_caution_threshold": 0.70,
+                "budget_warning_threshold": 0.90,
+                "use_prompt_caching": self._use_prompt_caching,
+                "cache_ttl": getattr(self, "_cache_ttl", None),
+            }
+
+            history_json = _json.dumps(conversation_history or [])
+
+            result_json = mod.rs_run_loop(
+                config_json=_json.dumps(config),
+                user_message=user_message,
+                conversation_history_json=history_json,
+                system_prompt_fn=self._build_system_prompt,
+                api_call_fn=self._rust_api_call_fn,
+                tool_invoke_fn=handle_function_call,
+                interrupt_check_fn=self._rust_interrupt_check_fn,
+                on_status_fn=self._rust_on_status_fn,
+            )
+
+            result = _json.loads(result_json)
+
+            # Deserialize messages
+            messages = _json.loads(result.get("messages_json", "[]"))
+
+            # Assemble the same Dict[str, Any] shape that the Python loop returns
+            return {
+                "final_response": result.get("final_response"),
+                "last_reasoning": result.get("last_reasoning"),
+                "messages": messages,
+                "api_calls": result.get("api_calls", 0),
+                "completed": result.get("completed", False),
+                "partial": result.get("partial", False),
+                "interrupted": result.get("interrupted", False),
+                "model": self.model,
+                "provider": self.provider,
+                "base_url": self.base_url,
+            }
+
+        except Exception as exc:
+            logger.warning(
+                "Rust loop error (%s) — falling back to Python loop", exc
+            )
+            return None
+
     def _hydrate_todo_store(self, history: List[Dict[str, Any]]) -> None:
         """
         Recover todo state from conversation history.
@@ -6434,7 +6642,69 @@ class AIAgent:
         
         # Clear any stale interrupt state at start
         self.clear_interrupt()
-        
+
+        # ── Attempt Rust loop (foreign-loop pattern) ────────────────────────
+        # The Rust loop owns the iteration state machine and calls back into
+        # Python for system prompt building, API calls, and tool dispatch.
+        # Falls back to the Python loop on any error.
+        _rust_result = self._try_rust_loop(
+            user_message=user_message,
+            conversation_history=conversation_history,
+            system_message=system_message,
+        )
+        if _rust_result is not None:
+            # Rust loop returned — do post-processing that the Rust side
+            # doesn't handle (Honcho sync, session persistence, plugin hooks).
+            _rust_result["input_tokens"] = self.session_input_tokens
+            _rust_result["output_tokens"] = self.session_output_tokens
+            _rust_result["cache_read_tokens"] = self.session_cache_read_tokens
+            _rust_result["cache_write_tokens"] = self.session_cache_write_tokens
+            _rust_result["reasoning_tokens"] = self.session_reasoning_tokens
+            _rust_result["prompt_tokens"] = self.session_prompt_tokens
+            _rust_result["completion_tokens"] = self.session_completion_tokens
+            _rust_result["total_tokens"] = self.session_total_tokens
+            _rust_result["estimated_cost_usd"] = self.session_estimated_cost_usd
+            _rust_result["cost_status"] = self.session_cost_status
+            _rust_result["cost_source"] = self.session_cost_source
+            interrupted = _rust_result.get("interrupted", False)
+            completed = _rust_result.get("completed", False)
+            messages = _rust_result.get("messages", [])
+            final_response = _rust_result.get("final_response")
+            api_call_count = _rust_result.get("api_calls", 0)
+            self._save_trajectory(messages, original_user_message, completed)
+            self._cleanup_task_resources(effective_task_id)
+            self._persist_session(messages, conversation_history)
+            if final_response and not interrupted and sync_honcho:
+                self._honcho_sync(original_user_message, final_response)
+                self._queue_honcho_prefetch(original_user_message)
+            try:
+                from hermes_cli.plugins import invoke_hook as _invoke_hook
+                _invoke_hook(
+                    "post_llm_call",
+                    session_id=self.session_id,
+                    user_message=original_user_message,
+                    assistant_response=final_response or "",
+                    conversation_history=list(messages),
+                    model=self.model,
+                    platform=getattr(self, "platform", None) or "",
+                )
+            except Exception as exc:
+                logger.warning("post_llm_call hook failed: %s", exc)
+            try:
+                from hermes_cli.plugins import invoke_hook as _invoke_hook
+                _invoke_hook(
+                    "on_session_end",
+                    session_id=self.session_id,
+                    completed=completed,
+                    interrupted=interrupted,
+                    model=self.model,
+                    platform=getattr(self, "platform", None) or "",
+                )
+            except Exception as exc:
+                logger.warning("on_session_end hook failed: %s", exc)
+            _rust_result["response_previewed"] = getattr(self, "_response_was_previewed", False)
+            return _rust_result
+
         while api_call_count < self.max_iterations and self.iteration_budget.remaining > 0:
             # Reset per-turn checkpoint dedup so each iteration can take one snapshot
             self._checkpoint_mgr.new_turn()

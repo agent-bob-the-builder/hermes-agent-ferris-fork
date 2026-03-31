@@ -24,7 +24,7 @@ use pyo3::prelude::*;
 fn strip_ansi_text(text: &str) -> String { strip_ansi(text) }
 
 #[pymodule]
-fn ansi_strip_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn rust_ansi_strip(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(strip_ansi_text, m)?)?;
     Ok(())
 }

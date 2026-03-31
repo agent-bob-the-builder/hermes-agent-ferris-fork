@@ -11,7 +11,7 @@ crate-type = ["cdylib"]
 opt-level = 0
 
 [dependencies]
-pyo3 = { workspace = true, features = ["serde"] }
+pyo3 = { workspace = true }
 serde_json.workspace = true
 lazy_static.workspace = true
 rayon.workspace = true

@@ -466,7 +466,7 @@ fn call_python_fuzzy_match(
 // ---------------------------------------------------------------------------
 
 #[pymodule]
-fn _file_ops_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn file_ops_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("MAX_LINE_LENGTH", MAX_LINE_LENGTH)?;
     m.add("MAX_LINES", MAX_LINES)?;
 

@@ -1,0 +1,16 @@
+[package]
+name = "context_refs_rs"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "context_refs_rs"
+crate-type = ["cdylib"]
+
+[package.metadata.maturin]
+name = "context_refs_rs"
+
+[dependencies]
+pyo3 = { workspace = true }
+regex = { workspace = true }
+serde_json = { workspace = true }
