@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [lib]
-name = "compressor_rs"
+name = "rust_compressor"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]

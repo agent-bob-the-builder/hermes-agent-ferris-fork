@@ -914,7 +914,7 @@ def estimate_tokens_rough(text: str) -> int:
 def estimate_messages_tokens_rough(messages: List[Dict[str, Any]]) -> int:
     """Rough token estimate for a message list (pre-flight only).
     
-    Uses rust_compressor.estimate_messages_tokens_from_json when available,
+    Uses compressor_rs.estimate_messages_tokens_from_json when available,
     which avoids per-message Python object overhead by passing a single
     JSON string to Rust for parsing.
     """

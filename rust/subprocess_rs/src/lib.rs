@@ -4,14 +4,14 @@
 //! Handles: spawn, async drain, kill, interrupt, exit codes, sudo password injection,
 //! encoding, timeout. No GIL contention — all I/O runs in background threads.
 
-use libc::{kill, setpgid, waitpid, WIFEXITED, WEXITSTATUS, WIFSIGNALED, WTERMSIG, SIGKILL};
+use libc::{kill as libc_kill, setpgid, waitpid, WIFEXITED, WEXITSTATUS, WIFSIGNALED, WTERMSIG, SIGKILL};
 use once_cell::sync::Lazy;
 use pyo3::prelude::*;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{io, thread};
@@ -19,6 +19,9 @@ use std::{io, thread};
 // Global process registry — allows interrupt/kill from anywhere in the Python call stack.
 static PROCESS_REGISTRY: Lazy<Mutex<HashMap<String, Arc<SubprocessState>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
+
+// Simple monotonic counter for UUID v4 substitute
+static UUID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared subprocess state
@@ -101,8 +104,9 @@ pub fn spawn(
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
-        child.pre_exec(|| {
-            // SAFETY: setpgid is async-signal-safe; we're in a fresh child before exec
+        // SAFETY: pre_exec runs in the child before exec, setpgid is async-signal-safe
+        // and we're in a fresh process with no other threads.
+        child.pre_exec(|| unsafe {
             if setpgid(0, 0) != 0 {
                 return Err(io::Error::last_os_error());
             }
@@ -165,7 +169,6 @@ pub fn spawn(
 
     #[cfg(not(unix))]
     thread::spawn(move || {
-        // Fallback: poll done flag
         thread::sleep(Duration::from_secs(60));
         *state_wait.exit_code.lock().unwrap() = Some(0);
         state_wait.done.store(true, Ordering::Relaxed);
@@ -243,14 +246,13 @@ fn _drain_reader<R: Read + Send + 'static>(reader: R, state: Arc<SubprocessState
 
 /// Blocking wait for subprocess completion.
 #[pyfunction]
-pub fn wait(py: Python<'_>, handle: &Py<SubprocessHandle>) -> PyResult<ExecuteResult> {
-    let h = handle.as_ref(py);
+pub fn wait(py: Python<'_>, handle: &Bound<'_, SubprocessHandle>) -> PyResult<ExecuteResult> {
     let poll_interval = Duration::from_millis(20);
 
     loop {
         // 1. Interrupt check
-        if h.state.interrupted.load(Ordering::Relaxed) {
-            let out = h.state.output.lock().unwrap().clone();
+        if handle.interrupted.load(Ordering::Relaxed) {
+            let out = handle.output.lock().unwrap().clone();
             return Ok(ExecuteResult {
                 output: out,
                 returncode: 130,
@@ -260,10 +262,10 @@ pub fn wait(py: Python<'_>, handle: &Py<SubprocessHandle>) -> PyResult<ExecuteRe
         }
 
         // 2. Deadline check
-        if let Some(deadline) = h.deadline {
+        if let Some(deadline) = handle.deadline {
             if Instant::now() >= deadline {
-                let _ = _kill_group(&h.state);
-                let out = h.state.output.lock().unwrap().clone();
+                let _ = _kill_group(&handle.state);
+                let out = handle.output.lock().unwrap().clone();
                 return Ok(ExecuteResult {
                     output: out,
                     returncode: 124,
@@ -274,9 +276,9 @@ pub fn wait(py: Python<'_>, handle: &Py<SubprocessHandle>) -> PyResult<ExecuteRe
         }
 
         // 3. Done check
-        if h.state.done.load(Ordering::Relaxed) {
-            let out = h.state.output.lock().unwrap().clone();
-            let code = *h.state.exit_code.lock().unwrap();
+        if handle.state.done.load(Ordering::Relaxed) {
+            let out = handle.output.lock().unwrap().clone();
+            let code = *handle.state.exit_code.lock().unwrap();
             return Ok(ExecuteResult {
                 output: out,
                 returncode: code.unwrap_or(-1),
@@ -308,9 +310,8 @@ pub fn interrupt(session_id: &str) -> PyResult<bool> {
 
 /// Read accumulated output so far without blocking.
 #[pyfunction]
-pub fn drain_partial(py: Python<'_>, handle: &Py<SubprocessHandle>) -> PyResult<String> {
-    let h = handle.as_ref(py);
-    Ok(h.state.output.lock().unwrap().clone())
+pub fn drain_partial(py: Python<'_>, handle: &Bound<'_, SubprocessHandle>) -> PyResult<String> {
+    Ok(handle.state.output.lock().unwrap().clone())
 }
 
 /// Remove a session from the registry.
@@ -341,9 +342,9 @@ fn _kill_group(state: &Arc<SubprocessState>) -> io::Result<()> {
     let pgrp = *state.pgrp.lock().unwrap();
     if let Some(pg) = pgrp {
         // SAFETY: pg is a process group we created via setpgid in the child
-        unsafe { kill(-pg, SIGKILL) };
+        unsafe { libc_kill(-pg, SIGKILL) };
     } else if let Some(pid) = *state.pid.lock().unwrap() {
-        unsafe { kill(pid as libc::pid_t, SIGKILL) };
+        unsafe { libc_kill(pid as libc::pid_t, SIGKILL) };
     }
     Ok(())
 }
@@ -360,7 +361,7 @@ fn _kill_group(state: &Arc<SubprocessState>) -> io::Result<()> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// UUID v4 (no external deps)
+// UUID v4 substitute — time-based with counter, no external deps
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn _uuid_v4() -> String {
@@ -369,9 +370,10 @@ fn _uuid_v4() -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
-    let e = ts
-        ^ (std::process::id() as u64 * 0x517cc1b727220a95)
-        ^ ((std::thread::current().id().as_u64() as u64) * 0x8d04d2a7);
+    let counter = UUID_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let pid = std::process::id() as u64;
+    // Mix bits for apparent randomness without thread_id
+    let e = ts ^ (pid * 0x517cc1b727220a95) ^ (counter * 0x8d04d2a7);
     format!(
         "{:08x}-{:04x}-4{:03x}-{:04x}-{:012x}",
         (e & 0xffffffff) as u32,

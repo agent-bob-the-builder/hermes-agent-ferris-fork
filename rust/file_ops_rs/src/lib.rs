@@ -451,16 +451,16 @@ fn call_python_fuzzy_match(
     };
 
     let new_content = match result.get_item(0) {
-        Ok(Some(item)) => item.extract().unwrap_or_else(|| content.to_string()),
-        _ => content.to_string(),
+        Ok(item) => item.extract().unwrap_or_else(|| content.to_string()),
+        Err(_) => content.to_string(),
     };
     let count = match result.get_item(1) {
-        Ok(Some(item)) => item.extract().unwrap_or(0),
-        _ => 0,
+        Ok(item) => item.extract().unwrap_or(0),
+        Err(_) => 0,
     };
     let error = match result.get_item(2) {
-        Ok(Some(item)) => item.extract().ok(),
-        _ => None,
+        Ok(item) => item.extract().ok(),
+        Err(_) => None,
     };
 
     (new_content, count, error)

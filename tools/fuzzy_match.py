@@ -20,7 +20,7 @@ Multi-occurrence matching is handled via the replace_all flag.
 
 Usage:
     from tools.fuzzy_match import fuzzy_find_and_replace
-    
+
     new_content, match_count, error = fuzzy_find_and_replace(
         content="def foo():\\n    pass",
         old_string="def foo():",
@@ -30,14 +30,41 @@ Usage:
 """
 
 import re
+import logging
 from typing import Tuple, Optional, List, Callable
 from difflib import SequenceMatcher
 
-# Rust accelerator — pure-Rust 8-strategy chain, no Python fallback loop
-try:
-    import _fuzzy_match_rs as _rust_fuzzy
-except Exception:
-    _rust_fuzzy = None
+logger = logging.getLogger(__name__)
+
+# -----------------------------------------------------------------------------------------------
+# Rust backend (cdylib extension built via maturin in rust/fuzzy_match_rs/)
+# Lazily initialized — import is deferred so this module loads even if the
+# Rust .so is not installed.
+# -----------------------------------------------------------------------------------------------
+_rust_fuzzy = None
+
+
+def _ensure_rust_fuzzy():
+    global _rust_fuzzy
+    if _rust_fuzzy is not None:
+        return _rust_fuzzy
+    try:
+        import fuzzy_match_rs as _mod
+
+        _mod.fuzzy_find_and_replace(
+            content="",
+            old_string="__health_check__",
+            new_string="",
+            replace_all=False,
+        )
+        _rust_fuzzy = _mod
+        logger.debug("fuzzy_match: Rust backend (fuzzy_match_rs) initialized OK")
+    except Exception as _e:
+        _rust_fuzzy = False
+        logger.debug("fuzzy_match: Rust backend unavailable, using pure Python (%s)", _e)
+    return _rust_fuzzy
+
+# (Rust backend initialized lazily via _ensure_rust_fuzzy())
 
 UNICODE_MAP = {
     "\u201c": '"', "\u201d": '"',  # smart double quotes
