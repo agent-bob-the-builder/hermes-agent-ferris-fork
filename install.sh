@@ -234,11 +234,14 @@ else:
     print(f"[build] WARN: maturin --version failed: {result.stderr.strip()}", flush=True)
 
 crates = [
-    ("rust/compressor/Cargo.toml",       "rust_compressor"),
-    ("rust/model_tools_rs/Cargo.toml",  "_model_tools_rust"),
-    ("rust/prompt_builder_rs/Cargo.toml","_prompt_builder_rust"),
-    ("rust/skin_engine_rs/Cargo.toml", "_skin_engine_rust"),
-    ("rust/hermes_state_rs/Cargo.toml", "_hermes_state_rust"),
+    ("rust/compressor/Cargo.toml",        "rust_compressor"),
+    ("rust/model_tools_rs/Cargo.toml",     "_model_tools_rust"),
+    ("rust/prompt_builder_rs/Cargo.toml",  "_prompt_builder_rust"),
+    ("rust/skin_engine_rs/Cargo.toml",    "_skin_engine_rust"),
+    ("rust/hermes_state_rs/Cargo.toml",    "_hermes_state_rust"),
+    ("rust/fuzzy_match_rs/Cargo.toml",     "fuzzy_match_rs"),
+    ("rust/subprocess_rs/Cargo.toml",      "subprocess_rs"),
+    ("rust/file_ops_rs/Cargo.toml",        "file_ops_rs"),
 ]
 
 with tempfile.TemporaryDirectory() as tmpdir:
@@ -295,11 +298,15 @@ log("All crates built successfully")
 # Verify all extensions load
 log("Verifying extensions...")
 result = subprocess.run([venv_python, "-c",
-    "import rust_compressor, _model_tools_rust, _prompt_builder_rust, _skin_engine_rust; "
+    "import rust_compressor, _model_tools_rust, _prompt_builder_rust, _skin_engine_rust, _hermes_state_rust, fuzzy_match_rs, subprocess_rs, file_ops_rs; "
     "print('rust_compressor ok'); "
     "print('_model_tools_rust ok'); "
     "print('_prompt_builder_rust ok'); "
     "print('_skin_engine_rust ok'); "
+    "print('_hermes_state_rust ok'); "
+    "print('fuzzy_match_rs ok'); "
+    "print('subprocess_rs ok'); "
+    "print('file_ops_rs ok'); "
     "print('All Rust extensions loaded OK')"])
 if result.returncode != 0:
     print(f"[build] ERROR: extension load failure", file=sys.stderr)
