@@ -364,6 +364,14 @@ _last_resolved_tool_names: List[str] = []
 # Cache for resolved toolset -> tool names
 _toolset_resolve_cache: Dict[str, List[str]] = {}
 
+# Pre-compiled regex for fast toolset name validation (alphanumeric + underscore, starts with letter)
+_TOOLSET_NAME_RE = __import__("re").compile(r"^[a-zA-Z][a-zA-Z0-9_]*$")
+
+
+def _is_valid_toolset_name(name: str) -> bool:
+    """Fast pre-compiled check if a toolset name looks valid before calling validate_toolset."""
+    return bool(_TOOLSET_NAME_RE.match(name))
+
 
 def _cached_resolve_toolset(name: str) -> List[str]:
     if name not in _toolset_resolve_cache:

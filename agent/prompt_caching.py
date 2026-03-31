@@ -8,7 +8,6 @@ the conversation prefix. Uses 4 cache_control breakpoints (Anthropic max):
 Pure functions -- no class state, no AIAgent dependency.
 """
 
-import copy
 from typing import Any, Dict, List
 
 
@@ -38,6 +37,23 @@ def _apply_cache_marker(msg: dict, cache_marker: dict, native_anthropic: bool = 
             last["cache_control"] = cache_marker
 
 
+def _optimized_copy(api_messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Optimized deep copy: avoid copy.deepcopy overhead for string content.
+
+    Message dicts are shallow-copied. Content lists are shallow-copied with
+    dict items shallow-copied (sufficient since cache_control is the only mutation).
+    String content is NOT copied (strings are immutable).
+    """
+    messages = []
+    for msg in api_messages:
+        new_msg = dict(msg)
+        content = msg.get("content")
+        if isinstance(content, list):
+            new_msg["content"] = [dict(item) if isinstance(item, dict) else item for item in content]
+        messages.append(new_msg)
+    return messages
+
+
 def apply_anthropic_cache_control(
     api_messages: List[Dict[str, Any]],
     cache_ttl: str = "5m",
@@ -50,13 +66,11 @@ def apply_anthropic_cache_control(
     Returns:
         Deep copy of messages with cache_control breakpoints injected.
     """
-    messages = copy.deepcopy(api_messages)
+    messages = _optimized_copy(api_messages)
     if not messages:
         return messages
 
-    marker = {"type": "ephemeral"}
-    if cache_ttl == "1h":
-        marker["ttl"] = "1h"
+    marker = {"type": "ephemeral", "ttl": cache_ttl} if cache_ttl == "1h" else {"type": "ephemeral"}
 
     breakpoints_used = 0
 
