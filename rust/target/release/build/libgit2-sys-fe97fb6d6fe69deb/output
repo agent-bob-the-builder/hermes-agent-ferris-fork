@@ -23,13 +23,16 @@ cargo:rerun-if-env-changed=HOST_PKG_CONFIG_SYSROOT_DIR
 cargo:rerun-if-env-changed=PKG_CONFIG_SYSROOT_DIR
 cargo:warning=failed to probe system libgit2: 
 pkg-config exited with status code 1
-> PKG_CONFIG_ALLOW_SYSTEM_LIBS=1 PKG_CONFIG_ALLOW_SYSTEM_CFLAGS=1 pkg-config --libs --cflags libgit2 'libgit2 >= 1.9.2' 'libgit2 < 1.10.0'
+> PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig:/usr/lib/pkgconfig PKG_CONFIG_ALLOW_SYSTEM_LIBS=1 PKG_CONFIG_ALLOW_SYSTEM_CFLAGS=1 pkg-config --libs --cflags libgit2 'libgit2 >= 1.9.2' 'libgit2 < 1.10.0'
 
 The system library `libgit2` required by crate `libgit2-sys` was not found.
 The file `libgit2.pc` needs to be installed and the PKG_CONFIG_PATH environment variable must contain its parent directory.
-The PKG_CONFIG_PATH environment variable is not set.
+PKG_CONFIG_PATH contains the following:
+    - /usr/lib/x86_64-linux-gnu/pkgconfig
+    - /usr/share/pkgconfig
+    - /usr/lib/pkgconfig
 
-HINT: if you have installed the library, try setting PKG_CONFIG_PATH to the directory containing `libgit2.pc`.
+HINT: you may need to install a package such as libgit2, libgit2-dev or libgit2-devel.
 
 cargo:rustc-cfg=libgit2_vendored
 libgit2/include/git2/describe.h => /root/.hermes/hermes-agent-ferris-fork/rust/target/release/build/libgit2-sys-fe97fb6d6fe69deb/out/include/git2/describe.h
@@ -308,14 +311,24 @@ cargo:rerun-if-env-changed=CFLAGS_x86_64_unknown_linux_gnu
 CFLAGS_x86_64_unknown_linux_gnu = None
 cargo:rerun-if-env-changed=CFLAGS_x86_64-unknown-linux-gnu
 CFLAGS_x86_64-unknown-linux-gnu = None
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
+cargo:rerun-if-env-changed=CC_x86_64-unknown-linux-gnu
+CC_x86_64-unknown-linux-gnu = None
+cargo:rerun-if-env-changed=CC_x86_64_unknown_linux_gnu
+CC_x86_64_unknown_linux_gnu = None
+cargo:rerun-if-env-changed=HOST_CC
+HOST_CC = None
+cargo:rerun-if-env-changed=CC
+CC = None
+cargo:rerun-if-env-changed=CRATE_CC_NO_DEFAULTS
+CRATE_CC_NO_DEFAULTS = None
+cargo:rerun-if-env-changed=CFLAGS
+CFLAGS = None
+cargo:rerun-if-env-changed=HOST_CFLAGS
+HOST_CFLAGS = None
+cargo:rerun-if-env-changed=CFLAGS_x86_64_unknown_linux_gnu
+CFLAGS_x86_64_unknown_linux_gnu = None
+cargo:rerun-if-env-changed=CFLAGS_x86_64-unknown-linux-gnu
+CFLAGS_x86_64-unknown-linux-gnu = None
 cargo:rerun-if-env-changed=CC_x86_64-unknown-linux-gnu
 CC_x86_64-unknown-linux-gnu = None
 cargo:rerun-if-env-changed=CC_x86_64_unknown_linux_gnu
@@ -352,6 +365,14 @@ cargo:rerun-if-env-changed=CFLAGS_x86_64_unknown_linux_gnu
 CFLAGS_x86_64_unknown_linux_gnu = None
 cargo:rerun-if-env-changed=CFLAGS_x86_64-unknown-linux-gnu
 CFLAGS_x86_64-unknown-linux-gnu = None
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
 cargo:rerun-if-env-changed=CC_x86_64-unknown-linux-gnu
 CC_x86_64-unknown-linux-gnu = None
 cargo:rerun-if-env-changed=CC_x86_64_unknown_linux_gnu
@@ -782,6 +803,14 @@ cargo:rerun-if-env-changed=CFLAGS_x86_64_unknown_linux_gnu
 CFLAGS_x86_64_unknown_linux_gnu = None
 cargo:rerun-if-env-changed=CFLAGS_x86_64-unknown-linux-gnu
 CFLAGS_x86_64-unknown-linux-gnu = None
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
 cargo:rerun-if-env-changed=CC_x86_64-unknown-linux-gnu
 CC_x86_64-unknown-linux-gnu = None
 cargo:rerun-if-env-changed=CC_x86_64_unknown_linux_gnu
@@ -800,14 +829,6 @@ cargo:rerun-if-env-changed=CFLAGS_x86_64_unknown_linux_gnu
 CFLAGS_x86_64_unknown_linux_gnu = None
 cargo:rerun-if-env-changed=CFLAGS_x86_64-unknown-linux-gnu
 CFLAGS_x86_64-unknown-linux-gnu = None
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
 cargo:rerun-if-env-changed=CC_x86_64-unknown-linux-gnu
 CC_x86_64-unknown-linux-gnu = None
 cargo:rerun-if-env-changed=CC_x86_64_unknown_linux_gnu
@@ -1104,6 +1125,14 @@ cargo:rerun-if-env-changed=CFLAGS_x86_64_unknown_linux_gnu
 CFLAGS_x86_64_unknown_linux_gnu = None
 cargo:rerun-if-env-changed=CFLAGS_x86_64-unknown-linux-gnu
 CFLAGS_x86_64-unknown-linux-gnu = None
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
 cargo:rerun-if-env-changed=CC_x86_64-unknown-linux-gnu
 CC_x86_64-unknown-linux-gnu = None
 cargo:rerun-if-env-changed=CC_x86_64_unknown_linux_gnu
@@ -1122,14 +1151,6 @@ cargo:rerun-if-env-changed=CFLAGS_x86_64_unknown_linux_gnu
 CFLAGS_x86_64_unknown_linux_gnu = None
 cargo:rerun-if-env-changed=CFLAGS_x86_64-unknown-linux-gnu
 CFLAGS_x86_64-unknown-linux-gnu = None
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
 cargo:rerun-if-env-changed=CC_x86_64-unknown-linux-gnu
 CC_x86_64-unknown-linux-gnu = None
 cargo:rerun-if-env-changed=CC_x86_64_unknown_linux_gnu
@@ -1416,24 +1437,6 @@ exit status: 0
 exit status: 0
 exit status: 0
 exit status: 0
-cargo:rerun-if-env-changed=CC_x86_64-unknown-linux-gnu
-CC_x86_64-unknown-linux-gnu = None
-cargo:rerun-if-env-changed=CC_x86_64_unknown_linux_gnu
-CC_x86_64_unknown_linux_gnu = None
-cargo:rerun-if-env-changed=HOST_CC
-HOST_CC = None
-cargo:rerun-if-env-changed=CC
-CC = None
-cargo:rerun-if-env-changed=CRATE_CC_NO_DEFAULTS
-CRATE_CC_NO_DEFAULTS = None
-cargo:rerun-if-env-changed=CFLAGS
-CFLAGS = None
-cargo:rerun-if-env-changed=HOST_CFLAGS
-HOST_CFLAGS = None
-cargo:rerun-if-env-changed=CFLAGS_x86_64_unknown_linux_gnu
-CFLAGS_x86_64_unknown_linux_gnu = None
-cargo:rerun-if-env-changed=CFLAGS_x86_64-unknown-linux-gnu
-CFLAGS_x86_64-unknown-linux-gnu = None
 cargo:rerun-if-env-changed=CC_x86_64-unknown-linux-gnu
 CC_x86_64-unknown-linux-gnu = None
 cargo:rerun-if-env-changed=CC_x86_64_unknown_linux_gnu
@@ -2168,14 +2171,6 @@ cargo:rerun-if-env-changed=CFLAGS_x86_64_unknown_linux_gnu
 CFLAGS_x86_64_unknown_linux_gnu = None
 cargo:rerun-if-env-changed=CFLAGS_x86_64-unknown-linux-gnu
 CFLAGS_x86_64-unknown-linux-gnu = None
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
 cargo:rerun-if-env-changed=CC_x86_64-unknown-linux-gnu
 CC_x86_64-unknown-linux-gnu = None
 cargo:rerun-if-env-changed=CC_x86_64_unknown_linux_gnu
@@ -2194,6 +2189,14 @@ cargo:rerun-if-env-changed=CFLAGS_x86_64_unknown_linux_gnu
 CFLAGS_x86_64_unknown_linux_gnu = None
 cargo:rerun-if-env-changed=CFLAGS_x86_64-unknown-linux-gnu
 CFLAGS_x86_64-unknown-linux-gnu = None
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
 cargo:rerun-if-env-changed=CC_x86_64-unknown-linux-gnu
 CC_x86_64-unknown-linux-gnu = None
 cargo:rerun-if-env-changed=CC_x86_64_unknown_linux_gnu
@@ -2454,14 +2457,6 @@ cargo:rerun-if-env-changed=CFLAGS_x86_64_unknown_linux_gnu
 CFLAGS_x86_64_unknown_linux_gnu = None
 cargo:rerun-if-env-changed=CFLAGS_x86_64-unknown-linux-gnu
 CFLAGS_x86_64-unknown-linux-gnu = None
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
 cargo:rerun-if-env-changed=CC_x86_64-unknown-linux-gnu
 CC_x86_64-unknown-linux-gnu = None
 cargo:rerun-if-env-changed=CC_x86_64_unknown_linux_gnu
@@ -2498,6 +2493,14 @@ cargo:rerun-if-env-changed=CFLAGS_x86_64_unknown_linux_gnu
 CFLAGS_x86_64_unknown_linux_gnu = None
 cargo:rerun-if-env-changed=CFLAGS_x86_64-unknown-linux-gnu
 CFLAGS_x86_64-unknown-linux-gnu = None
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
 cargo:rerun-if-env-changed=CC_x86_64-unknown-linux-gnu
 CC_x86_64-unknown-linux-gnu = None
 cargo:rerun-if-env-changed=CC_x86_64_unknown_linux_gnu
@@ -2606,14 +2609,6 @@ cargo:rerun-if-env-changed=CFLAGS_x86_64_unknown_linux_gnu
 CFLAGS_x86_64_unknown_linux_gnu = None
 cargo:rerun-if-env-changed=CFLAGS_x86_64-unknown-linux-gnu
 CFLAGS_x86_64-unknown-linux-gnu = None
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
 cargo:rerun-if-env-changed=CC_x86_64-unknown-linux-gnu
 CC_x86_64-unknown-linux-gnu = None
 cargo:rerun-if-env-changed=CC_x86_64_unknown_linux_gnu
@@ -2632,6 +2627,14 @@ cargo:rerun-if-env-changed=CFLAGS_x86_64_unknown_linux_gnu
 CFLAGS_x86_64_unknown_linux_gnu = None
 cargo:rerun-if-env-changed=CFLAGS_x86_64-unknown-linux-gnu
 CFLAGS_x86_64-unknown-linux-gnu = None
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
 cargo:rerun-if-env-changed=CC_x86_64-unknown-linux-gnu
 CC_x86_64-unknown-linux-gnu = None
 cargo:rerun-if-env-changed=CC_x86_64_unknown_linux_gnu
@@ -2740,14 +2743,6 @@ cargo:rerun-if-env-changed=CFLAGS_x86_64_unknown_linux_gnu
 CFLAGS_x86_64_unknown_linux_gnu = None
 cargo:rerun-if-env-changed=CFLAGS_x86_64-unknown-linux-gnu
 CFLAGS_x86_64-unknown-linux-gnu = None
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
 cargo:rerun-if-env-changed=CC_x86_64-unknown-linux-gnu
 CC_x86_64-unknown-linux-gnu = None
 cargo:rerun-if-env-changed=CC_x86_64_unknown_linux_gnu
@@ -2766,6 +2761,14 @@ cargo:rerun-if-env-changed=CFLAGS_x86_64_unknown_linux_gnu
 CFLAGS_x86_64_unknown_linux_gnu = None
 cargo:rerun-if-env-changed=CFLAGS_x86_64-unknown-linux-gnu
 CFLAGS_x86_64-unknown-linux-gnu = None
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
 cargo:rerun-if-env-changed=CC_x86_64-unknown-linux-gnu
 CC_x86_64-unknown-linux-gnu = None
 cargo:rerun-if-env-changed=CC_x86_64_unknown_linux_gnu
@@ -3062,6 +3065,14 @@ cargo:rerun-if-env-changed=CFLAGS_x86_64_unknown_linux_gnu
 CFLAGS_x86_64_unknown_linux_gnu = None
 cargo:rerun-if-env-changed=CFLAGS_x86_64-unknown-linux-gnu
 CFLAGS_x86_64-unknown-linux-gnu = None
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
 cargo:rerun-if-env-changed=CC_x86_64-unknown-linux-gnu
 CC_x86_64-unknown-linux-gnu = None
 cargo:rerun-if-env-changed=CC_x86_64_unknown_linux_gnu
@@ -3080,14 +3091,6 @@ cargo:rerun-if-env-changed=CFLAGS_x86_64_unknown_linux_gnu
 CFLAGS_x86_64_unknown_linux_gnu = None
 cargo:rerun-if-env-changed=CFLAGS_x86_64-unknown-linux-gnu
 CFLAGS_x86_64-unknown-linux-gnu = None
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
 cargo:rerun-if-env-changed=CC_x86_64-unknown-linux-gnu
 CC_x86_64-unknown-linux-gnu = None
 cargo:rerun-if-env-changed=CC_x86_64_unknown_linux_gnu
@@ -3232,6 +3235,14 @@ cargo:rerun-if-env-changed=CFLAGS_x86_64_unknown_linux_gnu
 CFLAGS_x86_64_unknown_linux_gnu = None
 cargo:rerun-if-env-changed=CFLAGS_x86_64-unknown-linux-gnu
 CFLAGS_x86_64-unknown-linux-gnu = None
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
 cargo:rerun-if-env-changed=CC_x86_64-unknown-linux-gnu
 CC_x86_64-unknown-linux-gnu = None
 cargo:rerun-if-env-changed=CC_x86_64_unknown_linux_gnu
@@ -3250,14 +3261,6 @@ cargo:rerun-if-env-changed=CFLAGS_x86_64_unknown_linux_gnu
 CFLAGS_x86_64_unknown_linux_gnu = None
 cargo:rerun-if-env-changed=CFLAGS_x86_64-unknown-linux-gnu
 CFLAGS_x86_64-unknown-linux-gnu = None
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
 cargo:rerun-if-env-changed=CC_x86_64-unknown-linux-gnu
 CC_x86_64-unknown-linux-gnu = None
 cargo:rerun-if-env-changed=CC_x86_64_unknown_linux_gnu
@@ -3688,6 +3691,14 @@ cargo:rerun-if-env-changed=CFLAGS_x86_64_unknown_linux_gnu
 CFLAGS_x86_64_unknown_linux_gnu = None
 cargo:rerun-if-env-changed=CFLAGS_x86_64-unknown-linux-gnu
 CFLAGS_x86_64-unknown-linux-gnu = None
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
 cargo:rerun-if-env-changed=CC_x86_64-unknown-linux-gnu
 CC_x86_64-unknown-linux-gnu = None
 cargo:rerun-if-env-changed=CC_x86_64_unknown_linux_gnu
@@ -3706,14 +3717,6 @@ cargo:rerun-if-env-changed=CFLAGS_x86_64_unknown_linux_gnu
 CFLAGS_x86_64_unknown_linux_gnu = None
 cargo:rerun-if-env-changed=CFLAGS_x86_64-unknown-linux-gnu
 CFLAGS_x86_64-unknown-linux-gnu = None
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
-exit status: 0
 cargo:rerun-if-env-changed=CC_x86_64-unknown-linux-gnu
 CC_x86_64-unknown-linux-gnu = None
 cargo:rerun-if-env-changed=CC_x86_64_unknown_linux_gnu
