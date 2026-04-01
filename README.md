@@ -12,7 +12,7 @@ A performance oriented Rust fork of [Hermes Agent](https://github.com/NousResear
 
 | Crate | Hot path | Status |
 |---|---|---|
-| `compressor_rs` | `ContextCompressor.compress()` | Wired ✓ |
+| `compressor_rs` |`ContextCompressor.compress()` | Wired ✓ |
 | `model_tools_rs` | Tool registry + message sanitization | Wired ✓ |
 | `prompt_builder_rs` | System prompt assembly | Wired ✓ |
 | `skin_engine_rs` | Skin/theme loading and config | Wired ✓ |
