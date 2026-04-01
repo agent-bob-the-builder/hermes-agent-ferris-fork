@@ -173,10 +173,11 @@ pub extern "C" fn run_concurrent_tool_batch(
     // Pre-validate args and build owned copies for rayon
     let parsed: Vec<(usize, String, String)> = calls
         .iter()
-        .filter_map(|c| {
+        .enumerate()
+        .filter_map(|(i, c)| {
             let args_json = &c.function.arguments;
             serde_json::from_str::<Value>(args_json).ok()?;
-            Some((0usize, c.function.name.clone(), args_json.clone()))
+            Some((i, c.function.name.clone(), args_json.clone()))
         })
         .collect();
 
@@ -187,11 +188,11 @@ pub extern "C" fn run_concurrent_tool_batch(
             let content = pyo3::Python::attach(|py| {
                 invoke_single(py, &invoke_py, name, args_json, task_id_owned.as_deref())
             });
-            let is_error =
-                content.contains("\"error\"") || content.starts_with("Error:");
+            let is_error = content.contains("\"error\"") || content.starts_with("Error:");
+            // Use the captured index to look up tool_call_id — avoids wrong-result
+            // when multiple calls share the same function name.
             let tool_call_id = calls
-                .iter()
-                .find(|c| c.function.name == **name)
+                .get(*i)
                 .map(|c| c.id.clone())
                 .unwrap_or_default();
             ToolResult {
