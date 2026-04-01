@@ -1,0 +1,11 @@
+implementation=CPython
+version=3.11
+shared=true
+abi3=true
+lib_name=python3.11
+lib_dir=/root/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib
+executable=/root/.hermes/hermes-agent-ferris-fork/.venv/bin/python
+pointer_width=64
+build_flags=
+python_framework_prefix=
+suppress_build_script_link_lines=false

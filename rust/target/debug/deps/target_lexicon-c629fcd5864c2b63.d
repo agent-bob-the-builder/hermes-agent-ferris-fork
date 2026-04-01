@@ -1,0 +1,15 @@
+/root/.hermes/hermes-agent-ferris-fork/rust/target/debug/deps/target_lexicon-c629fcd5864c2b63.d: /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/lib.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/data_model.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/host.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/parse_error.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/targets.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/triple.rs /root/.hermes/hermes-agent-ferris-fork/rust/target/debug/build/target-lexicon-5c4af96ded31c8ab/out/host.rs
+
+/root/.hermes/hermes-agent-ferris-fork/rust/target/debug/deps/libtarget_lexicon-c629fcd5864c2b63.rlib: /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/lib.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/data_model.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/host.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/parse_error.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/targets.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/triple.rs /root/.hermes/hermes-agent-ferris-fork/rust/target/debug/build/target-lexicon-5c4af96ded31c8ab/out/host.rs
+
+/root/.hermes/hermes-agent-ferris-fork/rust/target/debug/deps/libtarget_lexicon-c629fcd5864c2b63.rmeta: /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/lib.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/data_model.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/host.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/parse_error.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/targets.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/triple.rs /root/.hermes/hermes-agent-ferris-fork/rust/target/debug/build/target-lexicon-5c4af96ded31c8ab/out/host.rs
+
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/lib.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/data_model.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/host.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/parse_error.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/targets.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/triple.rs:
+/root/.hermes/hermes-agent-ferris-fork/rust/target/debug/build/target-lexicon-5c4af96ded31c8ab/out/host.rs:
+
+# env-dep:OUT_DIR=/root/.hermes/hermes-agent-ferris-fork/rust/target/debug/build/target-lexicon-5c4af96ded31c8ab/out
