@@ -1,5 +1,0 @@
-[project]
-name = "bm_compressor_estimate"
-version = "0.1.0"
-description = "Rust vs Python token estimation benchmark"
-requires-python = ">=3.11"

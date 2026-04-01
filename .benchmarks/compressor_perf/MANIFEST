@@ -1,6 +1,0 @@
-[benchmarks]
-name	metafile
-compressor_estimate	<local>
-
-[group default]
-compressor_estimate

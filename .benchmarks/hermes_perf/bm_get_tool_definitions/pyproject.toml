@@ -1,8 +1,0 @@
-[project]
-name = "pyperformance-bm-get-tool-definitions"
-version = "1.0"
-requires-python = ">=3.10"
-dependencies = ["pyperf"]
-
-[tool.pyperformance]
-name = "get_tool_definitions"
