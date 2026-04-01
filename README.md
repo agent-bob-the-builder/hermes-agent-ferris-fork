@@ -8,7 +8,7 @@ A performance oriented Rust fork of [Hermes Agent](https://github.com/NousResear
 
 ## What & Why
 
-16 PyO3 extension crates replace hot-path Python code — no visible behaviour change, but meaningfully faster on every agent turn. All wired crates use transparent Python fallbacks; if a crate is missing or fails to load, the Python implementation runs instead with no visible difference.
+24 PyO3 extension crates replace hot-path Python code — no visible behaviour change, but meaningfully faster on every agent turn. All wired crates use transparent Python fallbacks; if a crate is missing or fails to load, the Python implementation runs instead with no visible difference.
 
 | Crate | Hot path | Status |
 |---|---|---|

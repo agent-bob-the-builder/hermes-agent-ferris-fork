@@ -48,6 +48,13 @@ else
 fi
 
 # Parse arguments
+# Set TMPDIR early so all tempfile/tar operations (including Node.js extraction
+# and Playwright downloads) use disk-backed /var/tmp on systems where /tmp is
+# a small tmpfs (e.g. Fedora Cloud at ~200MB, too small for Node.js tarballs).
+if [ -d /var/tmp ] && [ -w /var/tmp ]; then
+    export TMPDIR=/var/tmp
+fi
+
 while [[ $# -gt 0 ]]; do
     case $1 in
         --no-venv)

@@ -519,7 +519,7 @@ elif _resolve_hermes_dir "$_hermes_script_dir" > /dev/null; then
     export HERMES_DIR="$_hermes_script_dir"
 else
     # Search known paths — this handles `curl | bash` from any directory
-    local found=0
+    found=0
     for d in "${_known_hermes_dirs[@]}"; do
         if [[ -d "$d" ]] && _resolve_hermes_dir "$d" > /dev/null; then
             export HERMES_DIR="$d"
@@ -550,12 +550,15 @@ install_hermes_cli() {
 set -euo pipefail
 
 # Known install locations — checked first, most reliable.
-if [[ -d "\$HOME/.hermes/hermes-agent-ferris-fork" && \\
+if [[ -d "\$HOME/.hermes/hermes-agent-ferris-fork" && \
       -f "\$HOME/.hermes/hermes-agent-ferris-fork/pyproject.toml" ]]; then
     HERMES_DIR="\$HOME/.hermes/hermes-agent-ferris-fork"
-elif [[ -d "\$HOME/.local/hermes" && \\
+elif [[ -d "\$HOME/.local/hermes" && \
         -f "\$HOME/.local/hermes/pyproject.toml" ]]; then
     HERMES_DIR="\$HOME/.local/hermes"
+elif [[ -f "\$HOME/pyproject.toml" ]]; then
+    # Repo cloned / extracted directly into \$HOME (e.g. /root)
+    HERMES_DIR="\$HOME"
 elif [[ -L "\${BASH_SOURCE[0]}" && -f "\${BASH_SOURCE[0]}" ]]; then
     # Resolve symlink via ls -l (more portable than readlink -f).
     # Handles both absolute and relative symlink targets.
