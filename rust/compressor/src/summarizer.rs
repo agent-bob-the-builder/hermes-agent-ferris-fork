@@ -115,7 +115,10 @@ pub fn serialize_turns(turns: &[serde_json::Value]) -> String {
 }
 
 /// Compute scaled summary budget based on content being summarized.
-pub fn compute_summary_budget(turns_to_summarize: &[serde_json::Value], context_length: usize) -> usize {
+pub fn compute_summary_budget(
+    turns_to_summarize: &[serde_json::Value],
+    context_length: usize,
+) -> usize {
     let content_tokens = estimate_messages_tokens(turns_to_summarize);
     let budget = (content_tokens as f64 * SUMMARY_RATIO) as usize;
     let max_tokens = (context_length as f64 * 0.05) as usize;
@@ -136,11 +139,7 @@ fn estimate_messages_tokens(messages: &[serde_json::Value]) -> usize {
                 .and_then(|v| v.as_array())
                 .map(|arr| {
                     arr.iter()
-                        .filter_map(|tc| {
-                            tc.get("function")?
-                                .get("arguments")?
-                                .as_str()
-                        })
+                        .filter_map(|tc| tc.get("function")?.get("arguments")?.as_str())
                         .map(|args| args.len() / 4)
                         .sum::<usize>()
                 })

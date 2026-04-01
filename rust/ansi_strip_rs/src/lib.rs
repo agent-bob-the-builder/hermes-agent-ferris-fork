@@ -91,7 +91,11 @@ fn strip_line(line: &str) -> String {
                 // Fe escape (single-byte final char): consume both ESC and final byte
                 i += 2;
                 continue;
-            } else if next == 0xef && i + 2 < bytes.len() && bytes[i + 1] == 0xbf && bytes[i + 2] == 0xbd {
+            } else if next == 0xef
+                && i + 2 < bytes.len()
+                && bytes[i + 1] == 0xbf
+                && bytes[i + 2] == 0xbd
+            {
                 // ESC followed by FFFD (U+FFFD = [0xef, 0xbf, 0xbd]) — malformed, consume all three
                 i += 4;
                 continue;
@@ -102,8 +106,12 @@ fn strip_line(line: &str) -> String {
                 if second == 0x9b || second == 0x9e || second == 0x9f {
                     // CSI — scan for final byte (0x40-0x7e), consume it
                     let mut j = i + 3;
-                    while j < bytes.len() && (0x30..=0x3f).contains(&bytes[j]) { j += 1; }
-                    while j < bytes.len() && (0x20..=0x2f).contains(&bytes[j]) { j += 1; }
+                    while j < bytes.len() && (0x30..=0x3f).contains(&bytes[j]) {
+                        j += 1;
+                    }
+                    while j < bytes.len() && (0x20..=0x2f).contains(&bytes[j]) {
+                        j += 1;
+                    }
                     if j < bytes.len() && bytes[j] >= 0x40 && bytes[j] <= 0x7e {
                         i = j + 1;
                         continue;
@@ -112,21 +120,35 @@ fn strip_line(line: &str) -> String {
                     // OSC — scan to BEL or ST, skipping raw 8-bit C1 bytes in params
                     let mut j = i + 3;
                     while j < bytes.len() {
-                        if bytes[j] == 0x07 { i = j + 1; break; }
-                        else if bytes[j] == 0x1b && j + 1 < bytes.len() && bytes[j + 1] == 0x5c { i = j + 2; break; }
-                        else if (0x80..=0x9f).contains(&bytes[j]) { j += 1; }
-                        else { j += 1; }
+                        if bytes[j] == 0x07 {
+                            i = j + 1;
+                            break;
+                        } else if bytes[j] == 0x1b && j + 1 < bytes.len() && bytes[j + 1] == 0x5c {
+                            i = j + 2;
+                            break;
+                        } else if (0x80..=0x9f).contains(&bytes[j]) {
+                            j += 1;
+                        } else {
+                            j += 1;
+                        }
                     }
-                    if j >= bytes.len() { i = j; }
+                    if j >= bytes.len() {
+                        i = j;
+                    }
                     continue;
                 } else {
                     // Other C1 DCS (0x90) or PM/APC — scan to ST
                     let mut j = i + 3;
                     while j < bytes.len() {
-                        if bytes[j] == 0x1b && j + 1 < bytes.len() && bytes[j + 1] == 0x5c { i = j + 2; break; }
+                        if bytes[j] == 0x1b && j + 1 < bytes.len() && bytes[j + 1] == 0x5c {
+                            i = j + 2;
+                            break;
+                        }
                         j += 1;
                     }
-                    if j >= bytes.len() { i = j; }
+                    if j >= bytes.len() {
+                        i = j;
+                    }
                     continue;
                 }
             } else if next == 0xc2 {
@@ -219,27 +241,30 @@ fn strip_line(line: &str) -> String {
 /// For multi-line input, lines are processed in parallel via Rayon;
 /// for single-line or short input, falls back to the sequential path.
 pub fn strip_ansi(text: &str) -> String {
-    let lines: Vec<&str> = text.split("
-").collect();
+    let lines: Vec<&str> = text
+        .split(
+            "
+",
+        )
+        .collect();
     if lines.len() == 1 {
         // Single line — no need to spawn parallel tasks
         return strip_line(text);
     }
 
     // Parallel line-level processing: each line is independent
-    let stripped: Vec<String> = lines
-        .par_iter()
-        .map(|line| strip_line(line))
-        .collect();
+    let stripped: Vec<String> = lines.par_iter().map(|line| strip_line(line)).collect();
 
     stripped.join("\n")
 }
 
-use rayon::prelude::*;
 use pyo3::prelude::*;
+use rayon::prelude::*;
 
 #[pyfunction]
-fn strip_ansi_text(text: &str) -> String { strip_ansi(text) }
+fn strip_ansi_text(text: &str) -> String {
+    strip_ansi(text)
+}
 
 #[pymodule]
 fn ansi_strip_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -252,19 +277,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_clean() { assert_eq!(strip_ansi("hello"), "hello"); }
+    fn test_clean() {
+        assert_eq!(strip_ansi("hello"), "hello");
+    }
 
     #[test]
-    fn test_empty() { assert_eq!(strip_ansi(""), ""); }
+    fn test_empty() {
+        assert_eq!(strip_ansi(""), "");
+    }
 
     #[test]
-    fn test_csi() { assert_eq!(strip_ansi("\x1b[31mError\x1b[0m"), "Error"); }
+    fn test_csi() {
+        assert_eq!(strip_ansi("\x1b[31mError\x1b[0m"), "Error");
+    }
 
     #[test]
-    fn test_osc_bel() { assert_eq!(strip_ansi("\x1b]0;title\x07"), ""); }
+    fn test_osc_bel() {
+        assert_eq!(strip_ansi("\x1b]0;title\x07"), "");
+    }
 
     #[test]
-    fn test_osc_st() { assert_eq!(strip_ansi("\x1b]0;title\x1b\\"), ""); }
+    fn test_osc_st() {
+        assert_eq!(strip_ansi("\x1b]0;title\x1b\\"), "");
+    }
 
     #[test]
     fn test_8b_csi() {
@@ -296,5 +331,7 @@ mod tests {
     }
 
     #[test]
-    fn test_dcs() { assert_eq!(strip_ansi("\x1bP+test\x1b\\"), ""); }
+    fn test_dcs() {
+        assert_eq!(strip_ansi("\x1bP+test\x1b\\"), "");
+    }
 }

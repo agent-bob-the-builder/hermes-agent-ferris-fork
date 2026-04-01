@@ -20,20 +20,16 @@ use std::sync::LazyLock;
 // Note: no lookbehind in the regex — we check the preceding character manually
 // in the parsing loop to replicate Python's (?<![\w/]) behaviour.
 static REFERENCE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"@(?:(?P<simple>diff|staged)\b|(?P<kind>file|folder|git|url):(?P<value>\S+))").unwrap()
+    Regex::new(r"@(?:(?P<simple>diff|staged)\b|(?P<kind>file|folder|git|url):(?P<value>\S+))")
+        .unwrap()
 });
 
-static FILE_RANGE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(?P<path>.+?):(?P<start>\d+)(?:-(?P<end>\d+))?$").unwrap()
-});
+static FILE_RANGE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^(?P<path>.+?):(?P<start>\d+)(?:-(?P<end>\d+))?$").unwrap());
 
-static WHITESPACE_COLLAPSE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\s{2,}").unwrap()
-});
+static WHITESPACE_COLLAPSE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s{2,}").unwrap());
 
-static TRAILING_PUNCT_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\s+([,.;!?])").unwrap()
-});
+static TRAILING_PUNCT_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+([,.;!?])").unwrap());
 
 // Trailing punctuation characters to strip from reference targets.
 const TRAILING_PUNCT_CHARS: &str = ",.;!?";
@@ -116,7 +112,10 @@ fn parse_context_references(py: Python<'_>, message: &str) -> PyResult<Vec<Py<Py
 
         if kind == "file" {
             if let Some(range_caps) = FILE_RANGE_RE.captures(&stripped) {
-                let path = range_caps.name("path").map(|m| m.as_str()).unwrap_or(&*stripped);
+                let path = range_caps
+                    .name("path")
+                    .map(|m| m.as_str())
+                    .unwrap_or(&*stripped);
                 let line_start: i64 = range_caps
                     .name("start")
                     .map(|m| m.as_str().parse().unwrap_or(1))
@@ -166,8 +165,9 @@ fn parse_context_references(py: Python<'_>, message: &str) -> PyResult<Vec<Py<Py
 /// `refs_json` is the JSON-encoded list returned by `parse_context_references`.
 #[pyfunction]
 fn remove_reference_tokens(message: &str, refs_json: &str) -> PyResult<String> {
-    let refs: Vec<serde_json::Value> = serde_json::from_str(refs_json)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("invalid refs JSON: {}", e)))?;
+    let refs: Vec<serde_json::Value> = serde_json::from_str(refs_json).map_err(|e| {
+        pyo3::exceptions::PyValueError::new_err(format!("invalid refs JSON: {}", e))
+    })?;
 
     let mut result = message.to_string();
     // Iterate in reverse so byte offsets stay valid after each replacement.

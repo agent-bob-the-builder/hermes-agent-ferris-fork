@@ -29,10 +29,7 @@ fn normalize_command(command: &str) -> String {
     let s = s.replace('\x00', "");
 
     // NFKC normalization then lowercase — handles fullwidth ASCII homoglyphs
-    let normalized: String = s
-        .chars()
-        .flat_map(unicode_normalize_fold)
-        .collect();
+    let normalized: String = s.chars().flat_map(unicode_normalize_fold).collect();
 
     normalized.to_lowercase()
 }
@@ -42,12 +39,16 @@ fn unicode_normalize_fold(c: char) -> Vec<char> {
     // Fullwidth Latin capital/small letters (U+FF21-U+FF5A) -> Latin (U+0041-U+007A)
     if ('\u{FF21}'..='\u{FF5A}').contains(&c) {
         let base = (c as u32) - (0xFF21 - 0x0041) as u32;
-        return char::from_u32(base).map(|ch| ch.to_lowercase().collect()).unwrap_or_else(|| vec![c]);
+        return char::from_u32(base)
+            .map(|ch| ch.to_lowercase().collect())
+            .unwrap_or_else(|| vec![c]);
     }
     // Halfwidth Katakana -> fullwidth Katakana -> basic Katakana (rough approximation)
     if ('\u{FF65}'..='\u{FF9F}').contains(&c) {
         let base = (c as u32) - 0xFF65 + 0x30A0;
-        return char::from_u32(base).map(|ch| vec![ch]).unwrap_or_else(|| vec![c]);
+        return char::from_u32(base)
+            .map(|ch| vec![ch])
+            .unwrap_or_else(|| vec![c]);
     }
     // Default: use lowercase
     c.to_lowercase().collect()
@@ -70,13 +71,22 @@ const RAW_PATTERNS: &[(&str, &str)] = &[
     // 2
     (r"rm\s+--recursive\b", "recursive delete (long flag)"),
     // 3
-    (r"chmod\s+(-[^\s]*\s+)*(777|666|o\+[rwx]*w|a\+[rwx]*w)\b", "world/other-writable permissions"),
+    (
+        r"chmod\s+(-[^\s]*\s+)*(777|666|o\+[rwx]*w|a\+[rwx]*w)\b",
+        "world/other-writable permissions",
+    ),
     // 4
-    (r"chmod\s+--recursive\b.*(777|666|o\+[rwx]*w|a\+[rwx]*w)", "recursive world/other-writable (long flag)"),
+    (
+        r"chmod\s+--recursive\b.*(777|666|o\+[rwx]*w|a\+[rwx]*w)",
+        "recursive world/other-writable (long flag)",
+    ),
     // 5 — lowercase R after lowercasing input
     (r"chown\s+(-[^\s]*)?\s+root", "recursive chown to root"),
     // 6
-    (r"chown\s+--recursive\b.*root", "recursive chown to root (long flag)"),
+    (
+        r"chown\s+--recursive\b.*root",
+        "recursive chown to root (long flag)",
+    ),
     // 7
     (r"mkfs\b", "format filesystem"),
     // 8
@@ -92,7 +102,10 @@ const RAW_PATTERNS: &[(&str, &str)] = &[
     // 13
     (r">\s*/etc/", "overwrite system config"),
     // 14
-    (r"systemctl\s+(stop|disable|mask)\b", "stop/disable system service"),
+    (
+        r"systemctl\s+(stop|disable|mask)\b",
+        "stop/disable system service",
+    ),
     // 15
     (r"kill\s+-9\s+-1\b", "kill all processes"),
     // 16
@@ -124,9 +137,15 @@ const RAW_PATTERNS: &[(&str, &str)] = &[
     // 29
     (r"wget\b.*\|\s*(ba)?sh\b", "pipe remote content to shell"),
     // 30
-    (r"bash\s+<\s*<?\s*\(\s*curl\b", "execute remote script via process substitution"),
+    (
+        r"bash\s+<\s*<?\s*\(\s*curl\b",
+        "execute remote script via process substitution",
+    ),
     // 31
-    (r"bash\s+<\s*<?\s*\(\s*wget\b", "execute remote script via process substitution"),
+    (
+        r"bash\s+<\s*<?\s*\(\s*wget\b",
+        "execute remote script via process substitution",
+    ),
     // 32 — tee into sensitive paths
     (r"tee\b.*~/.ssh(/|$)", "overwrite SSH config via tee"),
     // 33 — tee into hermes env
@@ -146,21 +165,42 @@ const RAW_PATTERNS: &[(&str, &str)] = &[
     // 40
     (r"gateway\s+run\b.*&\s*;", "start gateway outside systemd"),
     // 41
-    (r"gateway\s+run\b.*\bdisown\b", "start gateway outside systemd"),
+    (
+        r"gateway\s+run\b.*\bdisown\b",
+        "start gateway outside systemd",
+    ),
     // 42
-    (r"gateway\s+run\b.*\bsetsid\b", "start gateway outside systemd"),
+    (
+        r"gateway\s+run\b.*\bsetsid\b",
+        "start gateway outside systemd",
+    ),
     // 43
     (r"nohup\b.*gateway\s+run\b", "start gateway outside systemd"),
     // 44
-    (r"pkill\b.*\bhermes\b", "kill hermes process (self-termination)"),
+    (
+        r"pkill\b.*\bhermes\b",
+        "kill hermes process (self-termination)",
+    ),
     // 45
-    (r"pkill\b.*\bgateway\b", "kill gateway process (self-termination)"),
+    (
+        r"pkill\b.*\bgateway\b",
+        "kill gateway process (self-termination)",
+    ),
     // 46
-    (r"pkill\b.*cli\.py", "kill cli.py process (self-termination)"),
+    (
+        r"pkill\b.*cli\.py",
+        "kill cli.py process (self-termination)",
+    ),
     // 47
-    (r"killall\b.*\bhermes\b", "kill hermes process (self-termination)"),
+    (
+        r"killall\b.*\bhermes\b",
+        "kill hermes process (self-termination)",
+    ),
     // 48
-    (r"killall\b.*\bgateway\b", "kill gateway process (self-termination)"),
+    (
+        r"killall\b.*\bgateway\b",
+        "kill gateway process (self-termination)",
+    ),
     // 49
     (r"cp\b.*\s/etc/", "copy file into /etc/"),
     // 50
@@ -170,7 +210,10 @@ const RAW_PATTERNS: &[(&str, &str)] = &[
     // 52
     (r"sed\s+-[^\s]*i.*\s/etc/", "in-place edit of system config"),
     // 53
-    (r"sed\s+--in-place\b.*\s/etc/", "in-place edit of system config (long flag)"),
+    (
+        r"sed\s+--in-place\b.*\s/etc/",
+        "in-place edit of system config (long flag)",
+    ),
 ];
 
 // Index of patterns that need special handling (SQL DELETE — needs WHERE check)
@@ -183,8 +226,7 @@ fn build_regex_set() -> Option<(RegexSet, Vec<&'static str>)> {
     Some((set, descriptions))
 }
 
-static PATTERN_SET: Lazy<Option<(RegexSet, Vec<&'static str>)>> =
-    Lazy::new(build_regex_set);
+static PATTERN_SET: Lazy<Option<(RegexSet, Vec<&'static str>)>> = Lazy::new(build_regex_set);
 
 // Separate Regex for the SQL DELETE WHERE check (negative lookahead not in set)
 static DELETE_WHERE_RE: Lazy<Regex> =
@@ -209,11 +251,14 @@ pub fn detect_dangerous_command(command: &str) -> (bool, String, String) {
 
     for idx in matches {
         // Special case: SQL DELETE without WHERE — skip if WHERE is present
-        if idx == DELETE_WITHOUT_WHERE_IDX
-            && DELETE_WHERE_RE.is_match(&normalized) {
-                continue; // has WHERE, skip this match
-            }
-        return (true, descriptions[idx].to_string(), descriptions[idx].to_string());
+        if idx == DELETE_WITHOUT_WHERE_IDX && DELETE_WHERE_RE.is_match(&normalized) {
+            continue; // has WHERE, skip this match
+        }
+        return (
+            true,
+            descriptions[idx].to_string(),
+            descriptions[idx].to_string(),
+        );
     }
 
     (false, String::new(), String::new())

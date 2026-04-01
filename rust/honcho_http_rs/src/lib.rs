@@ -29,9 +29,8 @@ use tokio::runtime::Runtime;
 // can run on this thread while we block, so the event-loop thread won't be
 // starved by the GIL.
 
-static RUNTIME: Lazy<Runtime> = Lazy::new(|| {
-    Runtime::new().expect("failed to create tokio runtime for honcho_http_rs")
-});
+static RUNTIME: Lazy<Runtime> =
+    Lazy::new(|| Runtime::new().expect("failed to create tokio runtime for honcho_http_rs"));
 
 static CLIENT: Lazy<Client> = Lazy::new(|| {
     Client::builder()
@@ -97,10 +96,10 @@ async fn prefetch_async(
         return Err(format!("prefetch HTTP {}: {}", status_code, body));
     }
 
-    let body: PrefetchResponse =
-        resp.json()
-            .await
-            .map_err(|e| format!("prefetch parse failed: {}", e))?;
+    let body: PrefetchResponse = resp
+        .json()
+        .await
+        .map_err(|e| format!("prefetch parse failed: {}", e))?;
 
     Ok(body.context)
 }
@@ -136,10 +135,10 @@ async fn sync_async(
         return Err(format!("sync HTTP {}: {}", status_code, body));
     }
 
-    let body: SyncResponse =
-        resp.json()
-            .await
-            .map_err(|e| format!("sync parse failed: {}", e))?;
+    let body: SyncResponse = resp
+        .json()
+        .await
+        .map_err(|e| format!("sync parse failed: {}", e))?;
 
     Ok(body.ok)
 }

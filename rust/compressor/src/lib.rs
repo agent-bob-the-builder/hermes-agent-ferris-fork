@@ -7,12 +7,12 @@
 //! - `unsafe { Python::assume_attached() }` for GIL when no messages available
 //! - `thread::scope()` + `spawn` for running async from sync Python
 
+use once_cell::sync::Lazy;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use once_cell::sync::Lazy;
 use tokio::runtime::Runtime;
 
 /// Static Tokio runtime shared across all compress calls.
@@ -132,7 +132,10 @@ fn json_msgs_to_py(py: Python<'_>, msgs: Vec<Value>) -> Vec<Py<PyAny>> {
     msgs.into_iter()
         .map(|v: Value| {
             let dict: Bound<'_, PyDict> = json_to_dict(py, &v);
-            dict.into_any().into_pyobject(py).expect("dict into_pyobject failed").into()
+            dict.into_any()
+                .into_pyobject(py)
+                .expect("dict into_pyobject failed")
+                .into()
         })
         .collect()
 }
@@ -155,20 +158,14 @@ fn prune_old_tool_results(
 
 /// Align compress_start forward past orphan tool results.
 #[pyfunction]
-fn align_boundary_forward(
-    messages: Vec<Bound<'_, PyDict>>,
-    idx: usize,
-) -> PyResult<usize> {
+fn align_boundary_forward(messages: Vec<Bound<'_, PyDict>>, idx: usize) -> PyResult<usize> {
     let json_msgs: Vec<Value> = messages.iter().map(|d| dict_to_json(d)).collect();
     Ok(compressor::align_boundary_forward(&json_msgs, idx))
 }
 
 /// Align compress_end backward to avoid splitting tool groups.
 #[pyfunction]
-fn align_boundary_backward(
-    messages: Vec<Bound<'_, PyDict>>,
-    idx: usize,
-) -> PyResult<usize> {
+fn align_boundary_backward(messages: Vec<Bound<'_, PyDict>>, idx: usize) -> PyResult<usize> {
     let json_msgs: Vec<Value> = messages.iter().map(|d| dict_to_json(d)).collect();
     Ok(compressor::align_boundary_backward(&json_msgs, idx))
 }
@@ -192,9 +189,7 @@ fn find_tail_cut(
 
 /// Sanitize orphaned tool_call / tool_result pairs.
 #[pyfunction]
-fn sanitize_tool_pairs_py(
-    messages: Vec<Bound<'_, PyDict>>,
-) -> PyResult<Vec<Py<PyAny>>> {
+fn sanitize_tool_pairs_py(messages: Vec<Bound<'_, PyDict>>) -> PyResult<Vec<Py<PyAny>>> {
     let py = unwrap_py(messages.first());
     let mut json_msgs: Vec<Value> = messages.iter().map(|d| dict_to_json(d)).collect();
     compressor::sanitize_tool_pairs(&mut json_msgs);
@@ -207,18 +202,16 @@ fn compute_summary_budget(
     turns_to_summarize: Vec<Bound<'_, PyDict>>,
     context_length: usize,
 ) -> PyResult<usize> {
-    let json_msgs: Vec<Value> = turns_to_summarize
-        .iter()
-        .map(|d| dict_to_json(d))
-        .collect();
-    Ok(summarizer::compute_summary_budget(&json_msgs, context_length))
+    let json_msgs: Vec<Value> = turns_to_summarize.iter().map(|d| dict_to_json(d)).collect();
+    Ok(summarizer::compute_summary_budget(
+        &json_msgs,
+        context_length,
+    ))
 }
 
 /// Serialize conversation turns for the summarizer.
 #[pyfunction]
-fn serialize_turns(
-    messages: Vec<Bound<'_, PyDict>>,
-) -> PyResult<String> {
+fn serialize_turns(messages: Vec<Bound<'_, PyDict>>) -> PyResult<String> {
     let json_msgs: Vec<Value> = messages.iter().map(|d| dict_to_json(d)).collect();
     Ok(summarizer::serialize_turns(&json_msgs))
 }
@@ -238,9 +231,7 @@ fn estimate_message_tokens(msg: Bound<'_, PyDict>) -> PyResult<usize> {
 
 /// Token estimate for a list of message dicts.
 #[pyfunction]
-fn estimate_messages_tokens(
-    messages: Vec<Bound<'_, PyDict>>,
-) -> PyResult<usize> {
+fn estimate_messages_tokens(messages: Vec<Bound<'_, PyDict>>) -> PyResult<usize> {
     let json_msgs: Vec<Value> = messages.iter().map(|d| dict_to_json(d)).collect();
     Ok(tokenizer::estimate_messages_tokens(&json_msgs))
 }
@@ -492,7 +483,11 @@ impl PyContextCompressor {
              that work (for example, files may already be changed). Use the summary \
              and the current state to continue from where things left off, and \
              avoid repeating work:";
-            self.previous_summary = Some(s.strip_prefix(prefix).map(|s| s.trim().to_string()).unwrap_or(s));
+            self.previous_summary = Some(
+                s.strip_prefix(prefix)
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or(s),
+            );
         } else {
             self.previous_summary = None;
         }
@@ -623,9 +618,7 @@ fn compress_start(
 ///   (2, None, error_msg)    — failed
 ///   (3, None, None)         — cancelled / not found
 #[pyfunction]
-fn compress_check(
-    job_id: usize,
-) -> PyResult<(u8, Option<Vec<Py<PyAny>>>, Option<String>)> {
+fn compress_check(job_id: usize) -> PyResult<(u8, Option<Vec<Py<PyAny>>>, Option<String>)> {
     let py = unsafe { Python::assume_attached() };
     let store = get_job_store().lock().unwrap();
 
@@ -678,6 +671,3 @@ fn compressor_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyContextCompressor>()?;
     Ok(())
 }
-
-
-

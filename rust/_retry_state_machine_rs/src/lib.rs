@@ -64,7 +64,9 @@ pub struct MachineState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action")]
 pub enum AgentCommand {
-    LengthContinuation { messages_json: String },
+    LengthContinuation {
+        messages_json: String,
+    },
     CompressAndRequest {
         messages_json: String,
         compressed_messages_json: String,
@@ -74,7 +76,9 @@ pub enum AgentCommand {
         provider: String,
         model: String,
     },
-    InjectErrorAndReturn { error: String },
+    InjectErrorAndReturn {
+        error: String,
+    },
     Status {
         message: String,
         spinner_label: Option<String>,
@@ -129,8 +133,9 @@ fn evaluate_response(mode: ApiMode, finish_reason: &str, response_json: &str) ->
             ApiMode::CodexResponses => {
                 let status = v.get("status").and_then(|s| s.as_str());
                 let incomplete = v.get("incomplete_details");
-                let incomplete_reason =
-                    incomplete.and_then(|d| d.get("reason")).and_then(|r| r.as_str());
+                let incomplete_reason = incomplete
+                    .and_then(|d| d.get("reason"))
+                    .and_then(|r| r.as_str());
 
                 if status == Some("incomplete")
                     && incomplete_reason
@@ -438,7 +443,10 @@ fn evaluate_inner(
                 .get("provider")
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown");
-            let model = fb.get("model").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let model = fb
+                .get("model")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
             state.fallback_index += 1;
             state.using_fallback = true;
             state.retry_count = 0;
@@ -481,7 +489,10 @@ fn evaluate_inner(
                     .get("provider")
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown");
-                let model = fb.get("model").and_then(|v| v.as_str()).unwrap_or("unknown");
+                let model = fb
+                    .get("model")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
                 state.fallback_index += 1;
                 state.using_fallback = true;
                 state.retry_count = 0;
@@ -541,8 +552,10 @@ fn evaluate_inner(
 
     // Fallback: treat as stop
     let result = MachineResult::Done {
-        final_response_json: serde_json::to_string(&serde_json::json!({ "final_response": content }))
-            .unwrap_or_default(),
+        final_response_json: serde_json::to_string(
+            &serde_json::json!({ "final_response": content }),
+        )
+        .unwrap_or_default(),
         tool_calls_present: false,
     };
     serialize_result(&result)

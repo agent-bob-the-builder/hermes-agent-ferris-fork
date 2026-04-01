@@ -35,8 +35,8 @@ static CONTEXT_THREAT_PATTERNS: LazyLock<Vec<(Regex, &'static str)>> = LazyLock:
 
 static INVISIBLE_CHARS: LazyLock<Vec<char>> = LazyLock::new(|| {
     vec![
-        '\u{200b}', '\u{200c}', '\u{200d}', '\u{2060}', '\u{feff}',
-        '\u{202a}', '\u{202b}', '\u{202c}', '\u{202d}', '\u{202e}',
+        '\u{200b}', '\u{200c}', '\u{200d}', '\u{2060}', '\u{feff}', '\u{202a}', '\u{202b}',
+        '\u{202c}', '\u{202d}', '\u{202e}',
     ]
 });
 
@@ -89,7 +89,10 @@ struct LRUCache {
 
 impl LRUCache {
     fn new(max_size: usize) -> Self {
-        Self { entries: Vec::new(), max_size }
+        Self {
+            entries: Vec::new(),
+            max_size,
+        }
     }
 
     fn get(&mut self, key: &CacheKey) -> Option<String> {
@@ -249,12 +252,14 @@ fn _discover_context_files(cwd: Option<&Path>) -> Vec<(PathBuf, String)> {
 
 fn parse_frontmatter(content: &str) -> Option<String> {
     let re = Regex::new(r#"(?s)^---\n(.+?)\n---\n"#).ok()?;
-    re.captures(content).map(|c| c.get(1).unwrap().as_str().to_string())
+    re.captures(content)
+        .map(|c| c.get(1).unwrap().as_str().to_string())
 }
 
 fn extract_skill_description(frontmatter: &str) -> Option<String> {
     let re = Regex::new(r#"(?m)^description:\s*["'](.*?)["']"#).ok()?;
-    re.captures(frontmatter).map(|c| c.get(1).unwrap().as_str().to_string())
+    re.captures(frontmatter)
+        .map(|c| c.get(1).unwrap().as_str().to_string())
 }
 
 fn skill_matches_platform(frontmatter: &str, platform: &str) -> bool {
@@ -597,7 +602,9 @@ fn build_skills_manifest(skills_dir: &Path) -> HashMap<String, Vec<u64>> {
                     vec![
                         meta.modified()
                             .ok()
-                            .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos() as u64)
+                            .map(|t| {
+                                t.duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos() as u64
+                            })
                             .unwrap_or(0),
                         meta.len(),
                     ],
@@ -619,7 +626,12 @@ fn load_skills_snapshot(skills_dir: &Path) -> Option<Value> {
     if !snapshot.is_object() {
         return None;
     }
-    if snapshot.get("version").and_then(|v| v.as_i64()).unwrap_or(0) != SKILLS_SNAPSHOT_VERSION {
+    if snapshot
+        .get("version")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0)
+        != SKILLS_SNAPSHOT_VERSION
+    {
         return None;
     }
     let manifest = snapshot.get("manifest")?;
@@ -734,22 +746,38 @@ fn skill_should_show(
         .map(|t| t.iter().map(|s| s.as_str()).collect())
         .unwrap_or_default();
 
-    for ts in conditions.get("fallback_for_toolsets").iter().flat_map(|v| v.iter()) {
+    for ts in conditions
+        .get("fallback_for_toolsets")
+        .iter()
+        .flat_map(|v| v.iter())
+    {
         if toolsets.contains(ts.as_str()) {
             return false;
         }
     }
-    for t in conditions.get("fallback_for_tools").iter().flat_map(|v| v.iter()) {
+    for t in conditions
+        .get("fallback_for_tools")
+        .iter()
+        .flat_map(|v| v.iter())
+    {
         if tools.contains(t.as_str()) {
             return false;
         }
     }
-    for ts in conditions.get("requires_toolsets").iter().flat_map(|v| v.iter()) {
+    for ts in conditions
+        .get("requires_toolsets")
+        .iter()
+        .flat_map(|v| v.iter())
+    {
         if !toolsets.contains(ts.as_str()) {
             return false;
         }
     }
-    for t in conditions.get("requires_tools").iter().flat_map(|v| v.iter()) {
+    for t in conditions
+        .get("requires_tools")
+        .iter()
+        .flat_map(|v| v.iter())
+    {
         if !tools.contains(t.as_str()) {
             return false;
         }
@@ -816,8 +844,14 @@ fn build_skills_system_prompt(
                 if !entry.is_object() {
                     continue;
                 }
-                let skill_name = entry.get("skill_name").and_then(|v| v.as_str()).unwrap_or("");
-                let category = entry.get("category").and_then(|v| v.as_str()).unwrap_or("general");
+                let skill_name = entry
+                    .get("skill_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let category = entry
+                    .get("category")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("general");
                 let frontmatter_name = entry
                     .get("frontmatter_name")
                     .and_then(|v| v.as_str())
@@ -844,7 +878,10 @@ fn build_skills_system_prompt(
                 ) {
                     continue;
                 }
-                let desc = entry.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                let desc = entry
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 skills_by_category
                     .entry(category.to_string())
                     .or_default()
@@ -886,16 +923,16 @@ fn build_skills_system_prompt(
             } else {
                 parts[0].to_string()
             };
-            let entry_fm_name = parse_frontmatter(
-                &fs::read_to_string(&skill_file).unwrap_or_default())
-                .as_ref()
-                .and_then(|fm| {
-                    Regex::new(r"(?m)^name:\s*(.+)")
-                        .ok()?
-                        .captures(fm)
-                        .map(|c| c.get(1).unwrap().as_str().trim().to_string())
-                })
-                .unwrap_or_else(|| skill_name.clone());
+            let entry_fm_name =
+                parse_frontmatter(&fs::read_to_string(&skill_file).unwrap_or_default())
+                    .as_ref()
+                    .and_then(|fm| {
+                        Regex::new(r"(?m)^name:\s*(.+)")
+                            .ok()?
+                            .captures(fm)
+                            .map(|c| c.get(1).unwrap().as_str().trim().to_string())
+                    })
+                    .unwrap_or_else(|| skill_name.clone());
 
             skill_entries.push(serde_json::json!({
                 "skill_name": skill_name,
@@ -970,8 +1007,13 @@ fn build_skills_system_prompt(
                 .collect(),
         );
         let skill_entries_json = Value::Array(skill_entries);
-        let category_descriptions_json: Value =
-            Value::Object(category_descriptions.clone().into_iter().map(|(k, v)| (k, Value::String(v))).collect());
+        let category_descriptions_json: Value = Value::Object(
+            category_descriptions
+                .clone()
+                .into_iter()
+                .map(|(k, v)| (k, Value::String(v)))
+                .collect(),
+        );
         write_skills_snapshot(
             &skills_dir,
             manifest_json,
@@ -1053,15 +1095,36 @@ fn build_timestamp(
     let hours = secs_in_day / 3600;
     let minutes = (secs_in_day % 3600) / 60;
     let ampm = if hours < 12 { "AM" } else { "PM" };
-    let hour_12 = if hours == 0 { 12 } else if hours > 12 { hours - 12 } else { hours };
+    let hour_12 = if hours == 0 {
+        12
+    } else if hours > 12 {
+        hours - 12
+    } else {
+        hours
+    };
     let wday = [
-        "Thursday", "Friday", "Saturday", "Sunday",
-        "Monday", "Tuesday", "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
     ][((days + 4) % 7) as usize];
     let (month_num, day) = days_to_month_day(days as i64);
     let month_name = [
-        "January", "February", "March", "April", "May", "June",
-        "July", "August", "September", "October", "November", "December",
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
     ][month_num as usize];
     let mut parts = vec![format!(
         "Conversation started: {}, {} {}, 1970 + {} days {:02}:{:02} {}",
@@ -1254,7 +1317,10 @@ fn build(
         }
     }
     if provider.as_deref() == Some("alibaba") {
-        let ms = model.as_ref().and_then(|m| m.split('/').next_back()).unwrap_or("");
+        let ms = model
+            .as_ref()
+            .and_then(|m| m.split('/').next_back())
+            .unwrap_or("");
         parts.push(format!(
             "You are powered by the model named {}. The exact model ID is {}. When asked what model you are, always answer based on this information, not on any model name returned by the API.",
             ms,
@@ -1276,7 +1342,11 @@ fn strip_yaml_frontmatter_py(content: String) -> String {
 
 #[pyfunction]
 fn truncate_content_py(content: String, filename: String, max_chars: Option<usize>) -> String {
-    truncate_content(&content, &filename, max_chars.unwrap_or(CONTEXT_FILE_MAX_CHARS))
+    truncate_content(
+        &content,
+        &filename,
+        max_chars.unwrap_or(CONTEXT_FILE_MAX_CHARS),
+    )
 }
 
 #[pyfunction]

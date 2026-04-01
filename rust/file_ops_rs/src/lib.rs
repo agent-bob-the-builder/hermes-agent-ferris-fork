@@ -6,17 +6,23 @@ use std::collections::HashSet;
 use std::path::Path;
 
 static BINARY_EXTENSIONS: &[&str] = &[
-    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".tiff", ".tif",
-    ".svg", ".mp3", ".mp4", ".wav", ".avi", ".mov", ".mkv", ".flac", ".ogg",
-    ".webm", ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar", ".pdf",
-    ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".exe", ".dll", ".so",
-    ".dylib", ".o", ".a", ".pyc", ".pyo", ".class", ".wasm", ".bin", ".ttf",
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".tiff", ".tif", ".svg", ".mp3",
+    ".mp4", ".wav", ".avi", ".mov", ".mkv", ".flac", ".ogg", ".webm", ".zip", ".tar", ".gz",
+    ".bz2", ".xz", ".7z", ".rar", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+    ".exe", ".dll", ".so", ".dylib", ".o", ".a", ".pyc", ".pyo", ".class", ".wasm", ".bin", ".ttf",
     ".otf", ".woff", ".woff2", ".eot", ".db", ".sqlite", ".sqlite3",
 ];
 
 static IMAGE_EXTENSIONS: &[&str] = &[".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico"];
 
-static HIDDEN_EXCLUDE: &[&str] = &[".git", "node_modules", "__pycache__", ".hub", ".venv", "venv"];
+static HIDDEN_EXCLUDE: &[&str] = &[
+    ".git",
+    "node_modules",
+    "__pycache__",
+    ".hub",
+    ".venv",
+    "venv",
+];
 
 const MAX_LINE_LENGTH: usize = 2000;
 const MAX_LINES: usize = 2000;
@@ -133,7 +139,8 @@ fn unified_diff(old_content: &str, new_content: &str, filename: &str) -> String 
         while old_idx < lcs_old {
             let h_start = old_idx.saturating_sub(3);
             result.push_str(&format!(
-                "@@ -{},{} +{},{} @@\n", h_start + 1,
+                "@@ -{},{} +{},{} @@\n",
+                h_start + 1,
                 lcs_old - old_idx + lcs_new - new_idx,
                 new_idx.saturating_sub(3) + 1,
                 lcs_old - old_idx + lcs_new - new_idx
@@ -144,7 +151,8 @@ fn unified_diff(old_content: &str, new_content: &str, filename: &str) -> String 
         while new_idx < lcs_new {
             let h_start = old_idx.saturating_sub(3);
             result.push_str(&format!(
-                "@@ -{},{} +{},{} @@\n", h_start + 1,
+                "@@ -{},{} +{},{} @@\n",
+                h_start + 1,
                 lcs_old - old_idx + lcs_new - new_idx,
                 new_idx.saturating_sub(3) + 1,
                 lcs_old - old_idx + lcs_new - new_idx
@@ -160,8 +168,10 @@ fn unified_diff(old_content: &str, new_content: &str, filename: &str) -> String 
     while old_idx < m {
         result.push_str(&format!(
             "@@ -{},{} +{},{} @@\n",
-            old_idx.saturating_sub(3) + 1, m - old_idx,
-            new_idx.saturating_sub(3) + 1, n - new_idx
+            old_idx.saturating_sub(3) + 1,
+            m - old_idx,
+            new_idx.saturating_sub(3) + 1,
+            n - new_idx
         ));
         result.push_str(&format!("-{}\n", old_lines[old_idx]));
         old_idx += 1;
@@ -169,8 +179,10 @@ fn unified_diff(old_content: &str, new_content: &str, filename: &str) -> String 
     while new_idx < n {
         result.push_str(&format!(
             "@@ -{},{} +{},{} @@\n",
-            old_idx.saturating_sub(3) + 1, m - old_idx,
-            new_idx.saturating_sub(3) + 1, n - new_idx
+            old_idx.saturating_sub(3) + 1,
+            m - old_idx,
+            new_idx.saturating_sub(3) + 1,
+            n - new_idx
         ));
         result.push_str(&format!("+{}\n", new_lines[new_idx]));
         new_idx += 1;
@@ -308,8 +320,7 @@ fn search_native(
             "truncated": total > limit + offset
         })
     } else if output_mode == "count" {
-        let mut counts: std::collections::HashMap<String, usize> =
-            std::collections::HashMap::new();
+        let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
         for (p, _, _) in &matches {
             *counts.entry(p.clone()).or_insert(0) += 1;
         }
@@ -550,7 +561,15 @@ fn search_native_py(
     output_mode: &str,
     context: usize,
 ) -> Option<String> {
-    search_native(pattern, path, file_glob, limit, offset, output_mode, context)
+    search_native(
+        pattern,
+        path,
+        file_glob,
+        limit,
+        offset,
+        output_mode,
+        context,
+    )
 }
 
 #[pyfunction]
@@ -591,10 +610,7 @@ fn get_hermes_home() -> std::path::PathBuf {
     // Mirror hermes_constants.get_hermes_home() logic
     std::env::var("HERMES_HOME")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| {
-            dirs::home_dir().unwrap_or_default()
-                .join(".hermes")
-        })
+        .unwrap_or_else(|_| dirs::home_dir().unwrap_or_default().join(".hermes"))
 }
 
 fn build_deny_set() -> Vec<std::path::PathBuf> {
@@ -641,7 +657,12 @@ fn build_deny_prefixes() -> Vec<String> {
 
     if let Some(ref h) = home {
         for entry in &[".ssh", ".aws", ".gnupg", ".kube"] {
-            prefixes.push(format!("{}{}{}", h.to_string_lossy(), std::path::MAIN_SEPARATOR_STR, entry));
+            prefixes.push(format!(
+                "{}{}{}",
+                h.to_string_lossy(),
+                std::path::MAIN_SEPARATOR_STR,
+                entry
+            ));
         }
     }
 

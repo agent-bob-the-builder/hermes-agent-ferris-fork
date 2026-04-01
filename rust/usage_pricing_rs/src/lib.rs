@@ -35,7 +35,7 @@ fn opt_dec(s: &str) -> Option<f64> {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[pyclass]
+#[pyclass(skip_from_py_object)]
 pub struct CanonicalUsage {
     #[pyo3(get, set)]
     pub input_tokens: i64,
@@ -61,7 +61,7 @@ impl CanonicalUsage {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[pyclass]
+#[pyclass(skip_from_py_object)]
 pub struct BillingRoute {
     #[pyo3(get, set)]
     pub provider: String,
@@ -74,7 +74,7 @@ pub struct BillingRoute {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[pyclass]
+#[pyclass(skip_from_py_object)]
 pub struct PricingEntry {
     #[pyo3(get, set)]
     pub input_cost_per_million: Option<f64>,
@@ -110,7 +110,7 @@ impl Default for PricingEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[pyclass]
+#[pyclass(skip_from_py_object)]
 pub struct CostResult {
     #[pyo3(get, set)]
     pub amount_usd: Option<f64>,
@@ -171,7 +171,9 @@ fn build_official_docs_pricing() -> HashMap<PricingKey, PricingEntry> {
             cache_read_cost_per_million: opt_dec("1.50"),
             cache_write_cost_per_million: opt_dec("18.75"),
             source: "official_docs_snapshot".into(),
-            source_url: Some("https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching".into()),
+            source_url: Some(
+                "https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching".into(),
+            ),
             pricing_version: Some("anthropic-prompt-caching-2026-03-16".into()),
             ..Default::default()
         },
@@ -184,7 +186,9 @@ fn build_official_docs_pricing() -> HashMap<PricingKey, PricingEntry> {
             cache_read_cost_per_million: opt_dec("0.30"),
             cache_write_cost_per_million: opt_dec("3.75"),
             source: "official_docs_snapshot".into(),
-            source_url: Some("https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching".into()),
+            source_url: Some(
+                "https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching".into(),
+            ),
             pricing_version: Some("anthropic-prompt-caching-2026-03-16".into()),
             ..Default::default()
         },
@@ -197,7 +201,9 @@ fn build_official_docs_pricing() -> HashMap<PricingKey, PricingEntry> {
             cache_read_cost_per_million: opt_dec("0.30"),
             cache_write_cost_per_million: opt_dec("3.75"),
             source: "official_docs_snapshot".into(),
-            source_url: Some("https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching".into()),
+            source_url: Some(
+                "https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching".into(),
+            ),
             pricing_version: Some("anthropic-pricing-2026-03-16".into()),
             ..Default::default()
         },
@@ -210,7 +216,9 @@ fn build_official_docs_pricing() -> HashMap<PricingKey, PricingEntry> {
             cache_read_cost_per_million: opt_dec("0.08"),
             cache_write_cost_per_million: opt_dec("1.00"),
             source: "official_docs_snapshot".into(),
-            source_url: Some("https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching".into()),
+            source_url: Some(
+                "https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching".into(),
+            ),
             pricing_version: Some("anthropic-pricing-2026-03-16".into()),
             ..Default::default()
         },
@@ -223,7 +231,9 @@ fn build_official_docs_pricing() -> HashMap<PricingKey, PricingEntry> {
             cache_read_cost_per_million: opt_dec("1.50"),
             cache_write_cost_per_million: opt_dec("18.75"),
             source: "official_docs_snapshot".into(),
-            source_url: Some("https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching".into()),
+            source_url: Some(
+                "https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching".into(),
+            ),
             pricing_version: Some("anthropic-pricing-2026-03-16".into()),
             ..Default::default()
         },
@@ -236,7 +246,9 @@ fn build_official_docs_pricing() -> HashMap<PricingKey, PricingEntry> {
             cache_read_cost_per_million: opt_dec("0.03"),
             cache_write_cost_per_million: opt_dec("0.30"),
             source: "official_docs_snapshot".into(),
-            source_url: Some("https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching".into()),
+            source_url: Some(
+                "https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching".into(),
+            ),
             pricing_version: Some("anthropic-pricing-2026-03-16".into()),
             ..Default::default()
         },
@@ -453,7 +465,7 @@ pub fn resolve_billing_route(
     if provider_name == "anthropic" {
         return BillingRoute {
             provider: "anthropic".to_string(),
-            model: model.split('/').last().unwrap_or(&model).to_string(),
+            model: model.split('/').next_back().unwrap_or(&model).to_string(),
             base_url: base_url.unwrap_or("").to_string(),
             billing_mode: "official_docs_snapshot".to_string(),
         };
@@ -462,7 +474,7 @@ pub fn resolve_billing_route(
     if provider_name == "openai" {
         return BillingRoute {
             provider: "openai".to_string(),
-            model: model.split('/').last().unwrap_or(&model).to_string(),
+            model: model.split('/').next_back().unwrap_or(&model).to_string(),
             base_url: base_url.unwrap_or("").to_string(),
             billing_mode: "official_docs_snapshot".to_string(),
         };
@@ -493,7 +505,7 @@ pub fn resolve_billing_route(
         model: if model.is_empty() {
             String::new()
         } else {
-            model.split('/').last().unwrap_or(&model).to_string()
+            model.split('/').next_back().unwrap_or(&model).to_string()
         },
         base_url: base_url.unwrap_or("").to_string(),
         billing_mode: "unknown".to_string(),
@@ -526,7 +538,11 @@ pub fn normalize_usage(
                 to_int(usage_map.get("input_tokens").unwrap_or(null_val)),
                 to_int(usage_map.get("output_tokens").unwrap_or(null_val)),
                 to_int(usage_map.get("cache_read_input_tokens").unwrap_or(null_val)),
-                to_int(usage_map.get("cache_creation_input_tokens").unwrap_or(null_val)),
+                to_int(
+                    usage_map
+                        .get("cache_creation_input_tokens")
+                        .unwrap_or(null_val),
+                ),
             )
         } else if mode == "codex_responses" {
             let input_total = to_int(usage_map.get("input_tokens").unwrap_or(null_val));
@@ -534,34 +550,44 @@ pub fn normalize_usage(
             let details = usage_map.get("input_tokens_details");
             let cache_read_tokens: i64 = details
                 .and_then(|d: &serde_json::Value| d.get("cached_tokens"))
-                .map(|v| to_int(v))
+                .map(to_int)
                 .unwrap_or(0);
             let cache_write_tokens: i64 = details
                 .and_then(|d: &serde_json::Value| d.get("cache_creation_tokens"))
-                .map(|v| to_int(v))
+                .map(to_int)
                 .unwrap_or(0);
             let input_tokens = (input_total - cache_read_tokens - cache_write_tokens).max(0);
-            (input_tokens, output_tokens, cache_read_tokens, cache_write_tokens)
+            (
+                input_tokens,
+                output_tokens,
+                cache_read_tokens,
+                cache_write_tokens,
+            )
         } else {
             let prompt_total = to_int(usage_map.get("prompt_tokens").unwrap_or(null_val));
             let output_tokens = to_int(usage_map.get("completion_tokens").unwrap_or(null_val));
             let details = usage_map.get("prompt_tokens_details");
             let cache_read_tokens: i64 = details
                 .and_then(|d: &serde_json::Value| d.get("cached_tokens"))
-                .map(|v| to_int(v))
+                .map(to_int)
                 .unwrap_or(0);
             let cache_write_tokens: i64 = details
                 .and_then(|d: &serde_json::Value| d.get("cache_write_tokens"))
-                .map(|v| to_int(v))
+                .map(to_int)
                 .unwrap_or(0);
             let input_tokens = (prompt_total - cache_read_tokens - cache_write_tokens).max(0);
-            (input_tokens, output_tokens, cache_read_tokens, cache_write_tokens)
+            (
+                input_tokens,
+                output_tokens,
+                cache_read_tokens,
+                cache_write_tokens,
+            )
         };
 
     let output_details = usage_map.get("output_tokens_details");
     let reasoning_tokens: i64 = output_details
         .and_then(|d: &serde_json::Value| d.get("reasoning_tokens"))
-        .map(|v| to_int(v))
+        .map(to_int)
         .unwrap_or(0);
 
     CanonicalUsage {
@@ -594,10 +620,7 @@ pub fn has_known_pricing(model_name: &str, provider: Option<&str>, base_url: Opt
 
 /// Compute cost estimate from a CanonicalUsage and PricingEntry.
 /// Pure function -- no network I/O.
-pub fn compute_cost_from_usage(
-    usage: &CanonicalUsage,
-    entry: &PricingEntry,
-) -> (f64, Vec<String>) {
+pub fn compute_cost_from_usage(usage: &CanonicalUsage, entry: &PricingEntry) -> (f64, Vec<String>) {
     let mut amount = ZERO;
     let notes: Vec<String>;
 
@@ -672,7 +695,8 @@ pub fn estimate_usage_cost(
     let label = format!("~${:.2}", amount);
 
     if route.provider == "openrouter" {
-        notes.push("OpenRouter cost is estimated from the models API until reconciled.".to_string());
+        notes
+            .push("OpenRouter cost is estimated from the models API until reconciled.".to_string());
     }
 
     CostResult {
@@ -722,14 +746,20 @@ pub fn format_token_count_compact(value: i64) -> String {
     for (threshold, suffix) in units.iter() {
         if abs_value >= *threshold {
             let scaled = abs_value as f64 / *threshold as f64;
-            let text = if scaled < 10.0 {
-                format!("{:.2}", scaled)
-            } else if scaled < 100.0 {
-                format!("{:.1}", scaled)
+            let rounded = scaled.round();
+            let text = if rounded < 10.0 {
+                format!("{:.2}", rounded)
+                    .trim_end_matches('0')
+                    .trim_end_matches('.')
+                    .to_string()
+            } else if rounded < 100.0 {
+                format!("{:.1}", rounded)
+                    .trim_end_matches('0')
+                    .trim_end_matches('.')
+                    .to_string()
             } else {
-                format!("{:.0}", scaled)
+                format!("{:.0}", rounded)
             };
-            let text = text.trim_end_matches('0').trim_end_matches('.');
             return format!("{}{}{}", sign, text, suffix);
         }
     }
@@ -778,11 +808,7 @@ fn py_compute_cost_from_usage(usage: &str, pricing_entry: &str) -> (Option<Strin
 
 /// Check if known pricing exists (pure).
 #[pyfunction]
-fn py_has_known_pricing(
-    model_name: &str,
-    provider: Option<&str>,
-    base_url: Option<&str>,
-) -> bool {
+fn py_has_known_pricing(model_name: &str, provider: Option<&str>, base_url: Option<&str>) -> bool {
     has_known_pricing(model_name, provider, base_url)
 }
 
@@ -796,9 +822,14 @@ fn py_estimate_usage_cost(
     base_url: Option<&str>,
 ) -> CostResult {
     let usage_val: CanonicalUsage = serde_json::from_str(usage).unwrap_or_default();
-    let entry_val: Option<PricingEntry> =
-        pricing_entry.and_then(|s| serde_json::from_str(s).ok());
-    estimate_usage_cost(model_name, &usage_val, entry_val.as_ref(), provider, base_url)
+    let entry_val: Option<PricingEntry> = pricing_entry.and_then(|s| serde_json::from_str(s).ok());
+    estimate_usage_cost(
+        model_name,
+        &usage_val,
+        entry_val.as_ref(),
+        provider,
+        base_url,
+    )
 }
 
 /// Format duration compact (pure).
@@ -867,7 +898,11 @@ mod tests {
     #[test]
     fn test_normalize_usage_anthropic() {
         let json = r#"{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":20,"cache_creation_input_tokens":5}"#;
-        let usage = normalize_usage(&serde_json::from_str(json).unwrap(), Some("anthropic"), None);
+        let usage = normalize_usage(
+            &serde_json::from_str(json).unwrap(),
+            Some("anthropic"),
+            None,
+        );
         assert_eq!(usage.input_tokens, 100);
         assert_eq!(usage.output_tokens, 50);
         assert_eq!(usage.cache_read_tokens, 20);
@@ -929,7 +964,11 @@ mod tests {
 
     #[test]
     fn test_has_known_pricing_true() {
-        assert!(has_known_pricing("claude-3-5-sonnet-20241022", Some("anthropic"), None));
+        assert!(has_known_pricing(
+            "claude-3-5-sonnet-20241022",
+            Some("anthropic"),
+            None
+        ));
         assert!(has_known_pricing("gpt-4o", Some("openai"), None));
     }
 

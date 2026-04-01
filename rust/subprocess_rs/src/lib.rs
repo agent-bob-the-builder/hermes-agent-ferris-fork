@@ -4,7 +4,9 @@
 //! Handles: spawn, async drain, kill, interrupt, exit codes, sudo password injection,
 //! timeout, process groups. No GIL contention — all I/O runs in background threads.
 
-use libc::{kill as libc_kill, setpgid, waitpid, WEXITSTATUS, WIFEXITED, WIFSIGNALED, WTERMSIG, SIGKILL};
+use libc::{
+    kill as libc_kill, setpgid, waitpid, SIGKILL, WEXITSTATUS, WIFEXITED, WIFSIGNALED, WTERMSIG,
+};
 use once_cell::sync::Lazy;
 use pyo3::prelude::*;
 use std::collections::HashMap;
@@ -12,8 +14,8 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 use std::thread;
+use std::time::{Duration, Instant};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Global process registry
@@ -279,17 +281,15 @@ pub fn spawn(
     if timeout_ms > 0 {
         let state_kill = state.clone();
         let deadline = Instant::now() + Duration::from_millis(timeout_ms);
-        thread::spawn(move || {
-            loop {
-                if state_kill.interrupted.load(Ordering::Relaxed) {
-                    return;
-                }
-                if Instant::now() >= deadline {
-                    _kill_group(&state_kill);
-                    return;
-                }
-                thread::sleep(Duration::from_millis(20));
+        thread::spawn(move || loop {
+            if state_kill.interrupted.load(Ordering::Relaxed) {
+                return;
             }
+            if Instant::now() >= deadline {
+                _kill_group(&state_kill);
+                return;
+            }
+            thread::sleep(Duration::from_millis(20));
         });
     }
 
@@ -345,7 +345,11 @@ pub fn set_process_exited(session_id: &str, exit_code: i32) {
 // Internal helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn _drain_reader<R: Read + Send + 'static>(reader: R, state: Arc<SubprocessState>, is_stderr: bool) {
+fn _drain_reader<R: Read + Send + 'static>(
+    reader: R,
+    state: Arc<SubprocessState>,
+    is_stderr: bool,
+) {
     let mut buf_reader = BufReader::new(reader);
     let mut line = String::new();
     loop {

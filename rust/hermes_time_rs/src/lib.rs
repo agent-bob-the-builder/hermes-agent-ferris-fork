@@ -99,7 +99,10 @@ pub fn now() -> String {
 
     let tz_guard = CACHED_TZ.read();
     if let Some(tz) = *tz_guard {
-        Utc::now().with_timezone(&tz).format("%Y-%m-%dT%H:%M:%S%.f%:z").to_string()
+        Utc::now()
+            .with_timezone(&tz)
+            .format("%Y-%m-%dT%H:%M:%S%.f%:z")
+            .to_string()
     } else {
         // No configured timezone — use local time
         let local = chrono::Local::now();

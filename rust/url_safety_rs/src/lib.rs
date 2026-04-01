@@ -9,10 +9,7 @@ use std::net::{Ipv4Addr, Ipv6Addr, ToSocketAddrs};
 // Constants (mirrors of tools/url_safety.py)
 // ============================================================================
 
-const BLOCKED_HOSTNAMES: &[&str] = &[
-    "metadata.google.internal",
-    "metadata.goog",
-];
+const BLOCKED_HOSTNAMES: &[&str] = &["metadata.google.internal", "metadata.goog"];
 
 /// 100.64.0.0/10 — CGNAT / Shared Address Space (RFC 6598)
 /// Not covered by Ipv4Addr::is_private.
@@ -24,7 +21,7 @@ const CGNAT_END: u32 = 0x647F_FFFF; // 100.127.255.255
 // ============================================================================
 
 fn is_cgnat(ip: u32) -> bool {
-    ip >= CGNAT_START && ip <= CGNAT_END
+    (CGNAT_START..=CGNAT_END).contains(&ip)
 }
 
 fn is_blocked_ipv4(ip: &Ipv4Addr) -> bool {
@@ -71,7 +68,7 @@ fn extract_hostname(url: &str) -> Option<String> {
 
     // Hostname ends at : or / or end of string
     let hostname_end = after_user
-        .find(|c| c == ':' || c == '/')
+        .find([':', '/'])
         .unwrap_or(after_user.len());
 
     let hostname = &after_user[..hostname_end];

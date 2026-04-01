@@ -20,7 +20,7 @@ fn parse_frontmatter(content: &str) -> PyResult<Py<PyTuple>> {
         if !content.starts_with("---") {
             let empty_dict: Bound<'_, PyDict> = PyDict::new(py);
             let body_py_obj = content.into_pyobject(py)?;
-            let body_py: &Bound<'_, PyAny> = &body_py_obj.as_any();
+            let body_py: &Bound<'_, PyAny> = body_py_obj.as_any();
             let tuple = PyTuple::new(py, [empty_dict.as_any(), body_py])?;
             return Ok(tuple.unbind());
         }
@@ -29,7 +29,7 @@ fn parse_frontmatter(content: &str) -> PyResult<Py<PyTuple>> {
         let Some(cap) = FRONTMATTER_RE.find(rest) else {
             let empty_dict: Bound<'_, PyDict> = PyDict::new(py);
             let body_py_obj = content.into_pyobject(py)?;
-            let body_py: &Bound<'_, PyAny> = &body_py_obj.as_any();
+            let body_py: &Bound<'_, PyAny> = body_py_obj.as_any();
             let tuple = PyTuple::new(py, [empty_dict.as_any(), body_py])?;
             return Ok(tuple.unbind());
         };
@@ -90,7 +90,7 @@ fn parse_frontmatter(content: &str) -> PyResult<Py<PyTuple>> {
         };
 
         let body_py_obj = body.into_pyobject(py)?;
-        let body_py: &Bound<'_, PyAny> = &body_py_obj.as_any();
+        let body_py: &Bound<'_, PyAny> = body_py_obj.as_any();
         let tuple = PyTuple::new(py, [parsed_py.as_any(), body_py])?;
         Ok(tuple.unbind())
     })

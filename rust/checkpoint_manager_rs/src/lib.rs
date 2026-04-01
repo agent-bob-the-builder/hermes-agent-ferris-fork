@@ -2,7 +2,7 @@
 //!
 //! Uses libgit2 via the git2 crate for direct bindings (faster than subprocess).
 
-use git2::{Repository, Commit, Oid, Signature};
+use git2::{Commit, Oid, Repository, Signature};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::Path;
@@ -87,7 +87,8 @@ pub struct RestoreResult {
 
 fn shadow_repo_path(working_dir: &str) -> std::path::PathBuf {
     use std::path::PathBuf;
-    let abs_path = Path::new(working_dir).canonicalize()
+    let abs_path = Path::new(working_dir)
+        .canonicalize()
         .unwrap_or_else(|_| Path::new(working_dir).to_path_buf());
     let abs_str = abs_path.to_string_lossy();
     let hash = sha256_hex(&abs_str);
@@ -109,20 +110,17 @@ fn sha256_hex(input: &str) -> String {
 }
 
 fn is_excluded(path: &std::path::Path, working_dir: &std::path::Path) -> bool {
-    let relative = path.strip_prefix(working_dir)
-        .unwrap_or(path);
+    let relative = path.strip_prefix(working_dir).unwrap_or(path);
     let relative_str = relative.to_string_lossy();
-    
+
     for exclude in DEFAULT_EXCLUDES {
-        if exclude.ends_with('/') {
+        if let Some(dir_name) = exclude.strip_suffix('/') {
             // Directory pattern
-            let dir_name = &exclude[..exclude.len() - 1];
             if relative_str.contains(dir_name) {
                 return true;
             }
-        } else if exclude.starts_with('*') {
+        } else if let Some(ext) = exclude.strip_prefix('*') {
             // Glob pattern
-            let ext = &exclude[1..];
             if relative_str.ends_with(ext) {
                 return true;
             }
@@ -147,7 +145,7 @@ fn count_files(working_dir: &std::path::Path) -> usize {
             // Quick subdir check
             if entry.path().is_dir() && !entry.file_name().to_string_lossy().starts_with('.') {
                 // Don't recurse deep, just estimate
-                if let Ok(sub_entries) = std::fs::read_dir(&entry.path()) {
+                if let Ok(sub_entries) = std::fs::read_dir(entry.path()) {
                     count += sub_entries.count().min(1000);
                 }
             }
@@ -156,7 +154,10 @@ fn count_files(working_dir: &std::path::Path) -> usize {
     count
 }
 
-fn init_shadow_repo(shadow_repo: &std::path::Path, working_dir: &std::path::Path) -> Result<(), String> {
+fn init_shadow_repo(
+    shadow_repo: &std::path::Path,
+    working_dir: &std::path::Path,
+) -> Result<(), String> {
     if shadow_repo.join("HEAD").exists() {
         return Ok(());
     }
@@ -165,33 +166,34 @@ fn init_shadow_repo(shadow_repo: &std::path::Path, working_dir: &std::path::Path
         .map_err(|e| format!("Failed to create shadow repo dir: {}", e))?;
 
     // Init the repository
-    Repository::init_bare(shadow_repo)
-        .map_err(|e| format!("Failed to init bare repo: {}", e))?;
+    Repository::init_bare(shadow_repo).map_err(|e| format!("Failed to init bare repo: {}", e))?;
 
     // Open the repo to set config
-    let repo = Repository::open(shadow_repo)
-        .map_err(|e| format!("Failed to open repo: {}", e))?;
+    let repo = Repository::open(shadow_repo).map_err(|e| format!("Failed to open repo: {}", e))?;
 
     // Set git config
-    let mut config = repo.config()
+    let mut config = repo
+        .config()
         .map_err(|e| format!("Failed to get config: {}", e))?;
-    
-    config.set_str("user.email", "hermes@local")
+
+    config
+        .set_str("user.email", "hermes@local")
         .map_err(|e| format!("Failed to set email: {}", e))?;
-    config.set_str("user.name", "Hermes Checkpoint")
+    config
+        .set_str("user.name", "Hermes Checkpoint")
         .map_err(|e| format!("Failed to set name: {}", e))?;
 
     // Create info/exclude
     let info_dir = shadow_repo.join("info");
-    std::fs::create_dir_all(&info_dir)
-        .map_err(|e| format!("Failed to create info dir: {}", e))?;
-    
+    std::fs::create_dir_all(&info_dir).map_err(|e| format!("Failed to create info dir: {}", e))?;
+
     let exclude_content = DEFAULT_EXCLUDES.join("\n") + "\n";
     std::fs::write(info_dir.join("exclude"), exclude_content.as_bytes())
         .map_err(|e| format!("Failed to write exclude: {}", e))?;
 
     // Write HERMES_WORKDIR
-    let workdir_path = working_dir.canonicalize()
+    let workdir_path = working_dir
+        .canonicalize()
         .unwrap_or_else(|_| working_dir.to_path_buf());
     let workdir_str = workdir_path.to_string_lossy().to_string() + "\n";
     std::fs::write(shadow_repo.join("HERMES_WORKDIR"), workdir_str.as_bytes())
@@ -201,27 +203,29 @@ fn init_shadow_repo(shadow_repo: &std::path::Path, working_dir: &std::path::Path
 }
 
 fn stage_files(repo: &Repository, working_dir: &std::path::Path) -> Result<Oid, String> {
-    let mut index = repo.index()
+    let mut index = repo
+        .index()
         .map_err(|e| format!("Failed to get index: {}", e))?;
 
     // Walk the working directory and add files
     let paths: Vec<std::path::PathBuf> = walkdir(working_dir);
-    
+
     for path in paths {
         if path.is_file() {
-            let rel_path = path.strip_prefix(working_dir)
-                .unwrap_or(&path);
-            
+            let rel_path = path.strip_prefix(working_dir).unwrap_or(&path);
+
             if !is_excluded(&path, working_dir) {
                 let _ = index.add_path(rel_path);
             }
         }
     }
 
-    index.write()
+    index
+        .write()
         .map_err(|e| format!("Failed to write index: {}", e))?;
 
-    let tree_id = index.write_tree_to(repo)
+    let tree_id = index
+        .write_tree_to(repo)
         .map_err(|e| format!("Failed to write tree: {}", e))?;
 
     Ok(tree_id)
@@ -232,15 +236,16 @@ fn walkdir(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            let name = path.file_name()
+            let name = path
+                .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_default();
-            
+
             // Skip hidden files and excluded patterns
             if name.starts_with('.') {
                 continue;
             }
-            
+
             if path.is_file() {
                 results.push(path);
             } else if path.is_dir() {
@@ -258,26 +263,27 @@ fn create_commit(repo: &Repository, tree_id: Oid, message: &str) -> Result<Oid, 
     let signature = Signature::now("Hermes Checkpoint", "hermes@local")
         .map_err(|e| format!("Failed to create signature: {}", e))?;
 
-    let tree = repo.find_tree(tree_id)
+    let tree = repo
+        .find_tree(tree_id)
         .map_err(|e| format!("Failed to find tree: {}", e))?;
 
     // Get HEAD reference
-    let head_ref = repo.head()
-        .ok();
-    
-    let parent_commit = head_ref
-        .and_then(|r| r.peel_to_commit().ok());
+    let head_ref = repo.head().ok();
+
+    let parent_commit = head_ref.and_then(|r| r.peel_to_commit().ok());
 
     let parents: Vec<&Commit> = parent_commit.iter().collect();
-    
-    let commit_id = repo.commit(
-        Some("HEAD"),
-        &signature,
-        &signature,
-        message,
-        &tree,
-        &parents,
-    ).map_err(|e| format!("Failed to create commit: {}", e))?;
+
+    let commit_id = repo
+        .commit(
+            Some("HEAD"),
+            &signature,
+            &signature,
+            message,
+            &tree,
+            &parents,
+        )
+        .map_err(|e| format!("Failed to create commit: {}", e))?;
 
     Ok(commit_id)
 }
@@ -333,7 +339,12 @@ impl CheckpointManager {
         };
 
         // Skip root and home
-        if abs_dir == "/" || abs_dir == dirs::home_dir().map(|p| p.to_string_lossy().to_string()).unwrap_or_default() {
+        if abs_dir == "/"
+            || abs_dir
+                == dirs::home_dir()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default()
+        {
             return false;
         }
 
@@ -400,22 +411,26 @@ impl CheckpointManager {
 
     pub fn list_checkpoints(&self, working_dir: &str) -> String {
         let shadow = shadow_repo_path(working_dir);
-        
+
         if !shadow.join("HEAD").exists() {
             return serde_json::to_string(&Vec::<CheckpointEntry>::new()).unwrap_or_default();
         }
 
         let repo = match Repository::open(&shadow) {
             Ok(r) => r,
-            Err(_) => return serde_json::to_string(&Vec::<CheckpointEntry>::new()).unwrap_or_default(),
+            Err(_) => {
+                return serde_json::to_string(&Vec::<CheckpointEntry>::new()).unwrap_or_default()
+            }
         };
 
         let mut revwalk = match repo.revwalk() {
             Ok(r) => r,
-            Err(_) => return serde_json::to_string(&Vec::<CheckpointEntry>::new()).unwrap_or_default(),
+            Err(_) => {
+                return serde_json::to_string(&Vec::<CheckpointEntry>::new()).unwrap_or_default()
+            }
         };
 
-        if let Err(_) = revwalk.push_head() {
+        if revwalk.push_head().is_err() {
             return serde_json::to_string(&Vec::<CheckpointEntry>::new()).unwrap_or_default();
         }
 
@@ -436,10 +451,10 @@ impl CheckpointManager {
                 let short_hash = hash[..8.min(hash.len())].to_string();
                 let timestamp = commit.time().seconds();
                 let reason = commit.summary().unwrap_or("unknown").to_string();
-                
+
                 // Format timestamp as Unix timestamp string
                 let dt = format!("{}", timestamp);
-                
+
                 entries.push(CheckpointEntry {
                     hash,
                     short_hash,
@@ -458,7 +473,7 @@ impl CheckpointManager {
 
     pub fn diff(&self, working_dir: &str, commit_hash: &str) -> String {
         let shadow = shadow_repo_path(working_dir);
-        
+
         if !shadow.join("HEAD").exists() {
             let result = DiffResult {
                 success: false,
@@ -529,11 +544,10 @@ impl CheckpointManager {
 
         let diff_text = if let (Some(ct), Some(nt)) = (commit_tree, new_tree) {
             let mut diff_text = String::new();
-            
+
             // Diff commit tree vs staged tree
-            let diff = repo.diff_tree_to_tree(Some(&ct), Some(&nt), None)
-                .ok();
-            
+            let diff = repo.diff_tree_to_tree(Some(&ct), Some(&nt), None).ok();
+
             if let Some(d) = diff {
                 let _ = d.print(git2::DiffFormat::Patch, |_delta, _hunk, line| {
                     let prefix = match line.origin() {
@@ -549,7 +563,7 @@ impl CheckpointManager {
                     true
                 });
             }
-            
+
             diff_text
         } else {
             String::new()
@@ -567,7 +581,7 @@ impl CheckpointManager {
 
     pub fn restore(&self, working_dir: &str, commit_hash: &str, file_path: Option<&str>) -> String {
         let shadow = shadow_repo_path(working_dir);
-        
+
         if !shadow.join("HEAD").exists() {
             let result = RestoreResult {
                 success: false,
@@ -626,12 +640,12 @@ impl CheckpointManager {
         };
 
         let working_path = std::path::Path::new(working_dir);
-        
+
         // Checkout the commit (or specific file)
         if let Some(fp) = file_path {
             // Checkout specific file - find the blob and write it
             let path = working_path.join(fp);
-            
+
             // Get the tree entry for this file
             let tree = commit.tree().ok();
             if let Some(t) = tree {
@@ -654,7 +668,7 @@ impl CheckpointManager {
                     }
                 }
             }
-            
+
             let result = RestoreResult {
                 success: true,
                 error: None,
@@ -665,12 +679,12 @@ impl CheckpointManager {
             };
             return serde_json::to_string(&result).unwrap_or_default();
         }
-        
+
         // Checkout entire tree using git2 build::CheckoutBuilder
-        if let Some(tree) = commit.tree().ok() {
+        if let Ok(tree) = commit.tree() {
             let mut checkout_builder = git2::build::CheckoutBuilder::new();
             checkout_builder.target_dir(working_path);
-            
+
             if let Err(e) = repo.checkout_tree(tree.as_object(), Some(&mut checkout_builder)) {
                 let result = RestoreResult {
                     success: false,
@@ -705,13 +719,20 @@ impl CheckpointManager {
         };
 
         let markers = [
-            ".git", "pyproject.toml", "package.json", "Cargo.toml",
-            "go.mod", "Makefile", "pom.xml", ".hg", "Gemfile",
+            ".git",
+            "pyproject.toml",
+            "package.json",
+            "Cargo.toml",
+            "go.mod",
+            "Makefile",
+            "pom.xml",
+            ".hg",
+            "Gemfile",
         ];
 
         let mut check = candidate.clone();
         let home = dirs::home_dir().unwrap_or_default();
-        
+
         loop {
             for marker in &markers {
                 if check.join(marker).exists() {

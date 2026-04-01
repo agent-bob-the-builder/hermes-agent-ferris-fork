@@ -123,8 +123,7 @@ pub fn prune_old_tool_results(
 /// Align compress_start forward past orphan tool results.
 /// Mirrors `_align_boundary_forward` in Python.
 pub fn align_boundary_forward(messages: &[Value], mut idx: usize) -> usize {
-    while idx < messages.len()
-        && messages[idx].get("role").and_then(|v| v.as_str()) == Some("tool")
+    while idx < messages.len() && messages[idx].get("role").and_then(|v| v.as_str()) == Some("tool")
     {
         idx += 1;
     }
@@ -145,9 +144,7 @@ pub fn align_boundary_backward(messages: &[Value], mut idx: usize) -> usize {
 
     if check > 0
         && messages[check].get("role").and_then(|v| v.as_str()) == Some("assistant")
-        && messages[check]
-            .get("tool_calls")
-            .is_some()
+        && messages[check].get("tool_calls").is_some()
     {
         idx = check;
     }
@@ -184,8 +181,14 @@ pub fn sanitize_tool_pairs(messages: &mut Vec<Value>) {
         .map(|s| s.to_string())
         .collect();
 
-    let orphaned_results: HashSet<String> = result_call_ids.difference(&surviving_call_ids).cloned().collect();
-    let missing_results: HashSet<String> = surviving_call_ids.difference(&result_call_ids).cloned().collect();
+    let orphaned_results: HashSet<String> = result_call_ids
+        .difference(&surviving_call_ids)
+        .cloned()
+        .collect();
+    let missing_results: HashSet<String> = surviving_call_ids
+        .difference(&result_call_ids)
+        .cloned()
+        .collect();
 
     // 1. Remove orphaned tool results — parallel partition + collect
     if !orphaned_results.is_empty() {
@@ -205,7 +208,10 @@ pub fn sanitize_tool_pairs(messages: &mut Vec<Value>) {
         messages.retain(|_| to_keep.remove(0));
         let removed = before - messages.len();
         if removed > 0 {
-            eprintln!("Compression sanitizer: removed {} orphaned tool result(s)", removed);
+            eprintln!(
+                "Compression sanitizer: removed {} orphaned tool result(s)",
+                removed
+            );
         }
     }
 
@@ -257,7 +263,8 @@ pub async fn compress(
     quiet: bool,
 ) -> Option<(Vec<Value>, Option<String>)> {
     let threshold_tokens = (context_length as f64 * threshold_percent) as usize;
-    let tail_token_budget = (context_length as f64 * summary_target_ratio * threshold_percent) as usize;
+    let tail_token_budget =
+        (context_length as f64 * summary_target_ratio * threshold_percent) as usize;
     let n_messages = messages.len();
     let min_required = protect_first_n + protect_last_n + 1;
 
@@ -274,13 +281,15 @@ pub async fn compress(
     // Phase 1: Prune old tool results
     let (messages, pruned_count) = prune_old_tool_results(messages, protect_last_n * 3);
     if pruned_count > 0 && !quiet {
-        eprintln!("Pre-compression: pruned {} old tool result(s)", pruned_count);
+        eprintln!(
+            "Pre-compression: pruned {} old tool result(s)",
+            pruned_count
+        );
     }
 
     // Phase 2: Determine boundaries
     let compress_start = align_boundary_forward(&messages, protect_first_n);
-    let compress_end =
-        find_tail_cut(&messages, compress_start, tail_token_budget, protect_last_n);
+    let compress_end = find_tail_cut(&messages, compress_start, tail_token_budget, protect_last_n);
 
     if compress_start >= compress_end {
         return None;
@@ -365,7 +374,11 @@ pub async fn compress(
 
         if summary_role == first_tail_role {
             // Try flipping
-            let flipped = if summary_role == "user" { "assistant" } else { "user" };
+            let flipped = if summary_role == "user" {
+                "assistant"
+            } else {
+                "user"
+            };
             if flipped != last_head_role {
                 summary_role = flipped.to_string();
                 merge_into_tail = false;
@@ -474,4 +487,3 @@ mod tests {
         assert_eq!(align_boundary_forward(&msgs, 1), 3);
     }
 }
-

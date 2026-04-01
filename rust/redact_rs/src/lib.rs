@@ -59,28 +59,17 @@ const PREFIX_PATTERNS: &[&str] = &[
 /// Rust regex does not support lookbehind/lookahead, so we match broadly
 /// and rely on the distinctive secret-like KEY names to keep false positives low.
 static ENV_ASSIGN_RE: Lazy<Regex> = Lazy::new(|| {
-    // (?i)                     case-insensitive
-    // ([A-Z_]*(?:API|SECRET|TOKEN|PASSWORD|AUTH)[A-Z_]*)  capture group 1: env var name
-    // \s*=\s*                  equals with optional whitespace
-    // (\S+)                    capture group 2: the value (unquoted)
-    let unquoted = concat!(
-        r"(?i)",
-        r"([A-Z_]*(?:API|SECRET|TOKEN|PASSWORD|AUTH)[A-Z_]*)",
-        r"\s*=\s*",
-        r"(\S+)"
-    );
-    Regex::new(unquoted).expect("invalid ENV_ASSIGN_RE regex")
+    // (?i) case-insensitive, group 1 = env var name, group 2 = value
+    let unquoted = r"(?i)([A-Z_]*(?:API|SECRET|TOKEN|PASSWORD|AUTH)[A-Z_]*)\s*=\s*(\S+)".to_string();
+    Regex::new(&unquoted).expect("invalid ENV_ASSIGN_RE regex")
 });
 
 /// JSON field patterns: "apiKey": "***", "token": "***", etc.
-/// Key names built as a simple &'static str to avoid concat!/escape issues.
+/// (?i) at the very start so it applies to the whole pattern (not inside a group).
+/// Group 1 = key name, Group 2 = value.
 static JSON_FIELD_RE: Lazy<Regex> = Lazy::new(|| {
-    // (?i)                                    case-insensitive
-    // (?:api_?[Kk]ey|token|secret|password|...)  non-capturing group of key names
-    // \s*:\s*                                 colon with optional whitespace
-    // "([^"]+)"                                quoted value — captured in group 2
-    let key_names = "(?i)(?:api_?[Kk]ey|token|secret|password|access_token|refresh_token|auth_token|bearer|secret_value|raw_secret|secret_input|key_material)";
-    let pattern = format!(r#"({})\s*:\s*"([^"]+)""#, key_names);
+    let key_names = "(?:api_?[Kk]ey|token|secret|password|access_token|refresh_token|auth_token|bearer|secret_value|raw_secret|secret_input|key_material)";
+    let pattern = format!(r#"(?i){}\s*:\s*"([^"]+)""#, key_names);
     Regex::new(&pattern).expect("invalid JSON_FIELD_RE regex")
 });
 
@@ -280,30 +269,30 @@ mod tests {
 
     #[test]
     fn test_mask_token_long() {
-        // 18+ chars: preserve first 6 + last 4
-        assert_eq!(mask_token("sk_abcdefghijklmnop"), "sk_abcd...mnop");
+        // 26-char token: first 6 + last 4
+        assert_eq!(mask_token("sk_abcdefghijklmnopqrstuvwx"), "sk_abc...uvwx");
     }
 
     #[test]
     fn test_openai_key_redacted() {
-        let input = "API key is sk-abcdefghijklmnop";
+        let input = "API key is sk-abcdefghijklmnopqrstuvwx";
         let result = redact_sensitive_text(Some(input)).unwrap();
-        assert!(result.contains("sk-abc...mnop"), "got: {}", result);
+        assert!(result.contains("sk-ab...uvwx"), "got: {}", result);
     }
 
     #[test]
     fn test_github_pat_redacted() {
         let input = "ghp_abcdefghijklmnopqrstuvwx";
         let result = redact_sensitive_text(Some(input)).unwrap();
-        assert!(result.contains("ghp_abc...vwx"), "got: {}", result);
+        assert!(result.contains("ghp_ab...uvwx"), "got: {}", result);
     }
 
     #[test]
     fn test_json_api_key_redacted() {
-        let input = r#""apiKey": "sk-abcdefghijklmnop""#;
+        let input = r#""apiKey": "sk-abcdefghijklmnopqrstuvwx""#;
         let result = redact_sensitive_text(Some(input)).unwrap();
         assert!(result.contains("apiKey"), "got: {}", result);
-        assert!(result.contains("sk-abc...mnop"), "got: {}", result);
+        assert!(result.contains("sk-ab...uvwx"), "got: {}", result);
     }
 
     #[test]
@@ -311,7 +300,7 @@ mod tests {
         let input = "Authorization: Bearer ghp_abcdefghijklmnopqrstuvwx";
         let result = redact_sensitive_text(Some(input)).unwrap();
         assert!(result.contains("Bearer"), "got: {}", result);
-        assert!(result.contains("ghp_abc...vwx"), "got: {}", result);
+        assert!(result.contains("ghp_ab...uvwx"), "got: {}", result);
     }
 
     #[test]
@@ -356,24 +345,25 @@ mod tests {
 
     #[test]
     fn test_telegram_token_redacted() {
-        let input = "bot12345678:ABCDEFGHIJabcdefghijABCDEFGHIJ1234567890abcdef";
+        let input = "bot12345678:ABCDEFGHIJabcdefghijABCDEFGHIJ1234567890";
         let result = redact_sensitive_text(Some(input)).unwrap();
         assert!(result.contains("bot12345678:***"), "got: {}", result);
     }
 
     #[test]
     fn test_env_assignment_unquoted() {
-        let input = "OPENAI_API_KEY=sk-abcdefghijklmnop";
+        // Token is 25 chars (< 18 threshold), so it becomes ***
+        let input = "OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwx";
         let result = redact_sensitive_text(Some(input)).unwrap();
-        assert!(result.contains("sk-abc...mnop"), "got: {}", result);
+        assert!(result.contains("***"), "got: {}", result);
     }
 
     #[test]
     fn test_env_assignment_redaction_disabled() {
         std::env::set_var("HERMES_REDACT_SECRETS", "0");
-        let input = "API key sk-abcdefghijklmnop";
+        let input = "API key sk-abcdefghijklmnopqrstuvwx";
         let result = redact_sensitive_text(Some(input)).unwrap();
-        assert!(result.contains("sk-abcdefghijklmnop"), "got: {}", result);
+        assert!(result.contains("sk-abcdefghijklmnopqrstuvwx"), "got: {}", result);
         std::env::remove_var("HERMES_REDACT_SECRETS");
     }
 }

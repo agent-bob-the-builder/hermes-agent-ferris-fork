@@ -1,8 +1,8 @@
-use rayon::prelude::*;
-use pyo3::prelude::*;
-use std::collections::HashMap;
 use lazy_static::lazy_static;
+use pyo3::prelude::*;
+use rayon::prelude::*;
 use regex::Regex;
+use std::collections::HashMap;
 
 lazy_static! {
     static ref RE_FTS_QUOTED: Regex = Regex::new(r#"['"].*?['"]"#).unwrap();
@@ -73,12 +73,7 @@ fn _apply_replacements(content: &str, matches: &[Match], new_string: &str) -> St
 
     let mut result = content.to_string();
     for &(start, end) in &sorted_matches {
-        result = format!(
-            "{}{}{}",
-            &result[..start],
-            new_string,
-            &result[end..]
-        );
+        result = format!("{}{}{}", &result[..start], new_string, &result[end..]);
     }
     result
 }
@@ -136,7 +131,11 @@ fn _find_normalized_matches(
     let mut matches = Vec::new();
     let content_len = content.len();
 
-    for i in 0..content_normalized_lines.len().saturating_sub(num_pattern_lines) + 1 {
+    for i in 0..content_normalized_lines
+        .len()
+        .saturating_sub(num_pattern_lines)
+        + 1
+    {
         if i + num_pattern_lines > content_normalized_lines.len() {
             break;
         }
@@ -178,7 +177,10 @@ fn _map_normalized_positions(
             if norm_idx < norm_len && norm_chars[norm_idx] == ' ' {
                 orig_to_norm.push(norm_idx);
                 orig_idx += 1;
-                if orig_idx < orig_len && orig_chars[orig_idx] != ' ' && orig_chars[orig_idx] != '\t' {
+                if orig_idx < orig_len
+                    && orig_chars[orig_idx] != ' '
+                    && orig_chars[orig_idx] != '\t'
+                {
                     norm_idx += 1;
                 }
             } else {
@@ -209,7 +211,11 @@ fn _map_normalized_positions(
         let orig_start = if let Some(&pos) = norm_to_orig_start.get(&norm_start) {
             pos
         } else {
-            orig_to_norm.iter().find(|&&n| n >= norm_start).copied().unwrap_or(0)
+            orig_to_norm
+                .iter()
+                .find(|&&n| n >= norm_start)
+                .copied()
+                .unwrap_or(0)
         };
 
         let orig_end = if let Some(&pos) = norm_to_orig_end.get(&(norm_end.saturating_sub(1))) {
@@ -240,14 +246,15 @@ fn _strategy_line_trimmed(content: &str, pattern: &str) -> Vec<Match> {
         .join("\n");
 
     let content_lines: Vec<&str> = content.split('\n').collect();
-    let content_normalized_lines: Vec<&str> = content_lines
-        .iter()
-        .map(|line| line.trim())
-        .collect();
+    let content_normalized_lines: Vec<&str> =
+        content_lines.iter().map(|line| line.trim()).collect();
 
     _find_normalized_matches(
         content,
-        &content_lines.iter().map(|s| (*s).to_string()).collect::<Vec<String>>(),
+        &content_lines
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect::<Vec<String>>(),
         &content_normalized_lines
             .iter()
             .map(|s| (*s).to_string())
@@ -305,7 +312,10 @@ fn _strategy_indentation_flexible(content: &str, pattern: &str) -> Vec<Match> {
 
     _find_normalized_matches(
         content,
-        &content_lines.iter().map(|s| (*s).to_string()).collect::<Vec<String>>(),
+        &content_lines
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect::<Vec<String>>(),
         &content_stripped_lines,
         pattern,
         &pattern_stripped,
@@ -314,7 +324,9 @@ fn _strategy_indentation_flexible(content: &str, pattern: &str) -> Vec<Match> {
 
 fn _strategy_escape_normalized(content: &str, pattern: &str) -> Vec<Match> {
     fn unescape(s: &str) -> String {
-        s.replace("\\n", "\n").replace("\\t", "\t").replace("\\r", "\r")
+        s.replace("\\n", "\n")
+            .replace("\\t", "\t")
+            .replace("\\r", "\r")
     }
 
     let pattern_unescaped = unescape(pattern);
@@ -332,7 +344,8 @@ fn _strategy_trimmed_boundary(content: &str, pattern: &str) -> Vec<Match> {
         return vec![];
     }
 
-    let mut modified_pattern: Vec<String> = pattern_lines.iter().map(|s| (*s).to_string()).collect();
+    let mut modified_pattern: Vec<String> =
+        pattern_lines.iter().map(|s| (*s).to_string()).collect();
     modified_pattern[0] = modified_pattern[0].trim().to_string();
     if modified_pattern.len() > 1 {
         let last_idx = modified_pattern.len() - 1;
@@ -361,8 +374,15 @@ fn _strategy_trimmed_boundary(content: &str, pattern: &str) -> Vec<Match> {
         }
 
         if check_lines.join("\n") == modified_pattern_str {
-            let (start_pos, end_pos) =
-                _calculate_line_positions(&content_lines.iter().map(|s| (*s).to_string()).collect::<Vec<String>>(), i, i + pattern_line_count, content_len);
+            let (start_pos, end_pos) = _calculate_line_positions(
+                &content_lines
+                    .iter()
+                    .map(|s| (*s).to_string())
+                    .collect::<Vec<String>>(),
+                i,
+                i + pattern_line_count,
+                content_len,
+            );
             matches.push((start_pos, end_pos));
         }
     }
@@ -428,8 +448,12 @@ fn _strategy_block_anchor(content: &str, pattern: &str) -> Vec<Match> {
             }
 
             if similarity >= threshold {
-                let (start_pos, end_pos) =
-                    _calculate_line_positions(&orig_content_lines, i, i + pattern_line_count, content_len);
+                let (start_pos, end_pos) = _calculate_line_positions(
+                    &orig_content_lines,
+                    i,
+                    i + pattern_line_count,
+                    content_len,
+                );
                 Some((start_pos, end_pos))
             } else {
                 None
@@ -453,7 +477,8 @@ fn _strategy_context_aware(content: &str, pattern: &str) -> Vec<Match> {
     let orig_content_lines: Vec<String> = content.split('\n').map(|s| s.to_string()).collect();
 
     // Parallel: each window position is independent
-    let matches: Vec<(usize, usize)> = (0..content_lines.len().saturating_sub(pattern_line_count) + 1)
+    let matches: Vec<(usize, usize)> = (0..content_lines.len().saturating_sub(pattern_line_count)
+        + 1)
         .into_par_iter()
         .filter_map(|i| {
             // Bounds check: skip if pattern doesn't fit at this position
@@ -469,8 +494,12 @@ fn _strategy_context_aware(content: &str, pattern: &str) -> Vec<Match> {
                 .count();
 
             if high_similarity_count as f64 >= pattern_lines.len() as f64 * 0.5 {
-                let (start_pos, end_pos) =
-                    _calculate_line_positions(&orig_content_lines, i, i + pattern_line_count, content_len);
+                let (start_pos, end_pos) = _calculate_line_positions(
+                    &orig_content_lines,
+                    i,
+                    i + pattern_line_count,
+                    content_len,
+                );
                 Some((start_pos, end_pos))
             } else {
                 None
@@ -539,7 +568,11 @@ fn fuzzy_find_and_replace(
         }
     }
 
-    Ok((content, 0, Some("Could not find a match for old_string in the file".to_string())))
+    Ok((
+        content,
+        0,
+        Some("Could not find a match for old_string in the file".to_string()),
+    ))
 }
 
 #[pymodule]

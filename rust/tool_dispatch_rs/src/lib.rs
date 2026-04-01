@@ -35,8 +35,7 @@ static PARALLEL_SAFE_TOOLS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
 static PATH_SCOPED_TOOLS: Lazy<HashSet<&'static str>> =
     Lazy::new(|| HashSet::from(["read_file", "write_file", "patch"]));
 
-static NEVER_PARALLEL_TOOLS: Lazy<HashSet<&'static str>> =
-    Lazy::new(|| HashSet::from(["clarify"]));
+static NEVER_PARALLEL_TOOLS: Lazy<HashSet<&'static str>> = Lazy::new(|| HashSet::from(["clarify"]));
 
 // ─── Serialized types ─────────────────────────────────────────────────────────
 
@@ -142,9 +141,9 @@ fn invoke_single(
     let args_tuple = pyo3::types::PyTuple::new(py, [function_name, args_json, tid_str])
         .expect("hardcoded args, PyTuple::new should not fail");
     match py_fn.call1(args_tuple) {
-        Ok(result) => result.extract::<String>().unwrap_or_else(|_| {
-            serde_json::json!({ "error": "extract failed" }).to_string()
-        }),
+        Ok(result) => result
+            .extract::<String>()
+            .unwrap_or_else(|_| serde_json::json!({ "error": "extract failed" }).to_string()),
         Err(e) => serde_json::json!({ "error": format!("call error: {}", e) }).to_string(),
     }
 }
@@ -191,10 +190,7 @@ pub extern "C" fn run_concurrent_tool_batch(
             let is_error = content.contains("\"error\"") || content.starts_with("Error:");
             // Use the captured index to look up tool_call_id — avoids wrong-result
             // when multiple calls share the same function name.
-            let tool_call_id = calls
-                .get(*i)
-                .map(|c| c.id.clone())
-                .unwrap_or_default();
+            let tool_call_id = calls.get(*i).map(|c| c.id.clone()).unwrap_or_default();
             ToolResult {
                 index: *i,
                 content,
@@ -212,16 +208,10 @@ pub extern "C" fn run_concurrent_tool_batch(
         .map(|(i, call)| {
             let result = results.iter().find(|r| r.tool_call_id == call.id).cloned();
             result.unwrap_or_else(|| {
-                let name = call
-                    .function
-                    .name
-                    .as_str();
+                let name = call.function.name.as_str();
                 ToolResult {
                     index: i,
-                    content: format!(
-                        "{{\"error\": \"tool '{}' result not found\"}}",
-                        name
-                    ),
+                    content: format!("{{\"error\": \"tool '{}' result not found\"}}", name),
                     tool_call_id: call.id.clone(),
                     duration_secs: 0.0,
                     is_error: true,

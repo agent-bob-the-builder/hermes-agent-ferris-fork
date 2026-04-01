@@ -6,8 +6,8 @@
 //!
 #![allow(unused_imports)]
 
-use std::time::{Duration, Instant};
 use pyo3::types::{PyAnyMethods, PyModuleMethods};
+use std::time::{Duration, Instant};
 
 fn main() {
     let mut init_time = Duration::ZERO;
@@ -21,7 +21,9 @@ fn main() {
 
             // --- Cold-run: initialize (imports all tools, builds registry cache) ---
             let t0 = Instant::now();
-            module.call_method0("initialize").expect("initialize() failed");
+            module
+                .call_method0("initialize")
+                .expect("initialize() failed");
             init_time = t0.elapsed();
 
             // --- Benchmark: get_tool_definitions ---

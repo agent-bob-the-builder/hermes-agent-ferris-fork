@@ -616,7 +616,10 @@ fn rs_dispatch(
     // Deserialize JSON string args into a Python dict — handlers expect dicts, not raw JSON.
     // Try json.loads; if it fails (not a string), use the args as-is.
     let json_module: Bound<'_, PyModule> = PyModule::import(py, "json")?;
-    let args_py: Bound<'_, PyAny> = match json_module.getattr("loads")?.call1((function_args.bind(py),)) {
+    let args_py: Bound<'_, PyAny> = match json_module
+        .getattr("loads")?
+        .call1((function_args.bind(py),))
+    {
         Ok(v) => v,
         Err(_) => function_args.bind(py).clone().into_any(),
     };

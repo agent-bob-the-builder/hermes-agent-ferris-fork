@@ -56,8 +56,7 @@ pub struct ToolUsageEntry {
     pub count: i64,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct MessageStats {
     #[serde(default)]
     pub total_messages: i64,
@@ -112,8 +111,9 @@ fn format_date(ts: Option<f64>) -> String {
         Some(t) => {
             let days_since_epoch = (t / 86400.0) as i64;
             let (_year, month, day) = civil_from_days(days_since_epoch + 719163);
-            let month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                               "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+            let month_names = [
+                "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+            ];
             format!("{} {:02}", month_names[(month - 1) as usize], day)
         }
         None => "?".to_string(),
@@ -136,7 +136,9 @@ fn civil_from_days(z: i64) -> (i64, u8, u8) {
 
 fn parse_date(s: &str) -> Option<i64> {
     let parts: Vec<&str> = s.split('-').collect();
-    if parts.len() != 3 { return None; }
+    if parts.len() != 3 {
+        return None;
+    }
     let year: i64 = parts[0].parse().ok()?;
     let month: i64 = parts[1].parse().ok()?;
     let day: i64 = parts[2].parse().ok()?;
@@ -144,9 +146,15 @@ fn parse_date(s: &str) -> Option<i64> {
 }
 
 fn days_to_civil(year: i64, month: u8, day: u8) -> i64 {
-    let era = if year >= 0 { year / 400 } else { (year - 399) / 400 };
+    let era = if year >= 0 {
+        year / 400
+    } else {
+        (year - 399) / 400
+    };
     let yoe = year - era * 400;
-    let doy = (153 * ((if month <= 2 { month + 9 } else { month - 3 }) as i64 - 1) + 2) / 5 + day as i64 - 1;
+    let doy = (153 * ((if month <= 2 { month + 9 } else { month - 3 }) as i64 - 1) + 2) / 5
+        + day as i64
+        - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     era * 146097 + doe - 719468
 }
@@ -156,10 +164,7 @@ fn days_to_civil(year: i64, month: u8, day: u8) -> i64 {
 // ---------------------------------------------------------------------------
 
 /// Compute high-level overview statistics from sessions and message stats.
-pub fn compute_overview(
-    sessions: &[Session],
-    message_stats: &MessageStats,
-) -> serde_json::Value {
+pub fn compute_overview(sessions: &[Session], message_stats: &MessageStats) -> serde_json::Value {
     let total_input: i64 = sessions.iter().map(|s| s.input_tokens).sum();
     let total_output: i64 = sessions.iter().map(|s| s.output_tokens).sum();
     let total_cache_read: i64 = sessions.iter().map(|s| s.cache_read_tokens).sum();
@@ -173,23 +178,33 @@ pub fn compute_overview(
         .filter_map(|s| {
             let start = s.started_at?;
             let end = s.ended_at?;
-            if end > start { Some(end - start) } else { None }
+            if end > start {
+                Some(end - start)
+            } else {
+                None
+            }
         })
         .collect();
 
     let total_hours = if !durations.is_empty() {
         durations.iter().sum::<f64>() / 3600.0
-    } else { 0.0 };
+    } else {
+        0.0
+    };
 
     let avg_duration = if !durations.is_empty() {
         durations.iter().sum::<f64>() / durations.len() as f64
-    } else { 0.0 };
+    } else {
+        0.0
+    };
 
     let date_range_start = sessions
-        .iter().filter_map(|s| s.started_at)
+        .iter()
+        .filter_map(|s| s.started_at)
         .fold(None, |acc, ts| Some(acc.map_or(ts, |a: f64| a.min(ts))));
     let date_range_end = sessions
-        .iter().filter_map(|s| s.started_at)
+        .iter()
+        .filter_map(|s| s.started_at)
         .fold(None, |acc, ts| Some(acc.map_or(ts, |a: f64| a.max(ts))));
 
     serde_json::json!({
@@ -231,7 +246,7 @@ pub fn compute_model_breakdown(sessions: &[Session]) -> Vec<serde_json::Value> {
     let mut map: HashMap<String, ModelData> = HashMap::new();
     for s in sessions {
         let display_model = if s.model.contains('/') {
-            s.model.split('/').last().unwrap_or(&s.model).to_string()
+            s.model.split('/').next_back().unwrap_or(&s.model).to_string()
         } else {
             s.model.clone()
         };
@@ -241,30 +256,36 @@ pub fn compute_model_breakdown(sessions: &[Session]) -> Vec<serde_json::Value> {
         d.output_tokens += s.output_tokens;
         d.cache_read_tokens += s.cache_read_tokens;
         d.cache_write_tokens += s.cache_write_tokens;
-        d.total_tokens += s.input_tokens + s.output_tokens + s.cache_read_tokens + s.cache_write_tokens;
+        d.total_tokens +=
+            s.input_tokens + s.output_tokens + s.cache_read_tokens + s.cache_write_tokens;
         d.tool_calls += s.tool_call_count;
     }
-    let mut result: Vec<serde_json::Value> = map.into_iter().map(|(model, data)| {
-        serde_json::json!({
-            "model": model,
-            "sessions": data.sessions,
-            "input_tokens": data.input_tokens,
-            "output_tokens": data.output_tokens,
-            "cache_read_tokens": data.cache_read_tokens,
-            "cache_write_tokens": data.cache_write_tokens,
-            "total_tokens": data.total_tokens,
-            "tool_calls": data.tool_calls,
-            "cost": 0.0f64,
-            "has_pricing": false,
-            "cost_status": "unknown",
+    let mut result: Vec<serde_json::Value> = map
+        .into_iter()
+        .map(|(model, data)| {
+            serde_json::json!({
+                "model": model,
+                "sessions": data.sessions,
+                "input_tokens": data.input_tokens,
+                "output_tokens": data.output_tokens,
+                "cache_read_tokens": data.cache_read_tokens,
+                "cache_write_tokens": data.cache_write_tokens,
+                "total_tokens": data.total_tokens,
+                "tool_calls": data.tool_calls,
+                "cost": 0.0f64,
+                "has_pricing": false,
+                "cost_status": "unknown",
+            })
         })
-    }).collect();
+        .collect();
     result.sort_by(|a, b| {
         let tokens_a = a.get("total_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
         let tokens_b = b.get("total_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
         let sessions_a = a.get("sessions").and_then(|v| v.as_i64()).unwrap_or(0);
         let sessions_b = b.get("sessions").and_then(|v| v.as_i64()).unwrap_or(0);
-        tokens_b.cmp(&tokens_a).then_with(|| sessions_b.cmp(&sessions_a))
+        tokens_b
+            .cmp(&tokens_a)
+            .then_with(|| sessions_b.cmp(&sessions_a))
     });
     result
 }
@@ -285,7 +306,11 @@ pub fn compute_platform_breakdown(sessions: &[Session]) -> Vec<serde_json::Value
     }
     let mut map: HashMap<String, PlatformData> = HashMap::new();
     for s in sessions {
-        let source = if s.source.is_empty() { "unknown" } else { &s.source };
+        let source = if s.source.is_empty() {
+            "unknown"
+        } else {
+            &s.source
+        };
         let d = map.entry(source.to_string()).or_default();
         d.sessions += 1;
         d.messages += s.message_count;
@@ -293,22 +318,26 @@ pub fn compute_platform_breakdown(sessions: &[Session]) -> Vec<serde_json::Value
         d.output_tokens += s.output_tokens;
         d.cache_read_tokens += s.cache_read_tokens;
         d.cache_write_tokens += s.cache_write_tokens;
-        d.total_tokens += s.input_tokens + s.output_tokens + s.cache_read_tokens + s.cache_write_tokens;
+        d.total_tokens +=
+            s.input_tokens + s.output_tokens + s.cache_read_tokens + s.cache_write_tokens;
         d.tool_calls += s.tool_call_count;
     }
-    let mut result: Vec<serde_json::Value> = map.into_iter().map(|(platform, data)| {
-        serde_json::json!({
-            "platform": platform,
-            "sessions": data.sessions,
-            "messages": data.messages,
-            "input_tokens": data.input_tokens,
-            "output_tokens": data.output_tokens,
-            "cache_read_tokens": data.cache_read_tokens,
-            "cache_write_tokens": data.cache_write_tokens,
-            "total_tokens": data.total_tokens,
-            "tool_calls": data.tool_calls,
+    let mut result: Vec<serde_json::Value> = map
+        .into_iter()
+        .map(|(platform, data)| {
+            serde_json::json!({
+                "platform": platform,
+                "sessions": data.sessions,
+                "messages": data.messages,
+                "input_tokens": data.input_tokens,
+                "output_tokens": data.output_tokens,
+                "cache_read_tokens": data.cache_read_tokens,
+                "cache_write_tokens": data.cache_write_tokens,
+                "total_tokens": data.total_tokens,
+                "tool_calls": data.tool_calls,
+            })
         })
-    }).collect();
+        .collect();
     result.sort_by(|a, b| {
         let sessions_a = a.get("sessions").and_then(|v| v.as_i64()).unwrap_or(0);
         let sessions_b = b.get("sessions").and_then(|v| v.as_i64()).unwrap_or(0);
@@ -320,14 +349,21 @@ pub fn compute_platform_breakdown(sessions: &[Session]) -> Vec<serde_json::Value
 /// Process tool usage data into a ranked list with percentages.
 pub fn compute_tool_breakdown(tool_usage: &[ToolUsageEntry]) -> Vec<serde_json::Value> {
     let total_calls: i64 = tool_usage.iter().map(|t| t.count).sum();
-    tool_usage.iter().map(|t| {
-        let pct = if total_calls > 0 { (t.count as f64 / total_calls as f64) * 100.0 } else { 0.0 };
-        serde_json::json!({
-            "tool": t.tool_name,
-            "count": t.count,
-            "percentage": pct,
+    tool_usage
+        .iter()
+        .map(|t| {
+            let pct = if total_calls > 0 {
+                (t.count as f64 / total_calls as f64) * 100.0
+            } else {
+                0.0
+            };
+            serde_json::json!({
+                "tool": t.tool_name,
+                "count": t.count,
+                "percentage": pct,
+            })
         })
-    }).collect()
+        .collect()
 }
 
 /// Analyze activity patterns by day of week and hour.
@@ -341,7 +377,11 @@ pub fn compute_activity_patterns(sessions: &[Session]) -> serde_json::Value {
         if let Some(ts) = s.started_at {
             let days_since_epoch = (ts / 86400.0) as i64;
             let raw_weekday = (3_i64 + (days_since_epoch % 7)) % 7;
-            let weekday: u8 = if raw_weekday >= 1 { (raw_weekday - 1) as u8 } else { 6 };
+            let weekday: u8 = if raw_weekday >= 1 {
+                (raw_weekday - 1) as u8
+            } else {
+                6
+            };
             let hour = ((ts % 86400.0) / 3600.0) as u8;
             let days = (ts / 86400.0) as i64;
             let (year, month, day) = civil_from_days(days + 719163);
@@ -353,21 +393,31 @@ pub fn compute_activity_patterns(sessions: &[Session]) -> serde_json::Value {
     }
 
     let day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-    let day_breakdown: Vec<serde_json::Value> = (0..7).map(|i| {
-        serde_json::json!({
-            "day": day_names[i as usize],
-            "count": day_counts.get(&(i as u8)).copied().unwrap_or(0),
+    let day_breakdown: Vec<serde_json::Value> = (0..7)
+        .map(|i| {
+            serde_json::json!({
+                "day": day_names[i as usize],
+                "count": day_counts.get(&(i as u8)).copied().unwrap_or(0),
+            })
         })
-    }).collect();
-    let hour_breakdown: Vec<serde_json::Value> = (0..24).map(|i| {
-        serde_json::json!({
-            "hour": i,
-            "count": hour_counts.get(&(i as u8)).copied().unwrap_or(0),
+        .collect();
+    let hour_breakdown: Vec<serde_json::Value> = (0..24)
+        .map(|i| {
+            serde_json::json!({
+                "hour": i,
+                "count": hour_counts.get(&(i as u8)).copied().unwrap_or(0),
+            })
         })
-    }).collect();
+        .collect();
 
-    let busiest_day = day_breakdown.iter().max_by_key(|d| d.get("count").and_then(|v| v.as_i64()).unwrap_or(0)).cloned();
-    let busiest_hour = hour_breakdown.iter().max_by_key(|h| h.get("count").and_then(|v| v.as_i64()).unwrap_or(0)).cloned();
+    let busiest_day = day_breakdown
+        .iter()
+        .max_by_key(|d| d.get("count").and_then(|v| v.as_i64()).unwrap_or(0))
+        .cloned();
+    let busiest_hour = hour_breakdown
+        .iter()
+        .max_by_key(|h| h.get("count").and_then(|v| v.as_i64()).unwrap_or(0))
+        .cloned();
     let active_days = daily_counts.len() as i64;
 
     let mut all_dates: Vec<&str> = daily_counts.keys().map(|s| s.as_str()).collect();
@@ -384,7 +434,9 @@ pub fn compute_activity_patterns(sessions: &[Session]) -> serde_json::Value {
             }
         }
     }
-    if all_dates.is_empty() { max_streak = 0; }
+    if all_dates.is_empty() {
+        max_streak = 0;
+    }
 
     serde_json::json!({
         "by_day": day_breakdown,
@@ -400,12 +452,16 @@ pub fn compute_activity_patterns(sessions: &[Session]) -> serde_json::Value {
 pub fn compute_top_sessions(sessions: &[Session]) -> Vec<serde_json::Value> {
     let mut top = Vec::new();
 
-    let sessions_with_duration: Vec<_> = sessions.iter()
-        .filter(|s| s.started_at.is_some() && s.ended_at.is_some()).collect();
+    let sessions_with_duration: Vec<_> = sessions
+        .iter()
+        .filter(|s| s.started_at.is_some() && s.ended_at.is_some())
+        .collect();
     if let Some(longest) = sessions_with_duration.iter().max_by(|a, b| {
         let dur_a = a.ended_at.unwrap_or(0.0) - a.started_at.unwrap_or(0.0);
         let dur_b = b.ended_at.unwrap_or(0.0) - b.started_at.unwrap_or(0.0);
-        dur_b.partial_cmp(&dur_a).unwrap_or(std::cmp::Ordering::Equal)
+        dur_b
+            .partial_cmp(&dur_a)
+            .unwrap_or(std::cmp::Ordering::Equal)
     }) {
         let dur = longest.ended_at.unwrap_or(0.0) - longest.started_at.unwrap_or(0.0);
         top.push(serde_json::json!({
@@ -416,7 +472,10 @@ pub fn compute_top_sessions(sessions: &[Session]) -> Vec<serde_json::Value> {
         }));
     }
 
-    if let Some(most_msgs) = sessions.iter().max_by(|a, b| a.message_count.cmp(&b.message_count)) {
+    if let Some(most_msgs) = sessions
+        .iter()
+        .max_by(|a, b| a.message_count.cmp(&b.message_count))
+    {
         if most_msgs.message_count > 0 {
             top.push(serde_json::json!({
                 "label": "Most messages",
@@ -443,7 +502,10 @@ pub fn compute_top_sessions(sessions: &[Session]) -> Vec<serde_json::Value> {
         }
     }
 
-    if let Some(most_tools) = sessions.iter().max_by(|a, b| a.tool_call_count.cmp(&b.tool_call_count)) {
+    if let Some(most_tools) = sessions
+        .iter()
+        .max_by(|a, b| a.tool_call_count.cmp(&b.tool_call_count))
+    {
         if most_tools.tool_call_count > 0 {
             top.push(serde_json::json!({
                 "label": "Most tool calls",
@@ -466,14 +528,17 @@ fn bar_chart(values: &[i64], max_width: usize) -> Vec<String> {
     if peak == 0 {
         return vec!["".to_string(); values.len()];
     }
-    values.iter().map(|&v| {
-        if v > 0 {
-            let width = ((v as f64 / peak as f64) * max_width as f64).ceil() as usize;
-            "█".repeat(width.max(1))
-        } else {
-            String::new()
-        }
-    }).collect()
+    values
+        .iter()
+        .map(|&v| {
+            if v > 0 {
+                let width = ((v as f64 / peak as f64) * max_width as f64).ceil() as usize;
+                "█".repeat(width.max(1))
+            } else {
+                String::new()
+            }
+        })
+        .collect()
 }
 
 /// Format insights report for terminal display (CLI).
@@ -499,7 +564,12 @@ pub fn format_terminal(
     let padding = 58usize.saturating_sub(period_label.len());
     let left_pad = padding / 2;
     let right_pad = padding - left_pad;
-    lines.push(format!("  ║{left}{label} {right}║", left=" ".repeat(left_pad), label=period_label, right=" ".repeat(right_pad)));
+    lines.push(format!(
+        "  ║{left}{label} {right}║",
+        left = " ".repeat(left_pad),
+        label = period_label,
+        right = " ".repeat(right_pad)
+    ));
     lines.push("  ╚══════════════════════════════════════════════════════════╝".to_string());
     lines.push("".to_string());
 
@@ -507,55 +577,139 @@ pub fn format_terminal(
         overview.get("date_range_start").and_then(|v| v.as_f64()),
         overview.get("date_range_end").and_then(|v| v.as_f64()),
     ) {
-        lines.push(format!("  Period: {} — {}", format_date(Some(start)), format_date(Some(end))));
+        lines.push(format!(
+            "  Period: {} — {}",
+            format_date(Some(start)),
+            format_date(Some(end))
+        ));
         lines.push("".to_string());
     }
 
-    let total_sessions = overview.get("total_sessions").and_then(|v| v.as_i64()).unwrap_or(0);
-    let total_messages = overview.get("total_messages").and_then(|v| v.as_i64()).unwrap_or(0);
-    let total_tool_calls = overview.get("total_tool_calls").and_then(|v| v.as_i64()).unwrap_or(0);
-    let total_input = overview.get("total_input_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
-    let total_output = overview.get("total_output_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
-    let total_tokens = overview.get("total_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
-    let estimated_cost = overview.get("estimated_cost").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let total_hours = overview.get("total_hours").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let avg_duration = overview.get("avg_session_duration").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let avg_msgs = overview.get("avg_messages_per_session").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let user_msgs = overview.get("user_messages").and_then(|v| v.as_i64()).unwrap_or(0);
+    let total_sessions = overview
+        .get("total_sessions")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let total_messages = overview
+        .get("total_messages")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let total_tool_calls = overview
+        .get("total_tool_calls")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let total_input = overview
+        .get("total_input_tokens")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let total_output = overview
+        .get("total_output_tokens")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let total_tokens = overview
+        .get("total_tokens")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let estimated_cost = overview
+        .get("estimated_cost")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let total_hours = overview
+        .get("total_hours")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let avg_duration = overview
+        .get("avg_session_duration")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let avg_msgs = overview
+        .get("avg_messages_per_session")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let user_msgs = overview
+        .get("user_messages")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
     let models_without_pricing: Vec<String> = overview
-        .get("models_without_pricing").and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|e| e.as_str().map(String::from)).collect())
+        .get("models_without_pricing")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|e| e.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
 
     lines.push("  📋 Overview".to_string());
     lines.push("  ----------------------------------------------------------------".to_string());
-    lines.push(format!("  Sessions:          {:<12}  Messages:        {}", total_sessions, format_count(total_messages)));
-    lines.push(format!("  Tool calls:        {:<12}  User messages:   {}", total_tool_calls, format_count(user_msgs)));
-    lines.push(format!("  Input tokens:      {:<12}  Output tokens:   {}", total_input, format_count(total_output)));
+    lines.push(format!(
+        "  Sessions:          {:<12}  Messages:        {}",
+        total_sessions,
+        format_count(total_messages)
+    ));
+    lines.push(format!(
+        "  Tool calls:        {:<12}  User messages:   {}",
+        total_tool_calls,
+        format_count(user_msgs)
+    ));
+    lines.push(format!(
+        "  Input tokens:      {:<12}  Output tokens:   {}",
+        total_input,
+        format_count(total_output)
+    ));
     let cost_str = if models_without_pricing.is_empty() {
         format!("${:.2}", estimated_cost)
     } else {
         format!("${:.2} *", estimated_cost)
     };
-    lines.push(format!("  Total tokens:      {:<12}  Est. cost:       {}", total_tokens, cost_str));
+    lines.push(format!(
+        "  Total tokens:      {:<12}  Est. cost:       {}",
+        total_tokens, cost_str
+    ));
     if total_hours > 0.0 {
-        lines.push(format!("  Active time:       ~{:<11}  Avg session:     ~{}", format_duration(total_hours * 3600.0), format_duration(avg_duration)));
+        lines.push(format!(
+            "  Active time:       ~{:<11}  Avg session:     ~{}",
+            format_duration(total_hours * 3600.0),
+            format_duration(avg_duration)
+        ));
     }
     lines.push(format!("  Avg msgs/session:  {:.1}", avg_msgs));
     lines.push("".to_string());
 
     if !models.is_empty() {
         lines.push("  🤖 Models Used".to_string());
-        lines.push("  ----------------------------------------------------------------".to_string());
-        lines.push(format!("  {:<30} {:>8} {:>12} {:>8}", "Model", "Sessions", "Tokens", "Cost"));
+        lines
+            .push("  ----------------------------------------------------------------".to_string());
+        lines.push(format!(
+            "  {:<30} {:>8} {:>12} {:>8}",
+            "Model", "Sessions", "Tokens", "Cost"
+        ));
         for m in models {
-            let model_name = m.get("model").and_then(|v| v.as_str()).unwrap_or("").chars().take(28).collect::<String>();
+            let model_name = m
+                .get("model")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .chars()
+                .take(28)
+                .collect::<String>();
             let sessions_count = m.get("sessions").and_then(|v| v.as_i64()).unwrap_or(0);
             let tokens = m.get("total_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
             let cost = m.get("cost").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            let has_pricing = m.get("has_pricing").and_then(|v| v.as_bool()).unwrap_or(false);
-            let cost_cell = if has_pricing { format!("${:>6.2}", cost) } else { "     N/A".to_string() };
-            lines.push(format!("  {:<30} {:>8} {:>12} {}", model_name, sessions_count, format_count(tokens), cost_cell));
+            let has_pricing = m
+                .get("has_pricing")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let cost_cell = if has_pricing {
+                format!("${:>6.2}", cost)
+            } else {
+                "     N/A".to_string()
+            };
+            lines.push(format!(
+                "  {:<30} {:>8} {:>12} {}",
+                model_name,
+                sessions_count,
+                format_count(tokens),
+                cost_cell
+            ));
         }
         if !models_without_pricing.is_empty() {
             lines.push("  * Cost N/A for custom/self-hosted models".to_string());
@@ -563,24 +717,42 @@ pub fn format_terminal(
         lines.push("".to_string());
     }
 
-    let show_platform = if platforms.len() > 1 { true } else { platforms.first().and_then(|p| p.get("platform").and_then(|v| v.as_str())) != Some("cli") };
+    let show_platform = if platforms.len() > 1 {
+        true
+    } else {
+        platforms
+            .first()
+            .and_then(|p| p.get("platform").and_then(|v| v.as_str()))
+            != Some("cli")
+    };
     if show_platform {
         lines.push("  📱 Platforms".to_string());
-        lines.push("  ----------------------------------------------------------------".to_string());
-        lines.push(format!("  {:<14} {:>8} {:>10} {:>14}", "Platform", "Sessions", "Messages", "Tokens"));
+        lines
+            .push("  ----------------------------------------------------------------".to_string());
+        lines.push(format!(
+            "  {:<14} {:>8} {:>10} {:>14}",
+            "Platform", "Sessions", "Messages", "Tokens"
+        ));
         for p in platforms {
             let platform = p.get("platform").and_then(|v| v.as_str()).unwrap_or("");
             let sessions_count = p.get("sessions").and_then(|v| v.as_i64()).unwrap_or(0);
             let messages = p.get("messages").and_then(|v| v.as_i64()).unwrap_or(0);
             let tokens = p.get("total_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
-            lines.push(format!("  {:<14} {:>8} {:>10} {:>14}", platform, sessions_count, format_count(messages), format_count(tokens)));
+            lines.push(format!(
+                "  {:<14} {:>8} {:>10} {:>14}",
+                platform,
+                sessions_count,
+                format_count(messages),
+                format_count(tokens)
+            ));
         }
         lines.push("".to_string());
     }
 
     if !tools.is_empty() {
         lines.push("  🔧 Top Tools".to_string());
-        lines.push("  ----------------------------------------------------------------".to_string());
+        lines
+            .push("  ----------------------------------------------------------------".to_string());
         lines.push(format!("  {:<28} {:>8} {:>8}", "Tool", "Calls", "%"));
         for t in tools.iter().take(15) {
             let tool = t.get("tool").and_then(|v| v.as_str()).unwrap_or("");
@@ -596,8 +768,12 @@ pub fn format_terminal(
 
     if let Some(by_day) = activity.get("by_day").and_then(|v| v.as_array()) {
         lines.push("  📅 Activity Patterns".to_string());
-        lines.push("  ----------------------------------------------------------------".to_string());
-        let day_values: Vec<i64> = by_day.iter().filter_map(|d| d.get("count").and_then(|v| v.as_i64())).collect();
+        lines
+            .push("  ----------------------------------------------------------------".to_string());
+        let day_values: Vec<i64> = by_day
+            .iter()
+            .filter_map(|d| d.get("count").and_then(|v| v.as_i64()))
+            .collect();
         let bars = bar_chart(&day_values, 15);
         for (i, d) in by_day.iter().enumerate() {
             let day_name = d.get("day").and_then(|v| v.as_str()).unwrap_or("");
@@ -608,40 +784,58 @@ pub fn format_terminal(
         lines.push("".to_string());
 
         if let Some(by_hour) = activity.get("by_hour").and_then(|v| v.as_array()) {
-            let mut busy_hours: Vec<_> = by_hour.iter().filter_map(|h| {
-                let hour = h.get("hour").and_then(|v| v.as_i64())? as u8;
-                let count = h.get("count").and_then(|v| v.as_i64()).unwrap_or(0);
-                if count > 0 { Some((hour, count)) } else { None }
-            }).collect();
+            let mut busy_hours: Vec<_> = by_hour
+                .iter()
+                .filter_map(|h| {
+                    let hour = h.get("hour").and_then(|v| v.as_i64())? as u8;
+                    let count = h.get("count").and_then(|v| v.as_i64()).unwrap_or(0);
+                    if count > 0 {
+                        Some((hour, count))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
             busy_hours.sort_by(|a, b| b.1.cmp(&a.1));
             let top_hours: Vec<_> = busy_hours.into_iter().take(5).collect();
             if !top_hours.is_empty() {
-                let hour_strs: Vec<String> = top_hours.iter().map(|(hr, count)| {
-                    let ampm = if *hr < 12 { "AM" } else { "PM" };
-                    let display_hr = if *hr % 12 == 0 { 12 } else { *hr % 12 };
-                    format!("{}{} ({})", display_hr, ampm, count)
-                }).collect();
+                let hour_strs: Vec<String> = top_hours
+                    .iter()
+                    .map(|(hr, count)| {
+                        let ampm = if *hr < 12 { "AM" } else { "PM" };
+                        let display_hr = if *hr % 12 == 0 { 12 } else { *hr % 12 };
+                        format!("{}{} ({})", display_hr, ampm, count)
+                    })
+                    .collect();
                 lines.push(format!("  Peak hours: {}", hour_strs.join(", ")));
             }
         }
         if let Some(active_days) = activity.get("active_days").and_then(|v| v.as_i64()) {
-            if active_days > 0 { lines.push(format!("  Active days: {}", active_days)); }
+            if active_days > 0 {
+                lines.push(format!("  Active days: {}", active_days));
+            }
         }
         if let Some(max_streak) = activity.get("max_streak").and_then(|v| v.as_i64()) {
-            if max_streak > 1 { lines.push(format!("  Best streak: {} consecutive days", max_streak)); }
+            if max_streak > 1 {
+                lines.push(format!("  Best streak: {} consecutive days", max_streak));
+            }
         }
         lines.push("".to_string());
     }
 
     if !top_sessions.is_empty() {
         lines.push("  🏆 Notable Sessions".to_string());
-        lines.push("  ----------------------------------------------------------------".to_string());
+        lines
+            .push("  ----------------------------------------------------------------".to_string());
         for ts in top_sessions {
             let label = ts.get("label").and_then(|v| v.as_str()).unwrap_or("");
             let value = ts.get("value").and_then(|v| v.as_str()).unwrap_or("");
             let date = ts.get("date").and_then(|v| v.as_str()).unwrap_or("?");
             let session_id = ts.get("session_id").and_then(|v| v.as_str()).unwrap_or("");
-            lines.push(format!("  {:<20} {:<18} ({}, {})", label, value, date, session_id));
+            lines.push(format!(
+                "  {:<20} {:<18} ({}, {})",
+                label, value, date, session_id
+            ));
         }
         lines.push("".to_string());
     }
@@ -661,38 +855,110 @@ pub fn format_gateway(
     let mut lines = Vec::new();
     lines.push(format!("📊 **Hermes Insights** — Last {} days\n", days));
 
-    let total_sessions = overview.get("total_sessions").and_then(|v| v.as_i64()).unwrap_or(0);
-    let total_messages = overview.get("total_messages").and_then(|v| v.as_i64()).unwrap_or(0);
-    let total_tool_calls = overview.get("total_tool_calls").and_then(|v| v.as_i64()).unwrap_or(0);
-    let total_input = overview.get("total_input_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
-    let total_output = overview.get("total_output_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
-    let total_tokens = overview.get("total_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
-    let estimated_cost = overview.get("estimated_cost").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let total_hours = overview.get("total_hours").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let avg_duration = overview.get("avg_session_duration").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let total_sessions = overview
+        .get("total_sessions")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let total_messages = overview
+        .get("total_messages")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let total_tool_calls = overview
+        .get("total_tool_calls")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let total_input = overview
+        .get("total_input_tokens")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let total_output = overview
+        .get("total_output_tokens")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let total_tokens = overview
+        .get("total_tokens")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let estimated_cost = overview
+        .get("estimated_cost")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let total_hours = overview
+        .get("total_hours")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let avg_duration = overview
+        .get("avg_session_duration")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
     let models_without_pricing: Vec<String> = overview
-        .get("models_without_pricing").and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|e| e.as_str().map(String::from)).collect())
+        .get("models_without_pricing")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|e| e.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
 
-    lines.push(format!("**Sessions:** {} | **Messages:** {} | **Tool calls:** {}", total_sessions, format_count(total_messages), format_count(total_tool_calls)));
-    lines.push(format!("**Tokens:** {} (in: {} / out: {})", format_count(total_tokens), format_count(total_input), format_count(total_output)));
-    let cost_note = if models_without_pricing.is_empty() { String::new() } else { " _(excludes custom/self-hosted models)_".to_string() };
-    lines.push(format!("**Est. cost:** ${:.2}{}\n", estimated_cost, cost_note));
+    lines.push(format!(
+        "**Sessions:** {} | **Messages:** {} | **Tool calls:** {}",
+        total_sessions,
+        format_count(total_messages),
+        format_count(total_tool_calls)
+    ));
+    lines.push(format!(
+        "**Tokens:** {} (in: {} / out: {})",
+        format_count(total_tokens),
+        format_count(total_input),
+        format_count(total_output)
+    ));
+    let cost_note = if models_without_pricing.is_empty() {
+        String::new()
+    } else {
+        " _(excludes custom/self-hosted models)_".to_string()
+    };
+    lines.push(format!(
+        "**Est. cost:** ${:.2}{}\n",
+        estimated_cost, cost_note
+    ));
     if total_hours > 0.0 {
-        lines.push(format!("**Active time:** ~{} | **Avg session:** ~{}\n", format_duration(total_hours * 3600.0), format_duration(avg_duration)));
+        lines.push(format!(
+            "**Active time:** ~{} | **Avg session:** ~{}\n",
+            format_duration(total_hours * 3600.0),
+            format_duration(avg_duration)
+        ));
     }
 
     if !models.is_empty() {
         lines.push("**🤖 Models:**".to_string());
         for m in models.iter().take(5) {
-            let model_name = m.get("model").and_then(|v| v.as_str()).unwrap_or("").chars().take(25).collect::<String>();
+            let model_name = m
+                .get("model")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .chars()
+                .take(25)
+                .collect::<String>();
             let sessions_count = m.get("sessions").and_then(|v| v.as_i64()).unwrap_or(0);
             let tokens = m.get("total_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
             let cost = m.get("cost").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            let has_pricing = m.get("has_pricing").and_then(|v| v.as_bool()).unwrap_or(false);
-            let cost_str = if has_pricing { format!("${:.2}", cost) } else { "N/A".to_string() };
-            lines.push(format!("  {} — {} sessions, {} tokens, {}", model_name, sessions_count, format_count(tokens), cost_str));
+            let has_pricing = m
+                .get("has_pricing")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let cost_str = if has_pricing {
+                format!("${:.2}", cost)
+            } else {
+                "N/A".to_string()
+            };
+            lines.push(format!(
+                "  {} — {} sessions, {} tokens, {}",
+                model_name,
+                sessions_count,
+                format_count(tokens),
+                cost_str
+            ));
         }
         lines.push("".to_string());
     }
@@ -703,7 +969,12 @@ pub fn format_gateway(
             let platform = p.get("platform").and_then(|v| v.as_str()).unwrap_or("");
             let sessions_count = p.get("sessions").and_then(|v| v.as_i64()).unwrap_or(0);
             let messages = p.get("messages").and_then(|v| v.as_i64()).unwrap_or(0);
-            lines.push(format!("  {} — {} sessions, {} msgs", platform, sessions_count, format_count(messages)));
+            lines.push(format!(
+                "  {} — {} sessions, {} msgs",
+                platform,
+                sessions_count,
+                format_count(messages)
+            ));
         }
         lines.push("".to_string());
     }
@@ -714,24 +985,48 @@ pub fn format_gateway(
             let tool = t.get("tool").and_then(|v| v.as_str()).unwrap_or("");
             let count = t.get("count").and_then(|v| v.as_i64()).unwrap_or(0);
             let pct = t.get("percentage").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            lines.push(format!("  {} — {} calls ({:.1}%)", tool, format_count(count), pct));
+            lines.push(format!(
+                "  {} — {} calls ({:.1}%)",
+                tool,
+                format_count(count),
+                pct
+            ));
         }
         lines.push("".to_string());
     }
 
-    if let (Some(busiest_day), Some(busiest_hour)) = (activity.get("busiest_day"), activity.get("busiest_hour")) {
-        let day_name = busiest_day.get("day").and_then(|v| v.as_str()).unwrap_or("");
-        let day_count = busiest_day.get("count").and_then(|v| v.as_i64()).unwrap_or(0);
-        let hour = busiest_hour.get("hour").and_then(|v| v.as_i64()).unwrap_or(0) as u8;
-        let hour_count = busiest_hour.get("count").and_then(|v| v.as_i64()).unwrap_or(0);
+    if let (Some(busiest_day), Some(busiest_hour)) =
+        (activity.get("busiest_day"), activity.get("busiest_hour"))
+    {
+        let day_name = busiest_day
+            .get("day")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let day_count = busiest_day
+            .get("count")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+        let hour = busiest_hour
+            .get("hour")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0) as u8;
+        let hour_count = busiest_hour
+            .get("count")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
         let ampm = if hour < 12 { "AM" } else { "PM" };
-        let display_hr = if hour % 12 == 0 { 12 } else { hour % 12 };
-        lines.push(format!("**📅 Busiest:** {}s ({} sessions), {}{} ({} sessions)", day_name, day_count, display_hr, ampm, hour_count));
+        let display_hr = if hour.is_multiple_of(12) { 12 } else { hour % 12 };
+        lines.push(format!(
+            "**📅 Busiest:** {}s ({} sessions), {}{} ({} sessions)",
+            day_name, day_count, display_hr, ampm, hour_count
+        ));
         if let Some(active_days) = activity.get("active_days").and_then(|v| v.as_i64()) {
             lines.push(format!("**Active days:** {}", active_days));
         }
         if let Some(max_streak) = activity.get("max_streak").and_then(|v| v.as_i64()) {
-            if max_streak > 1 { lines.push(format!("**Best streak:** {} consecutive days", max_streak)); }
+            if max_streak > 1 {
+                lines.push(format!("**Best streak:** {} consecutive days", max_streak));
+            }
         }
     }
 
@@ -768,7 +1063,8 @@ fn rs_compute_platform_breakdown(sessions_json: String) -> String {
 /// Compute tool breakdown (PyO3 wrapper).
 #[pyfunction]
 fn rs_compute_tool_breakdown(tool_usage_json: String) -> String {
-    let tool_usage: Vec<ToolUsageEntry> = serde_json::from_str(&tool_usage_json).unwrap_or_default();
+    let tool_usage: Vec<ToolUsageEntry> =
+        serde_json::from_str(&tool_usage_json).unwrap_or_default();
     serde_json::to_string(&compute_tool_breakdown(&tool_usage)).unwrap_or_default()
 }
 
@@ -798,13 +1094,25 @@ fn rs_format_terminal(
     days: i64,
     source_filter: Option<String>,
 ) -> String {
-    let overview: serde_json::Value = serde_json::from_str(&overview).unwrap_or(serde_json::Value::Null);
+    let overview: serde_json::Value =
+        serde_json::from_str(&overview).unwrap_or(serde_json::Value::Null);
     let models: Vec<serde_json::Value> = serde_json::from_str(&models).unwrap_or_default();
     let platforms: Vec<serde_json::Value> = serde_json::from_str(&platforms).unwrap_or_default();
     let tools: Vec<serde_json::Value> = serde_json::from_str(&tools).unwrap_or_default();
-    let activity: serde_json::Value = serde_json::from_str(&activity).unwrap_or(serde_json::Value::Null);
-    let top_sessions: Vec<serde_json::Value> = serde_json::from_str(&top_sessions).unwrap_or_default();
-    format_terminal(&overview, &models, &platforms, &tools, &activity, &top_sessions, days, source_filter.as_deref())
+    let activity: serde_json::Value =
+        serde_json::from_str(&activity).unwrap_or(serde_json::Value::Null);
+    let top_sessions: Vec<serde_json::Value> =
+        serde_json::from_str(&top_sessions).unwrap_or_default();
+    format_terminal(
+        &overview,
+        &models,
+        &platforms,
+        &tools,
+        &activity,
+        &top_sessions,
+        days,
+        source_filter.as_deref(),
+    )
 }
 
 /// Format insights report for gateway/messaging (PyO3 wrapper).
@@ -817,11 +1125,13 @@ fn rs_format_gateway(
     activity: String,
     days: i64,
 ) -> String {
-    let overview: serde_json::Value = serde_json::from_str(&overview).unwrap_or(serde_json::Value::Null);
+    let overview: serde_json::Value =
+        serde_json::from_str(&overview).unwrap_or(serde_json::Value::Null);
     let models: Vec<serde_json::Value> = serde_json::from_str(&models).unwrap_or_default();
     let platforms: Vec<serde_json::Value> = serde_json::from_str(&platforms).unwrap_or_default();
     let tools: Vec<serde_json::Value> = serde_json::from_str(&tools).unwrap_or_default();
-    let activity: serde_json::Value = serde_json::from_str(&activity).unwrap_or(serde_json::Value::Null);
+    let activity: serde_json::Value =
+        serde_json::from_str(&activity).unwrap_or(serde_json::Value::Null);
     format_gateway(&overview, &models, &platforms, &tools, &activity, days)
 }
 
