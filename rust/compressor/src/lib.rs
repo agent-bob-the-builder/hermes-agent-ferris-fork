@@ -506,6 +506,231 @@ fn unwrap_py<'a>(msg: Option<&'a Bound<'a, PyDict>>) -> Python<'a> {
 }
 
 // ---------------------------------------------------------------------------
+// compress_trajectory_rs — Rust engine for Python trajectory_compressor.py
+// ---------------------------------------------------------------------------
+
+/// Convert a Python trajectory dict (with "from"/"value") to Rust Value format
+/// (with "role"/"content"), preserving other fields as-is.
+fn py_trajectory_to_rust_value(dict: &Bound<'_, PyDict>) -> Value {
+    let mut map = serde_json::Map::new();
+    for (k, v) in dict.iter() {
+        let key = k.extract::<String>().unwrap_or_default();
+        let val = py_to_val(dict.py(), &v);
+        // Remap Python field names to Rust internal format
+        let key = match key.as_str() {
+            "from" => "role".to_string(),
+            "value" => "content".to_string(),
+            other => other.to_string(),
+        };
+        map.insert(key, val);
+    }
+    Value::Object(map)
+}
+
+/// Metrics struct matching Python TrajectoryMetrics.to_dict() format.
+#[derive(serde::Serialize)]
+struct TrajectoryMetricsJson {
+    original_tokens: usize,
+    compressed_tokens: usize,
+    tokens_saved: usize,
+    compression_ratio: f64,
+    original_turns: usize,
+    compressed_turns: usize,
+    turns_removed: usize,
+    #[serde(rename = "turns_compressed_start_idx")]
+    turns_compressed_start_idx: isize,
+    #[serde(rename = "turns_compressed_end_idx")]
+    turns_compressed_end_idx: isize,
+    #[serde(rename = "turns_in_compressed_region")]
+    turns_in_compressed_region: usize,
+    #[serde(rename = "was_compressed")]
+    was_compressed: bool,
+    #[serde(rename = "still_over_limit")]
+    still_over_limit: bool,
+    #[serde(rename = "skipped_under_target")]
+    skipped_under_target: bool,
+    #[serde(rename = "summarization_api_calls")]
+    summarization_api_calls: usize,
+    #[serde(rename = "summarization_errors")]
+    summarization_errors: usize,
+}
+
+/// Compress a trajectory — the Rust engine for Python trajectory_compressor.py.
+///
+/// Accepts Python-format dicts with `from`/`value` fields, converts internally,
+/// runs the full compression pipeline, returns the compressible region for Python
+/// to summarize via LLM.
+///
+/// Returns (compressible_start, compressible_end, original_tokens, middle_content_tokens, metrics_json_str)
+/// - If compression not needed: (None, None, total_tokens, 0, metrics_json)
+/// - If compression done: (start_idx, end_idx, total_tokens, middle_tokens, metrics_json)
+///   where middle content (Python-format turns[start:end]) needs LLM summarization in Python.
+#[pyfunction]
+fn compress_trajectory_rs(
+    _py: Python<'_>,
+    messages: Vec<Bound<'_, PyDict>>,
+    target_max_tokens: usize,
+    summary_target_tokens: usize,
+    protect_first_n: usize,
+    protect_last_n: usize,
+) -> PyResult<(Option<usize>, Option<usize>, usize, usize, String)> {
+    // Step 1: Convert Python dicts to Rust Value format (from→role, value→content)
+    let rust_messages: Vec<Value> = messages
+        .iter()
+        .map(|d| py_trajectory_to_rust_value(d))
+        .collect();
+
+    let n = rust_messages.len();
+
+    // Step 2: Token counting
+    let total_tokens = tokenizer::estimate_messages_tokens(&rust_messages);
+
+    // Step 3: Early exit if compression not needed
+    if total_tokens <= target_max_tokens {
+        let metrics = TrajectoryMetricsJson {
+            original_tokens: total_tokens,
+            compressed_tokens: total_tokens,
+            tokens_saved: 0,
+            compression_ratio: 1.0,
+            original_turns: n,
+            compressed_turns: n,
+            turns_removed: 0,
+            turns_compressed_start_idx: -1,
+            turns_compressed_end_idx: -1,
+            turns_in_compressed_region: 0,
+            was_compressed: false,
+            still_over_limit: false,
+            skipped_under_target: true,
+            summarization_api_calls: 0,
+            summarization_errors: 0,
+        };
+        let metrics_json = serde_json::to_string(&metrics).unwrap_or_default();
+        return Ok((None, None, total_tokens, 0, metrics_json));
+    }
+
+    // Step 4: Find protected indices (same logic as Python's _find_protected_indices)
+    let mut protected = std::collections::HashSet::new();
+    let mut first_system = None;
+    let mut first_human = None;
+    let mut first_gpt = None;
+    let mut first_tool = None;
+
+    for (i, turn) in rust_messages.iter().enumerate() {
+        let role = turn.get("role").and_then(|v| v.as_str()).unwrap_or("");
+        if role == "system" && first_system.is_none() {
+            first_system = Some(i);
+        } else if role == "human" && first_human.is_none() {
+            first_human = Some(i);
+        } else if role == "gpt" && first_gpt.is_none() {
+            first_gpt = Some(i);
+        } else if role == "tool" && first_tool.is_none() {
+            first_tool = Some(i);
+        }
+    }
+
+    // Protect first N occurrences (per config) — protect_first_n means protect the
+    // first occurrence of each role type if protect_first_n > 0
+    if protect_first_n > 0 {
+        if let Some(idx) = first_system {
+            protected.insert(idx);
+        }
+        if let Some(idx) = first_human {
+            protected.insert(idx);
+        }
+        if let Some(idx) = first_gpt {
+            protected.insert(idx);
+        }
+        if let Some(idx) = first_tool {
+            protected.insert(idx);
+        }
+    }
+
+    // Protect last N turns
+    let tail_start = n.saturating_sub(protect_last_n);
+    for i in tail_start..n {
+        protected.insert(i);
+    }
+
+    // Determine compressible region
+    let mid = n / 2;
+    let head_protected: Vec<usize> = protected.iter().filter(|&&i| i < mid).copied().collect();
+    let tail_protected: Vec<usize> = protected.iter().filter(|&&i| i >= mid).copied().collect();
+
+    let compressible_start = head_protected.iter().max().copied().unwrap_or(0) + 1;
+    let compressible_end = tail_protected.iter().min().copied().unwrap_or(n);
+
+    // If nothing to compress, return early
+    if compressible_start >= compressible_end {
+        let metrics = TrajectoryMetricsJson {
+            original_tokens: total_tokens,
+            compressed_tokens: total_tokens,
+            tokens_saved: 0,
+            compression_ratio: 1.0,
+            original_turns: n,
+            compressed_turns: n,
+            turns_removed: 0,
+            turns_compressed_start_idx: -1,
+            turns_compressed_end_idx: -1,
+            turns_in_compressed_region: 0,
+            was_compressed: false,
+            still_over_limit: total_tokens > target_max_tokens,
+            skipped_under_target: false,
+            summarization_api_calls: 0,
+            summarization_errors: 0,
+        };
+        let metrics_json = serde_json::to_string(&metrics).unwrap_or_default();
+        return Ok((None, None, total_tokens, 0, metrics_json));
+    }
+
+    // Step 5: Token accumulation (same as Python)
+    let tokens_to_save = total_tokens - target_max_tokens;
+    let target_tokens_to_compress = tokens_to_save + summary_target_tokens;
+
+    let mut accumulated = 0;
+    let mut compress_until = compressible_start;
+
+    for i in compressible_start..compressible_end {
+        accumulated += tokenizer::estimate_message_dict_tokens(&rust_messages[i]);
+        compress_until = i + 1;
+        if accumulated >= target_tokens_to_compress {
+            break;
+        }
+    }
+
+    // If we still don't have enough savings, compress the entire compressible region
+    if accumulated < target_tokens_to_compress && compress_until < compressible_end {
+        compress_until = compressible_end;
+        accumulated = (compressible_start..compressible_end)
+            .map(|i| tokenizer::estimate_message_dict_tokens(&rust_messages[i]))
+            .sum();
+    }
+
+    // Step 6: Build metrics JSON
+    let turns_in_region = compress_until - compressible_start;
+    let metrics = TrajectoryMetricsJson {
+        original_tokens: total_tokens,
+        compressed_tokens: total_tokens, // Python will update after summarization
+        tokens_saved: 0,                 // Python will update after summarization
+        compression_ratio: 1.0,          // Python will update after summarization
+        original_turns: n,
+        compressed_turns: n,             // Python will update after summarization
+        turns_removed: 0,                // Python will update after summarization
+        turns_compressed_start_idx: compressible_start as isize,
+        turns_compressed_end_idx: compress_until as isize,
+        turns_in_compressed_region: turns_in_region,
+        was_compressed: true,
+        still_over_limit: false,
+        skipped_under_target: false,
+        summarization_api_calls: 0,
+        summarization_errors: 0,
+    };
+    let metrics_json = serde_json::to_string(&metrics).unwrap_or_default();
+
+    // Step 7: Return compressible region — Python will handle summarization
+    Ok((Some(compressible_start), Some(compress_until), total_tokens, accumulated, metrics_json))
+}
+
+// ---------------------------------------------------------------------------
 // Module definition
 // ---------------------------------------------------------------------------
 
@@ -668,6 +893,7 @@ fn compressor_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(compress_start, m)?)?;
     m.add_function(wrap_pyfunction!(compress_check, m)?)?;
     m.add_function(wrap_pyfunction!(compress_cancel, m)?)?;
+    m.add_function(wrap_pyfunction!(compress_trajectory_rs, m)?)?;
     m.add_class::<PyContextCompressor>()?;
     Ok(())
 }

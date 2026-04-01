@@ -4,6 +4,7 @@ members = [
     "ansi_strip_rs",
     "checkpoint_manager_rs",
     "compressor",
+    "file_atomics_rs",
     "file_ops_rs",
     "fuzzy_match_rs",
     "hermes_state_rs",

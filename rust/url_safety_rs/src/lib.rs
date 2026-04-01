@@ -123,7 +123,7 @@ pub fn is_safe_url(url: &str) -> bool {
 // ============================================================================
 
 #[pymodule]
-fn _url_safety_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn url_safety_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(is_safe_url, m)?)?;
     Ok(())
 }

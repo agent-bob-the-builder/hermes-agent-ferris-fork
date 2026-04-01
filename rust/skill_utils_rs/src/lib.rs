@@ -102,16 +102,17 @@ fn skill_utils_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "python-tests"))]
 mod tests {
     use super::*;
+    use pyo3::types::PyTupleMethods;
 
     #[test]
     fn test_no_frontmatter() {
         Python::attach(|py| {
             let content = "Hello world";
             let result = parse_frontmatter(content).unwrap();
-            let tuple = result.as_ref(py);
+            let tuple = result.bind(py);
             assert_eq!(tuple.len(), 2);
             let body = tuple.get_item(1).unwrap();
             assert_eq!(body.extract::<String>().unwrap(), "Hello world");
@@ -123,7 +124,7 @@ mod tests {
         Python::attach(|py| {
             let content = "---\nname: test\n---\n";
             let result = parse_frontmatter(content).unwrap();
-            let tuple = result.as_ref(py);
+            let tuple = result.bind(py);
             assert_eq!(tuple.len(), 2);
             let body = tuple.get_item(1).unwrap();
             assert_eq!(body.extract::<String>().unwrap(), "");

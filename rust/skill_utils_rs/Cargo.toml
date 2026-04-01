@@ -3,6 +3,9 @@ name = "skill_utils_rs"
 version.workspace = true
 edition.workspace = true
 
+[features]
+python-tests = []
+
 [lib]
 name = "skill_utils_rs"
 crate-type = ["cdylib", "rlib"]

@@ -4,8 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "hermes_time_rs"
+name = "_hermes_time_rs"
 crate-type = ["cdylib"]
+
+[package.metadata.maturin]
+name = "hermes_time_rs"
 
 [dependencies]
 pyo3 = { version = "0.28", features = ["extension-module", "abi3-py311"] }

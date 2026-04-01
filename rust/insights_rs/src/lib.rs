@@ -1136,7 +1136,7 @@ fn rs_format_gateway(
 }
 
 #[pymodule]
-fn rust_insights(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn insights_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(rs_compute_overview, m)?)?;
     m.add_function(wrap_pyfunction!(rs_compute_model_breakdown, m)?)?;
     m.add_function(wrap_pyfunction!(rs_compute_platform_breakdown, m)?)?;
