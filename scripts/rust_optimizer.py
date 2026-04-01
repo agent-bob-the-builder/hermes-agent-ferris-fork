@@ -17,21 +17,30 @@ from typing import Any
 WORKSPACE = Path("/root/.hermes/hermes-agent-ferris-fork/rust")
 CRATES = [
     "ansi_strip_rs",
+    "approval_rs",
+    "checkpoint_manager_rs",
     "compressor",
+    "context_refs_rs",
     "file_ops_rs",
     "fuzzy_match_rs",
     "hermes_state_rs",
+    "hermes_time_rs",
     "honcho_http_rs",
+    "insights_rs",
+    "model_metadata_rs",
     "model_tools_rs",
     "patch_parser_rs",
     "prompt_builder_rs",
     "redact_rs",
-    "_retry_state_machine_rs",
+    "skill_utils_rs",
     "skin_engine_rs",
     "subprocess_rs",
+    "title_generator_rs",
     "tool_dispatch_rs",
-    "context_refs_rs",
-    "approval_rs",
+    "url_safety_python_rs",
+    "url_safety_rs",
+    "usage_pricing_rs",
+    "_retry_state_machine_rs",
 ]
 
 REPORT: list[str] = []

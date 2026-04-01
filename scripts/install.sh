@@ -1112,7 +1112,16 @@ build_rust_extensions() {
     log_info "Building PyO3 extensions via maturin..."
 
     local ext_count=0
-    for crate in compressor model_tools_rs prompt_builder_rs; do
+    # Build all 24 workspace crates with pyproject.toml + maturin build backend
+    for crate in \
+        ansi_strip_rs approval_rs checkpoint_manager_rs compressor \
+        context_refs_rs file_ops_rs fuzzy_match_rs hermes_state_rs \
+        hermes_time_rs honcho_http_rs insights_rs model_metadata_rs \
+        model_tools_rs patch_parser_rs prompt_builder_rs redact_rs \
+        skill_utils_rs skin_engine_rs subprocess_rs title_generator_rs \
+        tool_dispatch_rs url_safety_python_rs url_safety_rs \
+        usage_pricing_rs _retry_state_machine_rs \
+    ; do
         if [ -d "rust/$crate" ] && [ -f "rust/$crate/Cargo.toml" ]; then
             log_info "  Building rust/$crate ..."
             if maturin develop --manifest-path "rust/$crate/Cargo.toml" --release 2>/dev/null; then
@@ -1135,7 +1144,15 @@ build_rust_extensions() {
     fi
 
     local all_ok=true
-    for ext in compressor_rs model_tools_rs prompt_builder_rs; do
+    for ext in \
+        ansi_strip_rs approval_rs checkpoint_manager_rs compressor_rs \
+        _context_refs_rs _file_ops_rs _fuzzy_match_rs _hermes_state_rs \
+        hermes_time_rs honcho_http_rs insights_rs model_metadata_rs \
+        _model_tools_rs _patch_parser_rs _prompt_builder_rs redact_rs \
+        skill_utils_rs skin_engine_rs subprocess_rs title_generator_rs \
+        tool_dispatch_rs url_safety_python_rs url_safety_rs \
+        usage_pricing_rs _retry_state_machine_rs \
+    ; do
         if $py -c "import $ext" 2>/dev/null; then
             log_success "  $ext loaded OK"
         else
