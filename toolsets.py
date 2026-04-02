@@ -177,7 +177,13 @@ TOOLSETS = {
         "tools": ["session_search"],
         "includes": []
     },
-    
+
+    "hydrabase": {
+        "description": "Hydrabase P2P knowledge graph — connect to a Hydrabase node and store/retrieve Ferris agent memory facts across a distributed peer network",
+        "tools": ["hydrabase"],
+        "includes": []
+    },
+
     "clarify": {
         "description": "Ask the user clarifying questions (multiple-choice or open-ended)",
         "tools": ["clarify"],
