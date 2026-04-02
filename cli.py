@@ -1677,6 +1677,28 @@ class HermesCLI:
                 pass
             return changed
 
+        if resolved_provider in {"opencode-zen", "opencode-go"}:
+            try:
+                from hermes_cli.models import normalize_opencode_model_id, opencode_model_api_mode
+
+                canonical = normalize_opencode_model_id(resolved_provider, current_model)
+                if canonical and canonical != current_model:
+                    if not self._model_is_default:
+                        self.console.print(
+                            f"[yellow]⚠️  Stripped provider prefix from '{current_model}'; using '{canonical}' for {resolved_provider}.[/]"
+                        )
+                    self.model = canonical
+                    current_model = canonical
+                    changed = True
+
+                resolved_mode = opencode_model_api_mode(resolved_provider, current_model)
+                if resolved_mode != self.api_mode:
+                    self.api_mode = resolved_mode
+                    changed = True
+            except Exception:
+                pass
+            return changed
+
         if resolved_provider != "openai-codex":
             return False
 
@@ -8740,6 +8762,12 @@ def main(
                     if response:
                         print(response)
                     print(f"\nsession_id: {cli.session_id}")
+                    
+                    # Ensure proper exit code for automation wrappers
+                    sys.exit(1 if isinstance(result, dict) and result.get("failed") else 0)
+            
+            # Exit with error code if credentials or agent init fails
+            sys.exit(1)
         else:
             cli.show_banner()
             cli.console.print(f"[bold blue]Query:[/] {query}")
