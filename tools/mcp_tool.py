@@ -815,7 +815,7 @@ class MCPServerTask:
         After the initial ``await`` (list_tools), all mutations are synchronous
         — atomic from the event loop's perspective.
         """
-        from tools.registry import registry
+        from tools.registry import registry, tool_error
         from toolsets import TOOLSETS
 
         async with self._refresh_lock:
@@ -1353,7 +1353,7 @@ def _make_read_resource_handler(server_name: str, tool_timeout: float):
 
         uri = args.get("uri")
         if not uri:
-            return json.dumps({"error": "Missing required parameter 'uri'"})
+            return tool_error("Missing required parameter 'uri'")
 
         async def _call():
             result = await server.session.read_resource(uri)
@@ -1442,7 +1442,7 @@ def _make_get_prompt_handler(server_name: str, tool_timeout: float):
 
         name = args.get("name")
         if not name:
-            return json.dumps({"error": "Missing required parameter 'name'"})
+            return tool_error("Missing required parameter 'name'")
         arguments = args.get("arguments", {})
 
         async def _call():
@@ -1751,7 +1751,7 @@ def _register_server_tools(name: str, server: MCPServerTask, config: dict) -> Li
     Returns:
         List of registered prefixed tool names.
     """
-    from tools.registry import registry
+    from tools.registry import registry, tool_error
     from toolsets import create_custom_toolset, TOOLSETS
 
     registered_names: List[str] = []

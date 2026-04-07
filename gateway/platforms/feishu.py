@@ -60,7 +60,6 @@ try:
         CreateMessageRequestBody,
         GetChatRequest,
         GetMessageRequest,
-        GetImageRequest,
         GetMessageResourceRequest,
         P2ImMessageMessageReadV1,
         ReplyMessageRequest,
@@ -386,10 +385,6 @@ def _coerce_int(value: Any, default: Optional[int] = None, min_value: int = 0) -
 def _coerce_required_int(value: Any, default: int, min_value: int = 0) -> int:
     parsed = _coerce_int(value, default=default, min_value=min_value)
     return default if parsed is None else parsed
-
-
-def _is_loop_ready(loop: Optional[asyncio.AbstractEventLoop]) -> bool:
-    return loop is not None and not bool(getattr(loop, "is_closed", lambda: False)())
 
 
 # ---------------------------------------------------------------------------

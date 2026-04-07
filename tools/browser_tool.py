@@ -192,7 +192,7 @@ def _resolve_cdp_override(cdp_url: str) -> str:
         return raw
 
     discovery_url = raw
-    if lowered.startswith("ws://") or lowered.startswith("wss://"):
+    if lowered.startswith(("ws://", "wss://")):
         if raw.count(":") == 2 and raw.rstrip("/").rsplit(":", 1)[-1].isdigit() and "/" not in raw.split(":", 2)[-1]:
             discovery_url = ("http://" if lowered.startswith("ws://") else "https://") + raw.split("://", 1)[1]
         else:
@@ -460,8 +460,6 @@ def _browser_cleanup_thread_worker():
     Runs every 30 seconds and checks for sessions that haven't been used
     within the BROWSER_SESSION_INACTIVITY_TIMEOUT period.
     """
-    global _cleanup_running
-    
     while _cleanup_running:
         try:
             _cleanup_inactive_browser_sessions()
@@ -1622,7 +1620,7 @@ def _camofox_eval(expression: str, task_id: Optional[str] = None) -> str:
                 "error": "JavaScript evaluation is not supported by this Camofox server. "
                          "Use browser_snapshot or browser_vision to inspect page state.",
             })
-        return json.dumps({"success": False, "error": error_msg})
+        return tool_error(error_msg, success=False)
 
 
 def _maybe_start_recording(task_id: str):
@@ -2028,16 +2026,6 @@ def cleanup_all_browsers() -> None:
         cleanup_browser(task_id)
 
 
-def get_active_browser_sessions() -> Dict[str, Dict[str, str]]:
-    """
-    Get information about active browser sessions.
-    
-    Returns:
-        Dict mapping task_id to session info (session_name, bb_session_id, cdp_url)
-    """
-    with _cleanup_lock:
-        return _active_sessions.copy()
-
 
 # ============================================================================
 # Requirements Check
@@ -2116,7 +2104,7 @@ if __name__ == "__main__":
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
-from tools.registry import registry
+from tools.registry import registry, tool_error
 
 _BROWSER_SCHEMA_MAP = {s["name"]: s for s in BROWSER_TOOL_SCHEMAS}
 

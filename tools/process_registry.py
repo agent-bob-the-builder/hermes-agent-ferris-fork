@@ -714,11 +714,6 @@ class ProcessRegistry:
             oldest_id = min(self._finished, key=lambda sid: self._finished[sid].started_at)
             del self._finished[oldest_id]
 
-    def cleanup_expired(self):
-        """Public method to prune expired finished sessions."""
-        with self._lock:
-            self._prune_if_needed()
-
     # ----- Checkpoint (crash recovery) -----
 
     def _write_checkpoint(self):
@@ -826,7 +821,7 @@ process_registry = ProcessRegistry()
 # ---------------------------------------------------------------------------
 # Registry -- the "process" tool schema + handler
 # ---------------------------------------------------------------------------
-from tools.registry import registry
+from tools.registry import registry, tool_error
 
 PROCESS_SCHEMA = {
     "name": "process",
@@ -884,7 +879,7 @@ def _handle_process(args, **kw):
         return _json.dumps({"processes": process_registry.list_sessions(task_id=task_id)}, ensure_ascii=False)
     elif action in ("poll", "log", "wait", "kill", "write", "submit"):
         if not session_id:
-            return _json.dumps({"error": f"session_id is required for {action}"}, ensure_ascii=False)
+            return tool_error(f"session_id is required for {action}")
         if action == "poll":
             return _json.dumps(process_registry.poll(session_id), ensure_ascii=False)
         elif action == "log":
@@ -898,7 +893,7 @@ def _handle_process(args, **kw):
             return _json.dumps(process_registry.write_stdin(session_id, str(args.get("data", ""))), ensure_ascii=False)
         elif action == "submit":
             return _json.dumps(process_registry.submit_stdin(session_id, str(args.get("data", ""))), ensure_ascii=False)
-    return _json.dumps({"error": f"Unknown process action: {action}. Use: list, poll, log, wait, kill, write, submit"}, ensure_ascii=False)
+    return tool_error(f"Unknown process action: {action}. Use: list, poll, log, wait, kill, write, submit")
 
 
 registry.register(

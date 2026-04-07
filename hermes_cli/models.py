@@ -44,7 +44,7 @@ OPENROUTER_MODELS: list[tuple[str, str]] = [
     ("stepfun/step-3.5-flash",          ""),
     ("minimax/minimax-m2.7",            ""),
     ("minimax/minimax-m2.5",            ""),
-    ("z-ai/glm-5",                      ""),
+    ("z-ai/glm-5.1",                    ""),
     ("z-ai/glm-5-turbo",                ""),
     ("moonshotai/kimi-k2.5",            ""),
     ("x-ai/grok-4.20-beta",             ""),
@@ -75,7 +75,7 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
         "stepfun/step-3.5-flash",
         "minimax/minimax-m2.7",
         "minimax/minimax-m2.5",
-        "z-ai/glm-5",
+        "z-ai/glm-5.1",
         "z-ai/glm-5-turbo",
         "moonshotai/kimi-k2.5",
         "x-ai/grok-4.20-beta",
@@ -1129,10 +1129,6 @@ def _payload_items(payload: Any) -> list[dict[str, Any]]:
         if isinstance(data, list):
             return [item for item in data if isinstance(item, dict)]
     return []
-
-
-def _extract_model_ids(payload: Any) -> list[str]:
-    return [item.get("id", "") for item in _payload_items(payload) if item.get("id")]
 
 
 def copilot_default_headers() -> dict[str, str]:

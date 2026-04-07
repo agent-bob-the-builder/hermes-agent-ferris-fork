@@ -21,7 +21,6 @@ from typing import Optional, Dict, Any
 
 from hermes_cli.nous_subscription import (
     apply_nous_provider_defaults,
-    get_nous_subscription_explainer_lines,
     get_nous_subscription_features,
 )
 from tools.tool_backend_helpers import managed_nous_tools_enabled
@@ -41,18 +40,6 @@ def _model_config_dict(config: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(current_model, str) and current_model.strip():
         return {"default": current_model.strip()}
     return {}
-
-
-def _set_model_provider(
-    config: Dict[str, Any], provider_id: str, base_url: str = ""
-) -> None:
-    model_cfg = _model_config_dict(config)
-    model_cfg["provider"] = provider_id
-    if base_url:
-        model_cfg["base_url"] = base_url.rstrip("/")
-    else:
-        model_cfg.pop("base_url", None)
-    config["model"] = model_cfg
 
 
 def _set_default_model(config: Dict[str, Any], model_name: str) -> None:
@@ -325,16 +312,6 @@ def _setup_provider_model_selection(config, provider_id, current_model, prompt_c
         model_cfg = _model_config_dict(config)
         model_cfg["api_mode"] = opencode_model_api_mode(provider_id, selected_model)
         config["model"] = model_cfg
-
-
-def _sync_model_from_disk(config: Dict[str, Any]) -> None:
-    disk_model = load_config().get("model")
-    if isinstance(disk_model, dict):
-        model_cfg = _model_config_dict(config)
-        model_cfg.update(disk_model)
-        config["model"] = model_cfg
-    elif isinstance(disk_model, str) and disk_model.strip():
-        _set_default_model(config, disk_model.strip())
 
 
 # Import config helpers
@@ -1347,8 +1324,6 @@ def setup_terminal_backend(config: dict):
     keep_current_idx = next_idx
     terminal_choices.append(f"Keep current ({current_backend})")
     idx_to_backend[keep_current_idx] = current_backend
-
-    default_terminal = backend_to_idx.get(current_backend, 0)
 
     terminal_idx = prompt_choice(
         "Select terminal backend:", terminal_choices, keep_current_idx
