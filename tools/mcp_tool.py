@@ -1344,6 +1344,8 @@ def _make_read_resource_handler(server_name: str, tool_timeout: float):
     """Return a sync handler that reads a resource by URI from an MCP server."""
 
     def _handler(args: dict, **kwargs) -> str:
+        from tools.registry import tool_error
+
         with _lock:
             server = _servers.get(server_name)
         if not server or not server.session:
@@ -1433,6 +1435,8 @@ def _make_get_prompt_handler(server_name: str, tool_timeout: float):
     """Return a sync handler that gets a prompt by name from an MCP server."""
 
     def _handler(args: dict, **kwargs) -> str:
+        from tools.registry import tool_error
+
         with _lock:
             server = _servers.get(server_name)
         if not server or not server.session:
