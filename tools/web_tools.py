@@ -1874,6 +1874,7 @@ registry.register(
     check_fn=check_web_api_key,
     requires_env=["EXA_API_KEY", "PARALLEL_API_KEY", "FIRECRAWL_API_KEY", "TAVILY_API_KEY"],
     emoji="🔍",
+    max_result_size_chars=100_000,
 )
 registry.register(
     name="web_extract",
@@ -1885,6 +1886,7 @@ registry.register(
     requires_env=["EXA_API_KEY", "PARALLEL_API_KEY", "FIRECRAWL_API_KEY", "TAVILY_API_KEY"],
     is_async=True,
     emoji="📄",
+    max_result_size_chars=100_000,
 )
 
 def __getattr__(name: str):
