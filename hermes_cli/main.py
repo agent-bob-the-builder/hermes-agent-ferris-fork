@@ -646,6 +646,7 @@ def cmd_chat(args):
         "verbose": args.verbose,
         "quiet": getattr(args, "quiet", False),
         "query": args.query,
+        "image": getattr(args, "image", None),
         "resume": getattr(args, "resume", None),
         "worktree": getattr(args, "worktree", False),
         "checkpoints": getattr(args, "checkpoints", False),
@@ -1811,7 +1812,10 @@ def _set_reasoning_effort(config, effort: str) -> None:
 
 def _prompt_reasoning_effort_selection(efforts, current_effort=""):
     """Prompt for a reasoning effort. Returns effort, 'none', or None to keep current."""
-    ordered = list(dict.fromkeys(str(effort).strip().lower() for effort in efforts if str(effort).strip()))
+    deduped = list(dict.fromkeys(str(effort).strip().lower() for effort in efforts if str(effort).strip()))
+    canonical_order = ("minimal", "low", "medium", "high", "xhigh")
+    ordered = [effort for effort in canonical_order if effort in deduped]
+    ordered.extend(effort for effort in deduped if effort not in canonical_order)
     if not ordered:
         return None
 
@@ -3760,7 +3764,7 @@ def cmd_update(args):
         # running gateway needs restarting to pick up the new code.
         try:
             from hermes_cli.gateway import (
-                is_macos, is_linux, _ensure_user_systemd_env,
+                is_macos, supports_systemd_services, _ensure_user_systemd_env,
                 find_gateway_pids,
                 _get_service_pids,
             )
@@ -3771,7 +3775,7 @@ def cmd_update(args):
 
             # --- Systemd services (Linux) ---
             # Discover all hermes-gateway* units (default + profiles)
-            if is_linux():
+            if supports_systemd_services():
                 try:
                     _ensure_user_systemd_env()
                 except Exception:
@@ -4287,6 +4291,10 @@ For more help on a command:
     chat_parser.add_argument(
         "-q", "--query",
         help="Single query (non-interactive mode)"
+    )
+    chat_parser.add_argument(
+        "--image",
+        help="Optional local image path to attach to a single query"
     )
     chat_parser.add_argument(
         "-m", "--model",
