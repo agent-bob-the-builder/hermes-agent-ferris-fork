@@ -1438,8 +1438,12 @@ def terminal_tool(
                     if _gw_platform and not check_interval:
                         _gw_chat_id = _gse("HERMES_SESSION_CHAT_ID", "")
                         _gw_thread_id = _gse("HERMES_SESSION_THREAD_ID", "")
+                        _gw_user_id = _gse("HERMES_SESSION_USER_ID", "")
+                        _gw_user_name = _gse("HERMES_SESSION_USER_NAME", "")
                         proc_session.watcher_platform = _gw_platform
                         proc_session.watcher_chat_id = _gw_chat_id
+                        proc_session.watcher_user_id = _gw_user_id
+                        proc_session.watcher_user_name = _gw_user_name
                         proc_session.watcher_thread_id = _gw_thread_id
                         proc_session.watcher_interval = 5
                         process_registry.pending_watchers.append({
@@ -1448,6 +1452,8 @@ def terminal_tool(
                             "session_key": session_key,
                             "platform": _gw_platform,
                             "chat_id": _gw_chat_id,
+                            "user_id": _gw_user_id,
+                            "user_name": _gw_user_name,
                             "thread_id": _gw_thread_id,
                             "notify_on_complete": True,
                         })
@@ -1468,10 +1474,14 @@ def terminal_tool(
                     watcher_platform = _gse2("HERMES_SESSION_PLATFORM", "")
                     watcher_chat_id = _gse2("HERMES_SESSION_CHAT_ID", "")
                     watcher_thread_id = _gse2("HERMES_SESSION_THREAD_ID", "")
+                    watcher_user_id = _gse2("HERMES_SESSION_USER_ID", "")
+                    watcher_user_name = _gse2("HERMES_SESSION_USER_NAME", "")
 
                     # Store on session for checkpoint persistence
                     proc_session.watcher_platform = watcher_platform
                     proc_session.watcher_chat_id = watcher_chat_id
+                    proc_session.watcher_user_id = watcher_user_id
+                    proc_session.watcher_user_name = watcher_user_name
                     proc_session.watcher_thread_id = watcher_thread_id
                     proc_session.watcher_interval = effective_interval
 
@@ -1481,6 +1491,8 @@ def terminal_tool(
                         "session_key": session_key,
                         "platform": watcher_platform,
                         "chat_id": watcher_chat_id,
+                        "user_id": watcher_user_id,
+                        "user_name": watcher_user_name,
                         "thread_id": watcher_thread_id,
                     })
 
