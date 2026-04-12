@@ -7,11 +7,11 @@ const config: Config = {
   tagline: 'The self-improving AI agent',
   favicon: 'img/favicon.ico',
 
-  url: 'https://hermes-agent.nousresearch.com',
+  url: 'https://agent-bob-the-builder.github.io/hermes-agent-ferris-fork',
   baseUrl: '/docs/',
 
-  organizationName: 'NousResearch',
-  projectName: 'hermes-agent',
+  organizationName: 'agent-bob-the-builder',
+  projectName: 'hermes-agent-ferris-fork',
 
   onBrokenLinks: 'warn',
 
@@ -85,17 +85,12 @@ const config: Config = {
           label: 'Docs',
         },
         {
-          to: '/skills',
+          to: '/docs/skills',
           label: 'Skills',
           position: 'left',
         },
         {
-          href: 'https://hermes-agent.nousresearch.com',
-          label: 'Home',
-          position: 'right',
-        },
-        {
-          href: 'https://github.com/NousResearch/hermes-agent',
+          href: 'https://github.com/agent-bob-the-builder/hermes-agent-ferris-fork',
           label: 'GitHub',
           position: 'right',
         },
@@ -134,7 +129,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `Built by <a href="https://nousresearch.com">Nous Research</a> · MIT License · ${new Date().getFullYear()}`,
+      copyright: `Built by <a href="https://github.com/agent-bob-the-builder">agent-bob-the-builder</a> · Forked from <a href="https://github.com/NousResearch/hermes-agent">Nous Research</a> · MIT License · ${new Date().getFullYear()}`,
     },
     prism: {
       theme: prismThemes.github,
