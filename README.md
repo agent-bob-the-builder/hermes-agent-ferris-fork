@@ -6,6 +6,19 @@ A performance oriented Rust fork of [Hermes Agent](https://github.com/NousResear
 
 ---
 
+## Performance Highlights
+
+**Drop-in Rust acceleration.** 24 PyO3 crates replace hot-path Python — zero behaviour change, real speedups on every agent turn.
+
+| Hot path | Result |
+|---|---|
+| Tool dispatch (`model_tools_rs`) | **~2% faster** per call |
+| Subprocess orchestration (`subprocess_rs`) | **Equivalent** — within noise |
+
+> See [BENCHMARKS.md](./BENCHMARKS.md) for full data.
+
+---
+
 ## What & Why
 
 24 PyO3 extension crates replace hot-path Python code — no visible behaviour change, but meaningfully faster on every agent turn. All wired crates use transparent Python fallbacks; if a crate is missing or fails to load, the Python implementation runs instead with no visible difference.
