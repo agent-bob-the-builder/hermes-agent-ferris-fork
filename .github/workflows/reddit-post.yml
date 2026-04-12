@@ -1,0 +1,56 @@
+name: Post to Reddit
+
+on:
+  workflow_dispatch:
+    inputs:
+      subreddit:
+        description: 'Subreddit (e.g. LocalLLaMA, AIAssistant)'
+        required: true
+        default: 'LocalLLaMA'
+      title:
+        description: 'Post title'
+        required: true
+        default: 'I forked Hermes Agent and rewrote 24 hot paths in Rust — zero behavior change, meaningfully faster'
+      body_file:
+        description: 'Path to body file in repo (e.g. .reddit/r-local-llama.md)'
+        required: true
+        default: '.reddit/r-local-llama.md'
+      flair:
+        description: 'Post flair (optional)'
+        required: false
+        default: ''
+
+jobs:
+  post-reddit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Read post body
+        id: body
+        run: |
+          BODY=$(cat "${{ github.event.inputs.body_file }}")
+          BODY="${BODY//$'\n'/'%0A'}"
+          echo "body::$BODY"
+
+      - name: Post to Reddit
+        env:
+          REDDIT_USERNAME: ${{ secrets.REDDIT_USERNAME }}
+          REDDIT_PASSWORD: ${{ secrets.REDDIT_PASSWORD }}
+          REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
+          REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+        run: |
+          # Get access token via OAuth
+          TOKEN=$(curl -s -X POST "https://www.reddit.com/api/v1/access_token" \
+            -u "$REDDIT_CLIENT_ID:$REDDIT_CLIENT_SECRET" \
+            -d "grant_type=password&username=$REDDIT_USERNAME&password=$REDDIT_PASSWORD" \
+            -H "User-Agent: HermesFerrisFork/1.0" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+          # Post to subreddit
+          curl -s -X POST "https://oauth.reddit.com/r/${{ github.event.inputs.subreddit }}/submit" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "User-Agent: HermesFerrisFork/1.0" \
+            -d "title=${{ github.event.inputs.title }}&text=$(cat ${{ github.event.inputs.body_file }})&sr=${{ github.event.inputs.subreddit }}&kind=self" \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print('Posted! URL:', d.get('json',{}).get('data',{}).get('url','no url'))"
