@@ -1735,9 +1735,6 @@ def check_auxiliary_model() -> bool:
         return False
 
 
-def get_debug_session_info() -> Dict[str, Any]:
-    """Get information about the current debug session."""
-    return _debug.get_session_info()
 
 
 if __name__ == "__main__":
