@@ -1044,7 +1044,7 @@ def detect_provider_for_model(
             return (resolved_provider, default_models[0])
 
     # Aggregators list other providers' models — never auto-switch TO them
-    _AGGREGATORS = {"nous", "openrouter"}
+    _AGGREGATORS = {"nous", "openrouter", "ai-gateway", "copilot", "kilocode"}
 
     # If the model belongs to the current provider's catalog, don't suggest switching
     current_models = _PROVIDER_MODELS.get(current_provider, [])
@@ -1284,6 +1284,10 @@ def provider_model_ids(provider: Optional[str], *, force_refresh: bool = False) 
             return live
     if normalized == "ai-gateway":
         live = _fetch_ai_gateway_models()
+        if live:
+            return live
+    if normalized == "ollama-cloud":
+        live = fetch_ollama_cloud_models(force_refresh=force_refresh)
         if live:
             return live
     if normalized == "custom":
@@ -1570,6 +1574,11 @@ def copilot_model_api_mode(
     primary signal.  Falls back to the catalog's ``supported_endpoints``
     only for models not covered by the pattern check.
     """
+    # Fetch the catalog once so normalize + endpoint check share it
+    # (avoids two redundant network calls for non-GPT-5 models).
+    if catalog is None and api_key:
+        catalog = fetch_github_model_catalog(api_key=api_key)
+
     normalized = normalize_copilot_model_id(model_id, catalog=catalog, api_key=api_key)
     if not normalized:
         return "chat_completions"
@@ -1579,9 +1588,6 @@ def copilot_model_api_mode(
         return "codex_responses"
 
     # Secondary: check catalog for non-GPT-5 models (Claude via /v1/messages, etc.)
-    if catalog is None and api_key:
-        catalog = fetch_github_model_catalog(api_key=api_key)
-
     if catalog:
         catalog_entry = next((item for item in catalog if item.get("id") == normalized), None)
         if isinstance(catalog_entry, dict):
