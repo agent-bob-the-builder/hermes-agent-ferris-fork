@@ -430,6 +430,11 @@ DEFAULT_CONFIG = {
         "tool_preview_length": 0,  # Max chars for tool call previews (0 = no limit, show full paths/commands)
     },
 
+    # Web dashboard settings
+    "dashboard": {
+        "theme": "default",  # Dashboard visual theme: "default", "midnight", "ember", "mono", "cyberpunk", "rose"
+    },
+
     # Privacy settings
     "privacy": {
         "redact_pii": False,  # When True, hash user IDs and strip phone numbers from LLM context
@@ -437,7 +442,7 @@ DEFAULT_CONFIG = {
     
     # Text-to-speech configuration
     "tts": {
-        "provider": "edge",  # "edge" (free) | "elevenlabs" (premium) | "openai" | "minimax" | "mistral" | "neutts" (local)
+        "provider": "edge",  # "edge" (free) | "elevenlabs" (premium) | "openai" | "xai" | "minimax" | "mistral" | "neutts" (local)
         "edge": {
             "voice": "en-US-AriaNeural",
             # Popular: AriaNeural, JennyNeural, AndrewNeural, BrianNeural, SoniaNeural
@@ -450,6 +455,12 @@ DEFAULT_CONFIG = {
             "model": "gpt-4o-mini-tts",
             "voice": "alloy",
             # Voices: alloy, echo, fable, onyx, nova, shimmer
+        },
+        "xai": {
+            "voice_id": "eve",
+            "language": "en",
+            "sample_rate": 24000,
+            "bit_rate": 128000,
         },
         "mistral": {
             "model": "voxtral-mini-tts-2603",
@@ -690,6 +701,22 @@ OPTIONAL_ENV_VARS = {
         "category": "provider",
         "advanced": True,
     },
+    "XAI_API_KEY": {
+        "description": "xAI API key",
+        "prompt": "xAI API key",
+        "url": "https://console.x.ai/",
+        "password": True,
+        "category": "provider",
+        "advanced": True,
+    },
+    "XAI_BASE_URL": {
+        "description": "xAI base URL override",
+        "prompt": "xAI base URL (leave empty for default)",
+        "url": None,
+        "password": False,
+        "category": "provider",
+        "advanced": True,
+    },
     "GLM_API_KEY": {
         "description": "Z.AI / GLM API key (also recognized as ZAI_API_KEY / Z_AI_API_KEY)",
         "prompt": "Z.AI / GLM API key",
@@ -873,6 +900,22 @@ OPTIONAL_ENV_VARS = {
     "HF_BASE_URL": {
         "description": "Hugging Face Inference Providers base URL override",
         "prompt": "HF base URL (leave empty for default)",
+        "url": None,
+        "password": False,
+        "category": "provider",
+        "advanced": True,
+    },
+    "OLLAMA_API_KEY": {
+        "description": "Ollama Cloud API key (ollama.com — cloud-hosted open models)",
+        "prompt": "Ollama Cloud API key",
+        "url": "https://ollama.com/settings",
+        "password": True,
+        "category": "provider",
+        "advanced": True,
+    },
+    "OLLAMA_BASE_URL": {
+        "description": "Ollama Cloud base URL override (default: https://ollama.com/v1)",
+        "prompt": "Ollama base URL (leave empty for default)",
         "url": None,
         "password": False,
         "category": "provider",
