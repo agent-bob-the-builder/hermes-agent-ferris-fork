@@ -1,0 +1,116 @@
+🏗️  Ferris Fork — Rust vs Python Benchmark (ALL 9 CRATES)
+   Python: 3.11.15  |  /root/.hermes/hermes-agent-ferris-fork
+
+======================================================================
+  1. get_tool_definitions — _model_tools_rs vs model_tools
+======================================================================
+  [Rust: warm in-process, 20 runs]
+  Rust:     492.236ms (med 562.389ms), min 496.774ms, σ 42.4ms, p95 642.806ms
+  [Python: fresh subprocess, HERMES_USE_RUST=0, 10 runs]
+  Python:   471.011ms (med 530.330ms), min 483.957ms, σ 38.9ms, p95 621.782ms
+  → Rust 1x faster
+
+======================================================================
+  2. compressor_rs vs trajectory_compressor (tiktoken)
+======================================================================
+  (Python tiktoken: NO — char/4)
+  [Rust: 200 runs]  [Python: 50 runs]
+  est8: 0.322ms
+  est80: 3.422ms
+  tail: 0.233ms
+  prune: 0.090ms
+  ser: 0.082ms
+  py_e8: 0.006ms
+  py_e80: 0.052ms
+  py_ftc: 0.002ms
+  py_pr: 0.001ms
+  py_sr: 0.008ms
+
+======================================================================
+  3. prompt_builder_rs vs agent.prompt_builder
+======================================================================
+  [prompt_builder] Traceback (most recent call last):
+  File "/tmp/tmpxmdmjbc8.py", line 8, in <module>
+    prompt_builder.build('hello',[],None,None,None,None,None)
+    ^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'agen
+
+======================================================================
+  4. SessionDB FTS — _hermes_state_rs vs python sqlite3
+======================================================================
+  [SessionDB] Traceback (most recent call last):
+  File "/tmp/tmpn4a4j5ak.py", line 6, in <module>
+    db.ensure_table()
+    ^^^^^^^^^^^^^^^
+AttributeError: 'SessionDB' object has no attribute 'ensure_table'
+
+
+======================================================================
+  5. _file_ops_rs vs tools.file_tools
+======================================================================
+  [_file_ops_rs] Traceback (most recent call last):
+  File "/tmp/tmpwhlxzl3g.py", line 24, in <module>
+    for _ in range(nWarm):f()
+                          ^^^
+  File "/tmp/tmpwhlxzl3g.py", line 11, in <lambda>
+   
+  [file_tools] Traceback (most recent call last):
+  File "/tmp/tmpw4ajmdhi.py", line 5, in <module>
+    import file_tools as fu
+ModuleNotFoundError: No module named 'file_tools'
+
+
+======================================================================
+  6. _fuzzy_match_rs vs difflib
+======================================================================
+  [fuzzy] Traceback (most recent call last):
+  File "/tmp/tmpyb06rsl8.py", line 13, in <module>
+    fm.fuzzy_find_and_replace(s1,'quick','slow','fast')
+TypeError: argument 'replace_all': 'str' object is not an 
+
+======================================================================
+  7. _skin_engine_rs vs hermes_cli.skin_engine
+======================================================================
+  list: 0.056ms
+  get_skin: 0.142ms
+  get_name: 0.001ms
+  get_prompt: 0.135ms
+  get_bye: 0.138ms
+  get_help: 0.158ms
+  py_get_skin: 0.000ms
+  py_get_name: 0.000ms
+  py_get_prompt: 0.146ms
+  py_get_bye: 0.144ms
+  py_get_help: 0.144ms
+
+======================================================================
+  8. _subprocess_rs vs subprocess module
+======================================================================
+  spawn_echo                                   Rust:   2.590ms  Py:   2.620ms → 1.0x 🐇 Rust
+
+======================================================================
+  9. _tool_dispatch_rs (parallelization) vs tools.registry
+======================================================================
+  [tool_dispatch] Traceback (most recent call last):
+  File "/tmp/tmppa537fv6.py", line 9, in <module>
+    td.should_parallelize(['read_file','terminal'],{'read_file':['file'],'terminal':['terminal']})
+    ^^^^^^^^^^^^
+
+======================================================================
+  SUMMARY
+======================================================================
+
+  9 Rust crates benchmarked vs Python equivalents:
+  1. _model_tools_rs        get_tool_definitions
+  2. compressor_rs          token estimation, tail-cut, prune, serialize
+  3. _prompt_builder_rs  strip_yaml, truncate, build
+  4. _hermes_state_rs    sqlite3 FTS search (rusqlite)
+  5. _file_ops_rs          fuzzy, search, suggest, diff, binary checks
+  6. _fuzzy_match_rs       fuzzy string replace
+  7. _skin_engine_rs       skin lookups
+  8. _subprocess_rs        spawn + run
+  9. _tool_dispatch_rs     parallelization heuristic
+
+  Rust = warm (module pre-imported), Python = fresh subprocess
+
+  📊 Results → /root/.hermes/hermes-agent-ferris-fork/bench_results.json
