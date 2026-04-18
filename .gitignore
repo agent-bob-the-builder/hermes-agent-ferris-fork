@@ -60,6 +60,7 @@ mini-swe-agent/
 
 # Nix
 .direnv/
+.nix-stamps/
 result
 *.so
 *.abi3.so
