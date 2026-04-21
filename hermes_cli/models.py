@@ -292,6 +292,7 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
         "big-pickle",
     ],
     "opencode-go": [
+        "kimi-k2.6",
         "kimi-k2.5",
         "glm-5.1",
         "glm-5",
@@ -299,6 +300,8 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
         "mimo-v2-omni",
         "minimax-m2.7",
         "minimax-m2.5",
+        "qwen3.6-plus",
+        "qwen3.5-plus",
     ],
     "kilocode": [
         "anthropic/claude-opus-4.6",
@@ -515,8 +518,6 @@ def check_nous_free_tier() -> bool:
     Returns False (assume paid) on any error — never blocks paying users.
     """
     global _free_tier_cache
-    import time
-
     now = time.monotonic()
     if _free_tier_cache is not None:
         cached_result, cached_at = _free_tier_cache
@@ -687,6 +688,31 @@ def _openrouter_model_is_free(pricing: Any) -> bool:
         return False
 
 
+def _openrouter_model_supports_tools(item: Any) -> bool:
+    """Return True when the model's ``supported_parameters`` advertise tool calling.
+
+    hermes-agent is tool-calling-first — every provider path assumes the model
+    can invoke tools. Models that don't advertise ``tools`` in their
+    ``supported_parameters`` (e.g. image-only or completion-only models) cannot
+    be driven by the agent loop and would fail at the first tool call.
+
+    **Permissive when the field is missing.** Some OpenRouter-compatible gateways
+    (Nous Portal, private mirrors, older catalog snapshots) don't populate
+    ``supported_parameters`` at all. Treat that as "unknown capability → allow"
+    so the picker doesn't silently empty for those users. Only hide models
+    whose ``supported_parameters`` is an explicit list that omits ``tools``.
+
+    Ported from Kilo-Org/kilocode#9068.
+    """
+    if not isinstance(item, dict):
+        return True
+    params = item.get("supported_parameters")
+    if not isinstance(params, list):
+        # Field absent / malformed / None — be permissive.
+        return True
+    return "tools" in params
+
+
 def fetch_openrouter_models(
     timeout: float = 8.0,
     *,
@@ -728,6 +754,11 @@ def fetch_openrouter_models(
     for preferred_id in preferred_ids:
         live_item = live_by_id.get(preferred_id)
         if live_item is None:
+            continue
+        # Hide models that don't advertise tool-calling support — hermes-agent
+        # requires it and surfacing them leads to immediate runtime failures
+        # when the user selects them. Ported from Kilo-Org/kilocode#9068.
+        if not _openrouter_model_supports_tools(live_item):
             continue
         desc = "free" if _openrouter_model_is_free(live_item.get("pricing")) else ""
         curated.append((preferred_id, desc))
@@ -1259,7 +1290,6 @@ def detect_provider_for_model(
             from hermes_cli.auth import PROVIDER_REGISTRY
             pconfig = PROVIDER_REGISTRY.get(direct_match)
             if pconfig:
-                import os
                 for env_var in pconfig.api_key_env_vars:
                     if os.getenv(env_var, "").strip():
                         has_creds = True
