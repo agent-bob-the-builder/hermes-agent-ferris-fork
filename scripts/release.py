@@ -58,6 +58,7 @@ AUTHOR_MAP = {
     "16443023+stablegenius49@users.noreply.github.com": "stablegenius49",
     "185121704+stablegenius49@users.noreply.github.com": "stablegenius49",
     "101283333+batuhankocyigit@users.noreply.github.com": "batuhankocyigit",
+    "255305877+ismell0992-afk@users.noreply.github.com": "ismell0992-afk",
     "valdi.jorge@gmail.com": "jvcl",
     "francip@gmail.com": "francip",
     "omni@comelse.com": "omnissiah-comelse",
@@ -181,6 +182,7 @@ AUTHOR_MAP = {
     "adavyasharma@gmail.com": "adavyas",
     "acaayush1111@gmail.com": "aayushchaudhary",
     "jason@outland.art": "jasonoutland",
+    "73175452+Magaav@users.noreply.github.com": "Magaav",
     "mrflu1918@proton.me": "SPANISHFLU",
     "morganemoss@gmai.com": "mormio",
     "kopjop926@gmail.com": "cesareth",
@@ -342,6 +344,7 @@ AUTHOR_MAP = {
     "shalompmc0505@naver.com": "pinion05",
     "105142614+VTRiot@users.noreply.github.com": "VTRiot",
     "vivien000812@gmail.com": "iamagenius00",
+    "89228157+Feranmi10@users.noreply.github.com": "Feranmi10",
 }
 
 
