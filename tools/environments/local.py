@@ -363,6 +363,7 @@ class LocalEnvironment(PersistentShellMixin, BaseEnvironment):
             text=True,
             env=run_env,
             preexec_fn=None if _IS_WINDOWS else os.setsid,
+            cwd=self.cwd,
         )
 
     def _read_temp_files(self, *paths: str) -> list[str]:
