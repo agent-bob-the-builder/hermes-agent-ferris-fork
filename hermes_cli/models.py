@@ -155,10 +155,13 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
         "gpt-4.1",
         "gpt-4o",
         "gpt-4o-mini",
-        "claude-opus-4.6",
         "claude-sonnet-4.6",
+        "claude-sonnet-4",
         "claude-sonnet-4.5",
         "claude-haiku-4.5",
+        "gemini-3.1-pro-preview",
+        "gemini-3-pro-preview",
+        "gemini-3-flash-preview",
         "gemini-2.5-pro",
         "grok-code-fast-1",
     ],
@@ -682,7 +685,7 @@ def get_nous_recommended_aux_model(
 # ---------------------------------------------------------------------------
 # Canonical provider list — single source of truth for provider identity.
 # Every code path that lists, displays, or iterates providers derives from
-# this list:  hermes model, /model, /provider, list_authenticated_providers.
+# this list:  hermes model, /model, list_authenticated_providers.
 #
 # Fields:
 #   slug        — internal provider ID (used in config.yaml, --provider flag)
@@ -1110,7 +1113,10 @@ def fetch_models_with_pricing(
         return _pricing_cache[cache_key]
 
     url = cache_key.rstrip("/") + "/v1/models"
-    headers: dict[str, str] = {"Accept": "application/json"}
+    headers: dict[str, str] = {
+        "Accept": "application/json",
+        "User-Agent": _HERMES_USER_AGENT,
+    }
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
@@ -1896,6 +1902,51 @@ def fetch_github_model_catalog(
     return None
 
 
+# ─── Copilot catalog context-window helpers ─────────────────────────────────
+
+# Module-level cache: {model_id: max_prompt_tokens}
+_copilot_context_cache: dict[str, int] = {}
+_copilot_context_cache_time: float = 0.0
+_COPILOT_CONTEXT_CACHE_TTL = 3600  # 1 hour
+
+
+def get_copilot_model_context(model_id: str, api_key: Optional[str] = None) -> Optional[int]:
+    """Look up max_prompt_tokens for a Copilot model from the live /models API.
+
+    Results are cached in-process for 1 hour to avoid repeated API calls.
+    Returns the token limit or None if not found.
+    """
+    global _copilot_context_cache, _copilot_context_cache_time
+
+    # Serve from cache if fresh
+    if _copilot_context_cache and (time.time() - _copilot_context_cache_time < _COPILOT_CONTEXT_CACHE_TTL):
+        if model_id in _copilot_context_cache:
+            return _copilot_context_cache[model_id]
+        # Cache is fresh but model not in it — don't re-fetch
+        return None
+
+    # Fetch and populate cache
+    catalog = fetch_github_model_catalog(api_key=api_key)
+    if not catalog:
+        return None
+
+    cache: dict[str, int] = {}
+    for item in catalog:
+        mid = str(item.get("id") or "").strip()
+        if not mid:
+            continue
+        caps = item.get("capabilities") or {}
+        limits = caps.get("limits") or {}
+        max_prompt = limits.get("max_prompt_tokens")
+        if isinstance(max_prompt, int) and max_prompt > 0:
+            cache[mid] = max_prompt
+
+    _copilot_context_cache = cache
+    _copilot_context_cache_time = time.time()
+
+    return cache.get(model_id)
+
+
 def _is_github_models_base_url(base_url: Optional[str]) -> bool:
     normalized = (base_url or "").strip().rstrip("/").lower()
     return (
@@ -1929,6 +1980,7 @@ _COPILOT_MODEL_ALIASES = {
     "openai/o4-mini": "gpt-5-mini",
     "anthropic/claude-opus-4.6": "claude-opus-4.6",
     "anthropic/claude-sonnet-4.6": "claude-sonnet-4.6",
+    "anthropic/claude-sonnet-4": "claude-sonnet-4",
     "anthropic/claude-sonnet-4.5": "claude-sonnet-4.5",
     "anthropic/claude-haiku-4.5": "claude-haiku-4.5",
     # Dash-notation fallbacks: Hermes' default Claude IDs elsewhere use
@@ -1938,10 +1990,12 @@ _COPILOT_MODEL_ALIASES = {
     # "model_not_supported".  See issue #6879.
     "claude-opus-4-6": "claude-opus-4.6",
     "claude-sonnet-4-6": "claude-sonnet-4.6",
+    "claude-sonnet-4-0": "claude-sonnet-4",
     "claude-sonnet-4-5": "claude-sonnet-4.5",
     "claude-haiku-4-5": "claude-haiku-4.5",
     "anthropic/claude-opus-4-6": "claude-opus-4.6",
     "anthropic/claude-sonnet-4-6": "claude-sonnet-4.6",
+    "anthropic/claude-sonnet-4-0": "claude-sonnet-4",
     "anthropic/claude-sonnet-4-5": "claude-sonnet-4.5",
     "anthropic/claude-haiku-4-5": "claude-haiku-4.5",
 }
@@ -2241,7 +2295,10 @@ def _fetch_ai_gateway_models(timeout: float = 5.0) -> Optional[list[str]]:
         base_url = AI_GATEWAY_BASE_URL
 
     url = base_url.rstrip("/") + "/models"
-    headers: dict[str, str] = {"Authorization": f"Bearer {api_key}"}
+    headers: dict[str, str] = {
+        "Authorization": f"Bearer {api_key}",
+        "User-Agent": _HERMES_USER_AGENT,
+    }
     req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:

@@ -771,7 +771,10 @@ def switch_model(
 
     if provider_changed or explicit_provider:
         try:
-            runtime = resolve_runtime_provider(requested=target_provider)
+            runtime = resolve_runtime_provider(
+                requested=target_provider,
+                target_model=new_model,
+            )
             api_key = runtime.get("api_key", "")
             base_url = runtime.get("base_url", "")
             api_mode = runtime.get("api_mode", "")
@@ -788,7 +791,10 @@ def switch_model(
             )
     else:
         try:
-            runtime = resolve_runtime_provider(requested=current_provider)
+            runtime = resolve_runtime_provider(
+                requested=current_provider,
+                target_model=new_model,
+            )
             api_key = runtime.get("api_key", "")
             base_url = runtime.get("base_url", "")
             api_mode = runtime.get("api_mode", "")
@@ -936,7 +942,7 @@ def list_authenticated_providers(
     from hermes_cli.auth import PROVIDER_REGISTRY
     from hermes_cli.models import (
         OPENROUTER_MODELS, _PROVIDER_MODELS,
-        _MODELS_DEV_PREFERRED, _merge_with_models_dev,
+        _MODELS_DEV_PREFERRED, _merge_with_models_dev, provider_model_ids,
     )
 
     results: List[dict] = []
@@ -984,6 +990,14 @@ def list_authenticated_providers(
 
         # Check if any env var is set
         has_creds = any(os.environ.get(ev) for ev in env_vars)
+        if not has_creds:
+            try:
+                from hermes_cli.auth import _load_auth_store
+                store = _load_auth_store()
+                if store and hermes_id in store.get("credential_pool", {}):
+                    has_creds = True
+            except Exception:
+                pass
         if not has_creds:
             continue
 
@@ -1095,11 +1109,14 @@ def list_authenticated_providers(
         if not has_creds:
             continue
 
-        # Use curated list — look up by Hermes slug, fall back to overlay key
-        model_ids = curated.get(hermes_slug, []) or curated.get(pid, [])
-        # Merge with models.dev for preferred providers (same rationale as above).
-        if hermes_slug in _MODELS_DEV_PREFERRED:
-            model_ids = _merge_with_models_dev(hermes_slug, model_ids)
+        if hermes_slug in {"copilot", "copilot-acp"}:
+            model_ids = provider_model_ids(hermes_slug)
+        else:
+            # Use curated list — look up by Hermes slug, fall back to overlay key
+            model_ids = curated.get(hermes_slug, []) or curated.get(pid, [])
+            # Merge with models.dev for preferred providers (same rationale as above).
+            if hermes_slug in _MODELS_DEV_PREFERRED:
+                model_ids = _merge_with_models_dev(hermes_slug, model_ids)
         total = len(model_ids)
         top = model_ids[:max_models]
 
