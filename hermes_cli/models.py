@@ -142,6 +142,18 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
         "openai/gpt-5.4-pro",
         "openai/gpt-5.4-nano",
     ],
+    # Native OpenAI Chat Completions (api.openai.com). Used by /model counts and
+    # provider_model_ids fallback when /v1/models is unavailable.
+    "openai": [
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5-mini",
+        "gpt-5.3-codex",
+        "gpt-5.2-codex",
+        "gpt-4.1",
+        "gpt-4o",
+        "gpt-4o-mini",
+    ],
     "openai-codex": _codex_curated_models(),
     "copilot-acp": [
         "copilot-acp",
@@ -1748,6 +1760,17 @@ def provider_model_ids(provider: Optional[str], *, force_refresh: bool = False) 
         live = fetch_ollama_cloud_models(force_refresh=force_refresh)
         if live:
             return live
+    if normalized == "openai":
+        api_key = os.getenv("OPENAI_API_KEY", "").strip()
+        if api_key:
+            base_raw = os.getenv("OPENAI_BASE_URL", "").strip().rstrip("/")
+            base = base_raw or "https://api.openai.com/v1"
+            try:
+                live = fetch_api_models(api_key, base)
+                if live:
+                    return live
+            except Exception:
+                pass
     if normalized == "custom":
         base_url = _get_custom_base_url()
         if base_url:
@@ -2220,8 +2243,15 @@ def probe_api_models(
     api_key: Optional[str],
     base_url: Optional[str],
     timeout: float = 5.0,
+    api_mode: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Probe an OpenAI-compatible ``/models`` endpoint with light URL heuristics."""
+    """Probe a ``/models`` endpoint with light URL heuristics.
+
+    For ``anthropic_messages`` mode, uses ``x-api-key`` and
+    ``anthropic-version`` headers (Anthropic's native auth) instead of
+    ``Authorization: Bearer``.  The response shape (``data[].id``) is
+    identical, so the same parser works for both.
+    """
     normalized = (base_url or "").strip().rstrip("/")
     if not normalized:
         return {
@@ -2253,7 +2283,10 @@ def probe_api_models(
 
     tried: list[str] = []
     headers: dict[str, str] = {"User-Agent": _HERMES_USER_AGENT}
-    if api_key:
+    if api_key and api_mode == "anthropic_messages":
+        headers["x-api-key"] = api_key
+        headers["anthropic-version"] = "2023-06-01"
+    elif api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     if normalized.startswith(COPILOT_BASE_URL):
         headers.update(copilot_default_headers())
@@ -2318,13 +2351,14 @@ def fetch_api_models(
     api_key: Optional[str],
     base_url: Optional[str],
     timeout: float = 5.0,
+    api_mode: Optional[str] = None,
 ) -> Optional[list[str]]:
     """Fetch the list of available model IDs from the provider's ``/models`` endpoint.
 
     Returns a list of model ID strings, or ``None`` if the endpoint could not
     be reached (network error, timeout, auth failure, etc.).
     """
-    return probe_api_models(api_key, base_url, timeout=timeout).get("models")
+    return probe_api_models(api_key, base_url, timeout=timeout, api_mode=api_mode).get("models")
 
 
 # ---------------------------------------------------------------------------
@@ -2452,6 +2486,7 @@ def validate_requested_model(
     *,
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
+    api_mode: Optional[str] = None,
 ) -> dict[str, Any]:
     """
     Validate a ``/model`` value for the active provider.
@@ -2493,7 +2528,11 @@ def validate_requested_model(
         }
 
     if normalized == "custom":
-        probe = probe_api_models(api_key, base_url)
+        # Try probing with correct auth for the api_mode.
+        if api_mode == "anthropic_messages":
+            probe = probe_api_models(api_key, base_url, api_mode=api_mode)
+        else:
+            probe = probe_api_models(api_key, base_url)
         api_models = probe.get("models")
         if api_models is not None:
             if requested_for_lookup in set(api_models):
@@ -2542,12 +2581,17 @@ def validate_requested_model(
             f"Note: could not reach this custom endpoint's model listing at `{probe.get('probed_url')}`. "
             f"Hermes will still save `{requested}`, but the endpoint should expose `/models` for verification."
         )
+        if api_mode == "anthropic_messages":
+            message += (
+                "\n  Many Anthropic-compatible proxies do not implement the Models API "
+                "(GET /v1/models).  The model name has been accepted without verification."
+            )
         if probe.get("suggested_base_url"):
             message += f"\n  If this server expects `/v1`, try base URL: `{probe.get('suggested_base_url')}`"
 
         return {
-            "accepted": False,
-            "persist": False,
+            "accepted": api_mode == "anthropic_messages",
+            "persist": True,
             "recognized": False,
             "message": message,
         }
@@ -2635,10 +2679,100 @@ def validate_requested_model(
                 ),
             }
 
+    # Native Anthropic provider: /v1/models requires x-api-key (or Bearer for
+    # OAuth) plus anthropic-version headers.  The generic OpenAI-style probe
+    # below uses plain Bearer auth and 401s against Anthropic, so dispatch to
+    # the native fetcher which handles both API keys and Claude-Code OAuth
+    # tokens.  (The api_mode=="anthropic_messages" branch below handles the
+    # Messages-API transport case separately.)
+    if normalized == "anthropic":
+        anthropic_models = _fetch_anthropic_models()
+        if anthropic_models is not None:
+            if requested_for_lookup in set(anthropic_models):
+                return {
+                    "accepted": True,
+                    "persist": True,
+                    "recognized": True,
+                    "message": None,
+                }
+            auto = get_close_matches(requested_for_lookup, anthropic_models, n=1, cutoff=0.9)
+            if auto:
+                return {
+                    "accepted": True,
+                    "persist": True,
+                    "recognized": True,
+                    "corrected_model": auto[0],
+                    "message": f"Auto-corrected `{requested}` → `{auto[0]}`",
+                }
+            suggestions = get_close_matches(requested, anthropic_models, n=3, cutoff=0.5)
+            suggestion_text = ""
+            if suggestions:
+                suggestion_text = "\n  Similar models: " + ", ".join(f"`{s}`" for s in suggestions)
+            # Accept anyway — Anthropic sometimes gates newer/preview models
+            # (e.g. snapshot IDs, early-access releases) behind accounts
+            # even though they aren't listed on /v1/models.
+            return {
+                "accepted": True,
+                "persist": True,
+                "recognized": False,
+                "message": (
+                    f"Note: `{requested}` was not found in Anthropic's /v1/models listing. "
+                    f"It may still work if you have early-access or snapshot IDs."
+                    f"{suggestion_text}"
+                ),
+            }
+        # _fetch_anthropic_models returned None — no token resolvable or
+        # network failure.  Fall through to the generic warning below.
+
+    # Anthropic Messages API: many proxies don't implement /v1/models.
+    # Try probing with correct auth; if it fails, accept with a warning.
+    if api_mode == "anthropic_messages":
+        api_models = fetch_api_models(api_key, base_url, api_mode=api_mode)
+        if api_models is not None:
+            if requested_for_lookup in set(api_models):
+                return {
+                    "accepted": True,
+                    "persist": True,
+                    "recognized": True,
+                    "message": None,
+                }
+            auto = get_close_matches(requested_for_lookup, api_models, n=1, cutoff=0.9)
+            if auto:
+                return {
+                    "accepted": True,
+                    "persist": True,
+                    "recognized": True,
+                    "corrected_model": auto[0],
+                    "message": f"Auto-corrected `{requested}` → `{auto[0]}`",
+                }
+        # Probe failed or model not found — accept anyway (proxy likely
+        # doesn't implement the Anthropic Models API).
+        return {
+            "accepted": True,
+            "persist": True,
+            "recognized": False,
+            "message": (
+                f"Note: could not verify `{requested}` against this endpoint's "
+                f"model listing.  Many Anthropic-compatible proxies do not "
+                f"implement GET /v1/models.  The model name has been accepted "
+                f"without verification."
+            ),
+        }
+
     # Probe the live API to check if the model actually exists
     api_models = fetch_api_models(api_key, base_url)
 
     if api_models is not None:
+        # Gemini's OpenAI-compat /v1beta/openai/models endpoint returns IDs
+        # prefixed with "models/" (e.g. "models/gemini-2.5-flash") — native
+        # Gemini-API convention.  Our curated list and user input both use
+        # the bare ID, so a direct set-membership check drops every known
+        # Gemini model.  Strip the prefix before comparison.  See #12532.
+        if normalized == "gemini":
+            api_models = [
+                m[len("models/"):] if isinstance(m, str) and m.startswith("models/") else m
+                for m in api_models
+            ]
         if requested_for_lookup in set(api_models):
             # API confirmed the model exists
             return {

@@ -2900,10 +2900,15 @@ def _model_flow_named_custom(config, provider_info):
 
     name = provider_info["name"]
     base_url = provider_info["base_url"]
+    api_mode = provider_info.get("api_mode", "")
     api_key = provider_info.get("api_key", "")
     key_env = provider_info.get("key_env", "")
     saved_model = provider_info.get("model", "")
     provider_key = (provider_info.get("provider_key") or "").strip()
+
+    # Resolve key from env var if api_key not set directly
+    if not api_key and key_env:
+        api_key = os.environ.get(key_env, "")
 
     print(f"  Provider: {name}")
     print(f"  URL:      {base_url}")
@@ -2912,7 +2917,10 @@ def _model_flow_named_custom(config, provider_info):
     print()
 
     print("Fetching available models...")
-    models = fetch_api_models(api_key, base_url, timeout=8.0)
+    models = fetch_api_models(
+        api_key, base_url, timeout=8.0,
+        api_mode=api_mode or None,
+    )
 
     if models:
         default_idx = 0
@@ -4308,6 +4316,8 @@ def _model_flow_anthropic(config, current_model=""):
         from agent.anthropic_adapter import (
             read_claude_code_credentials,
             is_claude_code_token_valid,
+            _is_oauth_token,
+            _resolve_claude_code_token_from_credentials,
         )
 
         cc_creds = read_claude_code_credentials()
@@ -4316,7 +4326,14 @@ def _model_flow_anthropic(config, current_model=""):
     except Exception:
         pass
 
-    has_creds = bool(existing_key) or cc_available
+    # Stale-OAuth guard: if the only existing cred is an expired OAuth token
+    # (no valid cc_creds to fall back on), treat it as missing so the re-auth
+    # path is offered instead of silently accepting a broken token.
+    existing_is_stale_oauth = False
+    if existing_key and _is_oauth_token(existing_key) and not cc_available:
+        existing_is_stale_oauth = True
+
+    has_creds = (bool(existing_key) and not existing_is_stale_oauth) or cc_available
     needs_auth = not has_creds
 
     if has_creds:
