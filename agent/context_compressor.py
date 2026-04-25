@@ -302,6 +302,7 @@ class ContextCompressor(ContextEngine):
         self._context_probed = False
         self._context_probe_persistable = False
         self._previous_summary = None
+        self._last_summary_error = None
         self._last_compression_savings_pct = 100.0
         self._ineffective_compression_count = 0
 
@@ -397,6 +398,7 @@ class ContextCompressor(ContextEngine):
         self._last_compression_savings_pct: float = 100.0
         self._ineffective_compression_count: int = 0
         self._summary_failure_cooldown_until: float = 0.0
+        self._last_summary_error: Optional[str] = None
 
         # Current active compression job id (set by compress_start_async)
         self.current_job_id: Optional[int] = None
@@ -832,10 +834,12 @@ The user has requested that this compaction PRIORITISE preserving all informatio
             self._previous_summary = summary
             self._summary_failure_cooldown_until = 0.0
             self._summary_model_fallen_back = False
+            self._last_summary_error = None
             return self._with_summary_prefix(summary)
         except RuntimeError:
             # No provider configured — long cooldown, unlikely to self-resolve
             self._summary_failure_cooldown_until = time.monotonic() + _SUMMARY_FAILURE_COOLDOWN_SECONDS
+            self._last_summary_error = "no auxiliary LLM provider configured"
             logging.warning("Context compression: no provider available for "
                             "summary. Middle turns will be dropped without summary "
                             "for %d seconds.",
@@ -873,6 +877,10 @@ The user has requested that this compaction PRIORITISE preserving all informatio
             # Transient errors (timeout, rate limit, network) — shorter cooldown
             _transient_cooldown = 60
             self._summary_failure_cooldown_until = time.monotonic() + _transient_cooldown
+            err_text = str(e).strip() or e.__class__.__name__
+            if len(err_text) > 220:
+                err_text = err_text[:217].rstrip() + "..."
+            self._last_summary_error = err_text
             logging.warning(
                 "Failed to generate context summary: %s. "
                 "Further summary attempts paused for %d seconds.",
