@@ -44,6 +44,7 @@ AUTHOR_MAP = {
     "qiyin.zuo@pcitc.com": "qiyin-code",
     "teknium@nousresearch.com": "teknium1",
     "127238744+teknium1@users.noreply.github.com": "teknium1",
+    "revar@users.noreply.github.com": "revaraver",
     # Matrix parity salvage batch (April 2026)
     "sr@samirusani": "samrusani",
     "angelclaw@AngelMacBook.local": "angel12",
@@ -58,11 +59,13 @@ AUTHOR_MAP = {
     "yes999zc@163.com": "yes999zc",
     "343873859@qq.com": "DrStrangerUJN",
     "uzmpsk.dilekakbas@gmail.com": "dlkakbs",
+    "beliefanx@gmail.com": "BeliefanX",
     "jefferson@heimdallstrategy.com": "Mind-Dragon",
     "steve.westerhouse@origami-analytics.com": "westers",
     "130918800+devorun@users.noreply.github.com": "devorun",
     "surat.s@itm.kmutnb.ac.th": "beesrsj2500",
     "beesr@bee.localdomain": "beesrsj2500",
+    "mtf201013@gmail.com": "ma-pony",
     "sonoyuncudmr@gmail.com": "Sonoyunchu",
     "maks.mir@yahoo.com": "say8hi",
     "web3blind@users.noreply.github.com": "web3blind",
@@ -555,6 +558,7 @@ AUTHOR_MAP = {
     "topcheer@me.com": "topcheer",
     "walli@tencent.com": "walli",
     "zhuofengwang@tencent.com": "Zhuofeng-Wang",
+    "simonweng@tencent.com": "Contentment003111",
     # April 2026 salvage-PR batch (#14920, #14986, #14966)
     "mrunmayeerane17@gmail.com": "mrunmayee17",
     "69489633+camaragon@users.noreply.github.com": "camaragon",
@@ -579,6 +583,8 @@ AUTHOR_MAP = {
     "dontcallmejames@users.noreply.github.com": "dontcallmejames",
     "hekaru.agent@gmail.com": "hekaru-agent",
     "jas9000@gmail.com": "twozle",
+    "r.filgueiras@apheris.com": "rfilgueiras",
+    "leihaibo1992@gmail.com": "Leihb",
 }
 
 

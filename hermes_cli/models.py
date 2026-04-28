@@ -44,6 +44,7 @@ OPENROUTER_MODELS: list[tuple[str, str]] = [
     ("openai/gpt-5.4-mini",             ""),
     ("xiaomi/mimo-v2.5-pro",             ""),
     ("xiaomi/mimo-v2.5",                 ""),
+    ("tencent/hy3-preview:free",         "free"),
     ("openai/gpt-5.3-codex",            ""),
     ("google/gemini-3-pro-image-preview", ""),
     ("google/gemini-3-flash-preview",   ""),
@@ -156,6 +157,7 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
         "moonshotai/kimi-k2.6",
         "xiaomi/mimo-v2.5-pro",
         "xiaomi/mimo-v2.5",
+        "tencent/hy3-preview",
         "anthropic/claude-opus-4.7",
         "anthropic/claude-opus-4.6",
         "anthropic/claude-sonnet-4.6",
@@ -314,6 +316,9 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
         "mimo-v2-pro",
         "mimo-v2-omni",
         "mimo-v2-flash",
+    ],
+    "tencent-tokenhub": [
+        "hy3-preview",
     ],
     "arcee": [
         "trinity-large-thinking",
@@ -767,6 +772,7 @@ CANONICAL_PROVIDERS: list[ProviderEntry] = [
     ProviderEntry("anthropic",      "Anthropic",                "Anthropic (Claude models — API key or Claude Code)"),
     ProviderEntry("openai-codex",   "OpenAI Codex",             "OpenAI Codex"),
     ProviderEntry("xiaomi",         "Xiaomi MiMo",              "Xiaomi MiMo (MiMo-V2.5 and V2 models — pro, omni, flash)"),
+    ProviderEntry("tencent-tokenhub", "Tencent TokenHub",       "Tencent TokenHub (Hy3 Preview — direct API via tokenhub.tencentmaas.com)"),
     ProviderEntry("nvidia",         "NVIDIA NIM",               "NVIDIA NIM (Nemotron models — build.nvidia.com or local NIM)"),
     ProviderEntry("qwen-oauth",     "Qwen OAuth (Portal)",      "Qwen OAuth (reuses local Qwen CLI login)"),
     ProviderEntry("copilot",        "GitHub Copilot",           "GitHub Copilot (uses GITHUB_TOKEN or gh auth token)"),
@@ -849,6 +855,10 @@ _PROVIDER_ALIASES = {
     "huggingface-hub": "huggingface",
     "mimo": "xiaomi",
     "xiaomi-mimo": "xiaomi",
+    "tencent": "tencent-tokenhub",
+    "tokenhub": "tencent-tokenhub",
+    "tencent-cloud": "tencent-tokenhub",
+    "tencentmaas": "tencent-tokenhub",
     "aws": "bedrock",
     "aws-bedrock": "bedrock",
     "amazon-bedrock": "bedrock",
@@ -1978,6 +1988,18 @@ def provider_model_ids(provider: Optional[str], *, force_refresh: bool = False) 
             live = fetch_api_models(api_key, base_url)
             if live:
                 return live
+    # Bedrock uses live discovery keyed by the resolved AWS region so that
+    # EU/AP users see eu.*/ap.* model IDs instead of the static us.* list.
+    # Note: early return intentionally skips _MODELS_DEV_PREFERRED merge
+    # below — bedrock is not expected to appear in that table.
+    if normalized == "bedrock":
+        try:
+            from agent.bedrock_adapter import bedrock_model_ids_or_none
+            ids = bedrock_model_ids_or_none()
+            if ids is not None:
+                return ids
+        except Exception:
+            pass
     curated_static = list(_PROVIDER_MODELS.get(normalized, []))
     if normalized in _MODELS_DEV_PREFERRED:
         return _merge_with_models_dev(normalized, curated_static)
